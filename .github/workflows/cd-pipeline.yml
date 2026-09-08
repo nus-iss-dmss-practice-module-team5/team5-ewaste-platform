@@ -79,7 +79,7 @@ jobs:
           echo "========================================================"
 
   # ============================================================================
-  # STAGE 1: INFRASTRUCTURE PROVISIONING (Terraform Apply)
+  # STAGE 1: INFRASTRUCTURE PROVISIONING (Terraform Apply Only if Missing)
   # ============================================================================
   provision-infrastructure:
     name: Terraform Apply (${{ needs.resolve-environment.outputs.environment }})
@@ -104,6 +104,13 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Register Azure Resource Providers
+        run: |
+          echo "Registering Azure Container Apps and Monitor resource providers..."
+          az provider register --namespace Microsoft.App --wait
+          az provider register --namespace Microsoft.OperationalInsights --wait
+          az provider register --namespace Microsoft.ContainerService --wait
+
       - name: Set ARM Credentials for Terraform
         run: |
           CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
@@ -112,74 +119,85 @@ jobs:
           echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
           echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
+          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_ACCESS_KEY }}" >> $GITHUB_ENV
 
       - name: Setup Terraform CLI
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.8.0
 
-      - name: Initialize Terraform Remote State Isolation
-        run: |
-          cd terraform/environments
-          terraform init \
-            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
-            -backend-config="container_name=tfstate" \
-            -backend-config="key=${{ needs.resolve-environment.outputs.environment }}.tfstate" \
-            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
-
-      # 1. APPLY SHARED INFRASTRUCTURE ONLY IF MISSING
-      - name: Ensure Shared Infrastructure Exists (ACR & Log Analytics)
+      # ------------------------------------------------------------------------
+      # 1.1. SHARED INFRASTRUCTURE (ACR & Log Analytics Workspace)
+      # ------------------------------------------------------------------------
+      - name: Ensure Shared Infrastructure Exists
         run: |
           ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
           if [ -z "$ACR_NAME" ]; then
             ACR_NAME="acrewasteplatform"
           fi
 
-          echo "Checking if Shared ACR '$ACR_NAME' in resource group 'rg-ewaste-shared' exists..."
+          echo "Checking if Shared ACR '$ACR_NAME' exists in resource group 'rg-ewaste-shared'..."
           ACR_EXISTS=$(az acr show --name "$ACR_NAME" --resource-group "rg-ewaste-shared" --query "name" -o tsv 2>/dev/null || echo "")
 
           if [ -n "$ACR_EXISTS" ]; then
-            echo "Shared infrastructure ($ACR_NAME) already exists. Skipping terraform/shared."
+            echo "Shared infrastructure is already present. Skipping terraform/shared apply."
           else
-            echo "Shared infrastructure not found. Initializing and provisioning terraform/shared..."
+            echo "Shared infrastructure not found. Provisioning terraform/shared..."
             cd terraform/shared
             terraform init \
               -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
               -backend-config="container_name=tfstate" \
               -backend-config="key=shared.tfstate" \
-              -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
+              -backend-config="access_key=${{ secrets.TF_STATE_ACCESS_KEY }}"
 
             terraform apply -auto-approve
           fi
 
-      # 2. APPLY TARGET ENVIRONMENT INFRASTRUCTURE (Dev / Stg / Prod)
-      - name: Apply Target Environment Infrastructure Changes
+      # ------------------------------------------------------------------------
+      # 1.2. ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, Container Apps)
+      # ------------------------------------------------------------------------
+      - name: Ensure Target Environment Infrastructure Exists
         run: |
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          ENV_RG="rg-ewaste-$TARGET_ENV"
+          APP_NAME="aca-ewaste-$TARGET_ENV-api"
+
+          echo "Checking if Target Environment ($TARGET_ENV) is already provisioned..."
+          APP_EXISTS=$(az containerapp show --name "$APP_NAME" --resource-group "$ENV_RG" --query "name" -o tsv 2>/dev/null || echo "")
+
           cd terraform/environments
           terraform init \
             -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=${{ needs.resolve-environment.outputs.environment }}.tfstate" \
-            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
+            -backend-config="key=$TARGET_ENV.tfstate" \
+            -backend-config="access_key=${{ secrets.TF_STATE_ACCESS_KEY }}"
 
-          TF_VARS_FILE="environments/${{ needs.resolve-environment.outputs.environment }}.tfvars"
-          if [ ! -f "$TF_VARS_FILE" ]; then
-            TF_VARS_FILE="environments/dev.tfvars"
+          if [ -n "$APP_EXISTS" ]; then
+            echo "Target environment ($TARGET_ENV) is already fully provisioned. Skipping terraform apply."
+          else
+            echo "Environment ($TARGET_ENV) resources missing. Applying Terraform..."
+            TF_VARS_FILE="environments/$TARGET_ENV.tfvars"
+            if [ ! -f "$TF_VARS_FILE" ]; then
+              TF_VARS_FILE="environments/dev.tfvars"
+            fi
+
+            terraform apply -auto-approve \
+              -var-file="$TF_VARS_FILE" \
+              -var="environment=$TARGET_ENV" \
+              -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}"
           fi
 
-          terraform apply -auto-approve \
-            -var-file="$TF_VARS_FILE" \
-            -var="environment=${{ needs.resolve-environment.outputs.environment }}" \
-            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}"
-
+      # ------------------------------------------------------------------------
+      # 1.3. EXPORT OUTPUTS FOR SUBSEQUENT STAGES
+      # ------------------------------------------------------------------------
       - name: Export Deployment Outputs
         id: tf_outputs
         run: |
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           cd terraform/environments
           echo "acr_server=$(terraform output -raw acr_login_server 2>/dev/null || echo '${{ secrets.AZURE_ACR_NAME }}.azurecr.io')" >> $GITHUB_OUTPUT
-          echo "aca_env_name=cae-ewaste-${{ needs.resolve-environment.outputs.environment }}" >> $GITHUB_OUTPUT
-          echo "resource_group=$(terraform output -raw resource_group_name 2>/dev/null || echo 'rg-ewaste-${{ needs.resolve-environment.outputs.environment }}')" >> $GITHUB_OUTPUT
+          echo "aca_env_name=cae-ewaste-$TARGET_ENV" >> $GITHUB_OUTPUT
+          echo "resource_group=rg-ewaste-$TARGET_ENV" >> $GITHUB_OUTPUT
           echo "mysql_fqdn=$(terraform output -raw mysql_fqdn 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
           echo "mysql_db=$(terraform output -raw mysql_database_name 2>/dev/null || echo 'ewastedb')" >> $GITHUB_OUTPUT
           echo "aca_api_fqdn=$(terraform output -raw aca_api_fqdn 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
