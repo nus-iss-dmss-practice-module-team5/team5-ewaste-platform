@@ -1,17 +1,19 @@
-mode: test
+mode: development
 
 server:
   port: ":8080"
 
 database:
-  host: "mysql"
+  host: "localhost"
   port: 3306
   name: "ewaste"
   user: "ewaste_app"
+  # Supply the password through MYSQL_PASSWORD.
   password: ""
 
 redis:
-  address: "redis:6379"
+  address: "localhost:6379"
+  # Supply the password through REDIS_PASSWORD.
   password: ""
   db: 0
 
