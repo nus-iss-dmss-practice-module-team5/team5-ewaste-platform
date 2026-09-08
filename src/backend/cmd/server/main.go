@@ -46,7 +46,7 @@ func main() {
 		log.Fatalf("create logger: %v", err)
 	}
 	defer func() {
-		if err := appLogger.Sync(); err != nil {
+		if err := logger.Close(appLogger); err != nil {
 			log.Printf("sync logger: %v", err)
 		}
 	}()
