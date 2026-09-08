@@ -218,7 +218,7 @@ jobs:
             echo "key_vault_uri=${KV_URI}"
           } >> "$GITHUB_OUTPUT"
 
-  # ============================================================================
+    # ============================================================================
   # STAGE 2: PRIVATE DATABASE MIGRATIONS (Liquibase via ACA Job)
   # ============================================================================
   database-migration:
@@ -235,23 +235,27 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Log in to Azure Container Registry
+      - name: Build & Publish Ephemeral Migration Container via SP
         run: |
           ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
           if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
-          az acr login --name "$ACR_NAME"
 
-      - name: Build & Publish Ephemeral Migration Container
-        run: |
           MIGRATION_IMAGE="${{ needs.provision-infrastructure.outputs.acr_server }}/db-migrator:${{ github.sha }}"
           mkdir -p db/changelog
-          
-          docker build -t $MIGRATION_IMAGE -f- db/ <<'EOF'
+
+          # Create inline Dockerfile for Liquibase
+          cat <<'EOF' > db/Dockerfile
           FROM liquibase/liquibase:4.27
           COPY changelog /liquibase/changelog
           EOF
-          
-          docker push $MIGRATION_IMAGE
+
+          # Build and push directly inside Azure using Service Principal
+          az acr build \
+            --registry "$ACR_NAME" \
+            --image "db-migrator:${{ github.sha }}" \
+            --file db/Dockerfile \
+            db/
+
           echo "MIGRATION_IMAGE=$MIGRATION_IMAGE" >> $GITHUB_ENV
 
       - name: Retrieve Database Password from Azure Key Vault
@@ -336,35 +340,41 @@ jobs:
 #        with:
 #          creds: ${{ secrets.AZURE_CREDENTIALS }}
 #
-#      - name: Log in to Azure Container Registry
-#        run: |
-#          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-#          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
-#          az acr login --name "$ACR_NAME"
-#
 #      - name: Install Sigstore Cosign
 #        uses: sigstore/cosign-installer@v3.5.0
 #
 #      # ------------------------------------------------------------------------
-#      # 3.1 BACKEND API CONTAINER (Build, Sign & Deploy)
+#      # 3.1 BACKEND API CONTAINER (Build via SP, Sign & Deploy)
 #      # ------------------------------------------------------------------------
-#      - name: Build & Publish Backend API Container
+#      - name: Build & Publish Backend API Container via SP
 #        run: |
-#          API_TAG="${{ needs.provision-infrastructure.outputs.acr_server }}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
-#          if [ -f src/backend/Dockerfile ]; then
-#            docker build -t $API_TAG -f src/backend/Dockerfile src/backend/
-#          else
-#            echo "Packaging bootstrap API release container..."
-#            docker build -t $API_TAG - <<'EOF'
-#          FROM alpine:3.19
-#          RUN apk add --no-cache curl
-#          CMD ["echo", "Responsible E-Waste Platform API Running"]
-#          EOF
-#          fi
-#          docker push $API_TAG
+#          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
+#          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
 #
-#          API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $API_TAG 2>/dev/null || echo "$API_TAG")
-#          echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
+#          if [ ! -f src/backend/Dockerfile ]; then
+#            mkdir -p src/backend
+#            cat <<'EOF' > src/backend/Dockerfile
+#            FROM alpine:3.19
+#            RUN apk add --no-cache curl
+#            CMD ["echo", "Responsible E-Waste Platform API Running"]
+#            EOF
+#          fi
+#
+#          # Build and push inside ACR via Service Principal
+#          az acr build \
+#            --registry "$ACR_NAME" \
+#            --image "${{ env.IMAGE_NAME_API }}:${{ github.sha }}" \
+#            --file src/backend/Dockerfile \
+#            src/backend/
+#
+#          # Retrieve immutable digest
+#          API_DIGEST=$(az acr repository show-manifests \
+#            --name "$ACR_NAME" \
+#            --repository "${{ env.IMAGE_NAME_API }}" \
+#            --query "[?tags[?contains(@, '${{ github.sha }}')]].digest | [0]" -o tsv)
+#
+#          FULL_DIGEST="${{ needs.provision-infrastructure.outputs.acr_server }}/${{ env.IMAGE_NAME_API }}@$API_DIGEST"
+#          echo "API_IMMUTABLE_DIGEST=$FULL_DIGEST" >> $GITHUB_ENV
 #
 #      - name: Sign API Container Image Digest with Cosign
 #        run: |
@@ -393,26 +403,37 @@ jobs:
 #              || echo "Azure Container App API updated."
 #
 #      # ------------------------------------------------------------------------
-#      # 3.2 FRONTEND UI CONTAINER (Build, Sign & Deploy)
+#      # 3.2 FRONTEND UI CONTAINER (Build via SP, Sign & Deploy)
 #      # ------------------------------------------------------------------------
-#      - name: Build & Publish Frontend UI Container
+#      - name: Build & Publish Frontend UI Container via SP
 #        run: |
-#          UI_TAG="${{ needs.provision-infrastructure.outputs.acr_server }}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
-#          if [ -f src/frontend/Dockerfile ]; then
-#            docker build \
-#              --build-arg NEXT_PUBLIC_API_URL="https://${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}" \
-#              -t $UI_TAG -f src/frontend/Dockerfile src/frontend/
-#          else
-#            echo "Packaging bootstrap UI release container..."
-#            docker build -t $UI_TAG - <<'EOF'
-#          FROM nginx:alpine
-#          RUN echo "<html><body><h1>Responsible E-Waste Platform UI</h1></body></html>" > /usr/share/nginx/html/index.html
-#          EOF
-#          fi
-#          docker push $UI_TAG
+#          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
+#          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
 #
-#          UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $UI_TAG 2>/dev/null || echo "$UI_TAG")
-#          echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
+#          if [ ! -f src/frontend/Dockerfile ]; then
+#            mkdir -p src/frontend
+#            cat <<'EOF' > src/frontend/Dockerfile
+#            FROM nginx:alpine
+#            RUN echo "<html><body><h1>Responsible E-Waste Platform UI</h1></body></html>" > /usr/share/nginx/html/index.html
+#            EOF
+#          fi
+#
+#          # Build and push inside ACR via Service Principal
+#          az acr build \
+#            --registry "$ACR_NAME" \
+#            --image "${{ env.IMAGE_NAME_UI }}:${{ github.sha }}" \
+#            --build-arg NEXT_PUBLIC_API_URL="https://${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}" \
+#            --file src/frontend/Dockerfile \
+#            src/frontend/
+#
+#          # Retrieve immutable digest
+#          UI_DIGEST=$(az acr repository show-manifests \
+#            --name "$ACR_NAME" \
+#            --repository "${{ env.IMAGE_NAME_UI }}" \
+#            --query "[?tags[?contains(@, '${{ github.sha }}')]].digest | [0]" -o tsv)
+#
+#          FULL_UI_DIGEST="${{ needs.provision-infrastructure.outputs.acr_server }}/${{ env.IMAGE_NAME_UI }}@$UI_DIGEST"
+#          echo "UI_IMMUTABLE_DIGEST=$FULL_UI_DIGEST" >> $GITHUB_ENV
 #
 #      - name: Sign UI Container Image Digest with Cosign
 #        run: |
