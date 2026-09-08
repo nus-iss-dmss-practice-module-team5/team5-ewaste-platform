@@ -17,6 +17,7 @@ RUN addgroup -S app && adduser -S app -G app
 WORKDIR /app
 COPY --from=builder /out/server ./server
 COPY --from=builder /src/config.yaml ./config.yaml
+ENV EWASTE_CONFIG_FILE=/app/config.yaml
 RUN mkdir -p /app/logs && chown -R app:app /app
 
 USER app

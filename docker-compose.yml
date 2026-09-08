@@ -42,7 +42,6 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
-      EWASTE_CONFIG_FILE: /app/config.yaml
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?MYSQL_PASSWORD must be set}
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       EWASTE_AUTH_ACCESS_SECRET: ${EWASTE_AUTH_ACCESS_SECRET:?EWASTE_AUTH_ACCESS_SECRET must be set}
