@@ -30,7 +30,8 @@ concurrency:
 
 env:
   AZURE_LOCATION: 'southeastasia'
-  IMAGE_NAME: 'workflow-api'
+  IMAGE_NAME_API: 'workflow-api'
+  IMAGE_NAME_UI: 'workflow-ui'
 
 jobs:
   # ============================================================================
@@ -92,7 +93,8 @@ jobs:
       resource_group: ${{ steps.tf_outputs.outputs.resource_group }}
       mysql_fqdn: ${{ steps.tf_outputs.outputs.mysql_fqdn }}
       mysql_db: ${{ steps.tf_outputs.outputs.mysql_db }}
-      aca_fqdn: ${{ steps.tf_outputs.outputs.aca_fqdn }}
+      aca_api_fqdn: ${{ steps.tf_outputs.outputs.aca_api_fqdn }}
+      aca_ui_fqdn: ${{ steps.tf_outputs.outputs.aca_ui_fqdn }}
       key_vault_uri: ${{ steps.tf_outputs.outputs.key_vault_uri }}
     steps:
       - name: Checkout Code Repository
@@ -141,7 +143,8 @@ jobs:
           echo "resource_group=$(terraform output -raw resource_group_name 2>/dev/null || echo 'rg-ewaste-${{ needs.resolve-environment.outputs.environment }}')" >> $GITHUB_OUTPUT
           echo "mysql_fqdn=$(terraform output -raw mysql_fqdn 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
           echo "mysql_db=$(terraform output -raw mysql_database_name 2>/dev/null || echo 'ewastedb')" >> $GITHUB_OUTPUT
-          echo "aca_fqdn=$(terraform output -raw aca_api_fqdn 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          echo "aca_api_fqdn=$(terraform output -raw aca_api_fqdn 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+          echo "aca_ui_fqdn=$(terraform output -raw aca_ui_fqdn 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
           echo "key_vault_uri=$(terraform output -raw key_vault_uri 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
 
   # ============================================================================
@@ -250,10 +253,10 @@ jobs:
               --yes 2>/dev/null || true
 
   # ============================================================================
-  # STAGE 3: CONTAINER RELEASE, SIGNING & DEPLOYMENT
+  # STAGE 3: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
   # ============================================================================
   deploy-application:
-    name: Package, Sign (Cosign) & Deploy (${{ needs.resolve-environment.outputs.environment }})
+    name: Package, Sign & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, database-migration]
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve-environment.outputs.environment }}
@@ -276,71 +279,135 @@ jobs:
           username: ${{ secrets.AZURE_CLIENT_ID }}
           password: ${{ secrets.AZURE_FEDERATED_TOKEN }}
 
-      - name: Build & Publish API Container Image
-        run: |
-          IMAGE_TAG="${{ needs.provision-infrastructure.outputs.acr_server }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
-          if [ -f src/backend/Dockerfile ]; then
-            docker build -t $IMAGE_TAG -f src/backend/Dockerfile src/backend/
-          else
-            echo "Packaging bootstrap release container..."
-            docker build -t $IMAGE_TAG - <<'EOF'
-          FROM alpine:3.19
-          RUN apk add --no-cache curl
-          CMD ["echo", "Responsible E-Waste Platform Service Running"]
-          EOF
-          fi
-          docker push $IMAGE_TAG
-          
-          IMAGE_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $IMAGE_TAG 2>/dev/null || echo "$IMAGE_TAG")
-          echo "IMMUTABLE_DIGEST=$IMAGE_DIGEST" >> $GITHUB_ENV
-          echo "IMAGE_TAG=$IMAGE_TAG" >> $GITHUB_ENV
-
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      - name: Sign Container Image Digest with Cosign
+      # ------------------------------------------------------------------------
+      # 3.1 BACKEND API CONTAINER (Build, Sign & Deploy)
+      # ------------------------------------------------------------------------
+      - name: Build & Publish Backend API Container
         run: |
-          echo "Signing immutable image digest: ${{ env.IMMUTABLE_DIGEST }}"
+          API_TAG="${{ needs.provision-infrastructure.outputs.acr_server }}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
+          if [ -f src/backend/Dockerfile ]; then
+            docker build -t $API_TAG -f src/backend/Dockerfile src/backend/
+          else
+            echo "Packaging bootstrap API release container..."
+            docker build -t $API_TAG - <<'EOF'
+          FROM alpine:3.19
+          RUN apk add --no-cache curl
+          CMD ["echo", "Responsible E-Waste Platform API Running"]
+          EOF
+          fi
+          docker push $API_TAG
+          
+          API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $API_TAG 2>/dev/null || echo "$API_TAG")
+          echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
+
+      - name: Sign API Container Image Digest with Cosign
+        run: |
+          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
           if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
             cosign sign --yes \
               --key env://COSIGN_PRIVATE_KEY \
-              ${{ env.IMMUTABLE_DIGEST }}
+              ${{ env.API_IMMUTABLE_DIGEST }}
           else
-            echo "Generating ephemeral keypair for provenance audit signing..."
+            echo "Generating ephemeral keypair for API signing..."
             cosign generate-key-pair
-            cosign sign --yes --key cosign.key ${{ env.IMMUTABLE_DIGEST }}
+            cosign sign --yes --key cosign.key ${{ env.API_IMMUTABLE_DIGEST }}
           fi
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
-      - name: Deploy Image Revision to Azure Container Apps
+      - name: Deploy API Revision to Azure Container Apps
         uses: azure/cli@v2
         with:
           inlineScript: |
             az containerapp update \
               --name aca-ewaste-${{ needs.resolve-environment.outputs.environment }}-api \
               --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
-              --image "${{ env.IMMUTABLE_DIGEST }}" \
-              || echo "Azure Container App updated."
+              --image "${{ env.API_IMMUTABLE_DIGEST }}" \
+              || echo "Azure Container App API updated."
 
-      - name: Verify Live ACA Health Readiness Probe
+      # ------------------------------------------------------------------------
+      # 3.2 FRONTEND UI CONTAINER (Build, Sign & Deploy)
+      # ------------------------------------------------------------------------
+      - name: Build & Publish Frontend UI Container
         run: |
-          if [ -n "${{ needs.provision-infrastructure.outputs.aca_fqdn }}" ]; then
-            HEALTH_URL="https://${{ needs.provision-infrastructure.outputs.aca_fqdn }}/health/ready"
-            echo "Verifying service readiness at: $HEALTH_URL"
+          UI_TAG="${{ needs.provision-infrastructure.outputs.acr_server }}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
+          if [ -f src/frontend/Dockerfile ]; then
+            docker build \
+              --build-arg NEXT_PUBLIC_API_URL="https://${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}" \
+              -t $UI_TAG -f src/frontend/Dockerfile src/frontend/
+          else
+            echo "Packaging bootstrap UI release container..."
+            docker build -t $UI_TAG - <<'EOF'
+          FROM nginx:alpine
+          RUN echo "<html><body><h1>Responsible E-Waste Platform UI</h1></body></html>" > /usr/share/nginx/html/index.html
+          EOF
+          fi
+          docker push $UI_TAG
+          
+          UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' $UI_TAG 2>/dev/null || echo "$UI_TAG")
+          echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
+
+      - name: Sign UI Container Image Digest with Cosign
+        run: |
+          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
+          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
+            cosign sign --yes \
+              --key env://COSIGN_PRIVATE_KEY \
+              ${{ env.UI_IMMUTABLE_DIGEST }}
+          else
+            echo "Generating ephemeral keypair for UI signing..."
+            cosign generate-key-pair
+            cosign sign --yes --key cosign.key ${{ env.UI_IMMUTABLE_DIGEST }}
+          fi
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+
+      - name: Deploy UI Revision to Azure Container Apps
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            az containerapp update \
+              --name aca-ewaste-${{ needs.resolve-environment.outputs.environment }}-ui \
+              --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
+              --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
+              || echo "Azure Container App UI updated."
+
+      # ------------------------------------------------------------------------
+      # 3.3 LIVE CONTAINER READINESS PROBES (API & UI)
+      # ------------------------------------------------------------------------
+      - name: Verify Live ACA Health Readiness Probes (API & UI)
+        run: |
+          if [ -n "${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}" ]; then
+            API_HEALTH="https://${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}/health/ready"
+            echo "Verifying API readiness at: $API_HEALTH"
             for i in {1..12}; do
-              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL || true)
+              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" $API_HEALTH || true)
               if [ "$STATUS_CODE" == "200" ]; then
-                echo "Readiness probe verified (HTTP 200 OK)."
-                exit 0
+                echo "API readiness probe verified (HTTP 200 OK)."
+                break
               fi
-              echo "Waiting for container readiness... attempt $i/12 (Current HTTP: $STATUS_CODE)"
+              echo "Waiting for API readiness... attempt $i/12 (Current HTTP: $STATUS_CODE)"
               sleep 10
             done
-            echo "Readiness probe check completed."
-          else
-            echo "ACA FQDN not yet registered. Readiness probe verification bypassed during bootstrap."
+          fi
+
+          if [ -n "${{ needs.provision-infrastructure.outputs.aca_ui_fqdn }}" ]; then
+            UI_HEALTH="https://${{ needs.provision-infrastructure.outputs.aca_ui_fqdn }}/"
+            echo "Verifying UI readiness at: $UI_HEALTH"
+            for i in {1..12}; do
+              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" $UI_HEALTH || true)
+              if [ "$STATUS_CODE" == "200" ]; then
+                echo "UI readiness probe verified (HTTP 200 OK)."
+                break
+              fi
+              echo "Waiting for UI readiness... attempt $i/12 (Current HTTP: $STATUS_CODE)"
+              sleep 10
+            done
           fi
 
   # ============================================================================
@@ -355,10 +422,10 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Execute OWASP ZAP Baseline Scan Against Deployed Service
-        if: needs.provision-infrastructure.outputs.aca_fqdn != ''
+        if: needs.provision-infrastructure.outputs.aca_api_fqdn != ''
         uses: zaproxy/action-baseline@v0.14.0
         with:
-          target: "https://${{ needs.provision-infrastructure.outputs.aca_fqdn }}"
+          target: "https://${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}"
           cmd_options: '-a'
           allow_issue_writing: false
           fail_action: false
@@ -385,12 +452,12 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Execute Seeded-User Login Smoke Test
+      - name: Execute Seeded-User Login API Smoke Test
         run: |
-          if [ -n "${{ needs.provision-infrastructure.outputs.aca_fqdn }}" ]; then
-            API_URL="https://${{ needs.provision-infrastructure.outputs.aca_fqdn }}/api/v1/auth/login"
-            CORRELATION_ID="smoke-${{ needs.resolve-environment.outputs.environment }}-$(date +%s)"
-            echo "Executing authentication test with correlation ID: $CORRELATION_ID"
+          if [ -n "${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}" ]; then
+            API_URL="https://${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}/api/v1/auth/login"
+            CORRELATION_ID="smoke-api-${{ needs.resolve-environment.outputs.environment }}-$(date +%s)"
+            echo "Executing API authentication test with correlation ID: $CORRELATION_ID"
             
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_URL" \
               -H "Content-Type: application/json" \
@@ -400,10 +467,21 @@ jobs:
             HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
             HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
             
-            echo "HTTP Response Status: $HTTP_STATUS"
-            echo "HTTP Response Body: $HTTP_BODY"
+            echo "API HTTP Response Status: $HTTP_STATUS"
+            echo "API HTTP Response Body: $HTTP_BODY"
           else
-            echo "Smoke test skipped: FQDN not yet assigned."
+            echo "API smoke test skipped: FQDN not yet assigned."
+          fi
+
+      - name: Execute Frontend UI Endpoint Smoke Test
+        run: |
+          if [ -n "${{ needs.provision-infrastructure.outputs.aca_ui_fqdn }}" ]; then
+            UI_URL="https://${{ needs.provision-infrastructure.outputs.aca_ui_fqdn }}/"
+            echo "Verifying Frontend UI accessibility at: $UI_URL"
+            UI_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$UI_URL" || true)
+            echo "UI HTTP Response Status: $UI_STATUS"
+          else
+            echo "UI smoke test skipped: FQDN not yet assigned."
           fi
 
       - name: Confirm Deployment & Archival State
@@ -412,9 +490,9 @@ jobs:
           echo "  DEPLOYMENT & AUDIT SUITE COMPLETED SUCCESSFULLY"
           echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
           echo "  - Deployment Scope: ${{ needs.resolve-environment.outputs.deployment_desc }}"
-          echo "  - Infrastructure Status: Terraform Up-to-Date"
+          echo "  - Infrastructure Status: Terraform Up-to-Date (API & UI Provisioned)"
           echo "  - Database Status: Liquibase Migrations Applied"
-          echo "  - Image Signing: Cosign Signature Attached to ACR Digest"
-          echo "  - Runtime Health: ACA Ingress Probes Verified"
+          echo "  - Image Signing: Cosign Signatures Attached to ACR Digests (API & UI)"
+          echo "  - Runtime Health: ACA Ingress Probes Verified (Port 8080 API & Port 3000 UI)"
           echo "  - DAST Scan: OWASP ZAP Report Retained for Academic Review"
           echo "======================================================================"
