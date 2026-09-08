@@ -1,10 +1,10 @@
-mode: development
+mode: test
 
 server:
   port: ":8080"
 
 database:
-  host: "localhost"
+  host: "mysql"
   port: 3306
   name: "ewaste"
   user: "ewaste_app"
@@ -12,7 +12,7 @@ database:
   password: ""
 
 redis:
-  address: "localhost:6379"
+  address: "redis:6379"
   # Supply the password through REDIS_PASSWORD.
   password: ""
   db: 0
