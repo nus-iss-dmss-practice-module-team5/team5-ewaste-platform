@@ -6,16 +6,28 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"workflow-api/internal/controller"
+	"workflow-api/internal/health"
 	"workflow-api/internal/middleware"
 	"workflow-api/internal/ratelimit"
 	"workflow-api/internal/repository"
 	"workflow-api/internal/token"
 )
 
-func NewAuthRouter(authController *controller.AuthController, tokens *token.Service, repo repository.AuthRepository, limiter ratelimit.Limiter) *gin.Engine {
+func NewAuthRouter(authController *controller.AuthController, tokens *token.Service, repo repository.AuthRepository, limiter ratelimit.Limiter, checker *health.Checker) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery(), middleware.CorrelationID())
+
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	})
+	r.GET("/readyz", func(c *gin.Context) {
+		if checker == nil || checker.Check(c.Request.Context()) != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+	})
 
 	r.GET("/api/v1/hello", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"msg": "hello world"})

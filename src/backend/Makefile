@@ -1,4 +1,10 @@
-.PHONY: test vet build check test-dependencies run-test docker-build docker-run docker-stop
+COMPOSE_FILE ?= ../../docker-compose.yml
+COMPOSE_ENV_FILE ?= ../../.env
+
+COMPOSE = docker compose -f $(COMPOSE_FILE) --env-file $(COMPOSE_ENV_FILE)
+
+.PHONY: test vet build check test-dependencies run-test docker-build docker-run docker-stop \
+	compose-config compose-build compose-up compose-down compose-restart compose-ps compose-logs
 
 test:
 	go test ./...
@@ -26,3 +32,24 @@ docker-run: docker-build
 docker-stop:
 	docker stop ewaste-api-test
 	docker rm ewaste-api-test
+
+compose-config:
+	$(COMPOSE) config
+
+compose-build:
+	$(COMPOSE) build
+
+compose-up: compose-config
+	$(COMPOSE) up -d --build
+
+compose-down:
+	$(COMPOSE) down
+
+compose-restart:
+	$(COMPOSE) restart
+
+compose-ps:
+	$(COMPOSE) ps
+
+compose-logs:
+	$(COMPOSE) logs -f --tail=100
