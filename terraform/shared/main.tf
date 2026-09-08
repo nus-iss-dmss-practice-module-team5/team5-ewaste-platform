@@ -37,7 +37,7 @@ resource "azurerm_container_registry" "acr" {
   # checkov:skip=CKV_AZURE_164:Docker Content Trust cannot be enabled on new ACR registries after 2026-05-31; release images are signed and verified with Cosign in GitHub Actions instead.
   name                          = "acrewasteplatform"
   resource_group_name           = azurerm_resource_group.shared.name
-  location                      = "southeastasia"
+  location                      = "japaneast"
   sku                           = "Premium"
   admin_enabled                 = false
   anonymous_pull_enabled        = false
