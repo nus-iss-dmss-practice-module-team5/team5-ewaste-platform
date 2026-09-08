@@ -1,4 +1,4 @@
-.PHONY: test vet build check test-dependencies run-test docker-build docker-run docker-test
+.PHONY: test vet build check test-dependencies run-test docker-build docker-run docker-stop
 
 test:
 	go test ./...
