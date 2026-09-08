@@ -4,10 +4,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"workflow-api/internal/router"
 )
 
 func Test_RunTestServer(t *testing.T) {
-	r := newTestRouter()
+	r := router.NewTestRouter()
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/hello", nil)
 	res := httptest.NewRecorder()
