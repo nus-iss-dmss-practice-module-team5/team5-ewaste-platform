@@ -57,3 +57,8 @@ output "redis_private_endpoint_ip" {
   value       = azurerm_private_endpoint.redis.private_service_connection[0].private_ip_address
   description = "Private IP allocated to the environment Redis endpoint."
 }
+
+output "acr_login_server" {
+  value       = data.azurerm_container_registry.shared_acr.login_server
+  description = "Login server for the shared Azure Container Registry."
+}
