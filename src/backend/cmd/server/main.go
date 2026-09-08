@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
@@ -22,6 +23,10 @@ import (
 )
 
 func main() {
+	if err := godotenv.Load(); err != nil && !os.IsNotExist(err) {
+		log.Fatalf("load .env: %v", err)
+	}
+
 	modeFlag := flag.String("mode", "", "application mode: development, test, or production")
 	checkDependencies := flag.Bool("check-dependencies", false, "connect to MySQL and Redis, then exit")
 	flag.Parse()
@@ -51,9 +56,11 @@ func main() {
 	}
 	db, err := storage.OpenMySQL(cfg.Database)
 	if err != nil {
+		appLogger.Error("mysql connection failed", zap.Error(err))
 		appLogger.Fatal("connect to mysql")
 	}
 	if err := storage.PingMySQL(db, 5*time.Second); err != nil {
+		appLogger.Error("mysql ping failed", zap.Error(err))
 		appLogger.Fatal("ping mysql")
 	}
 
@@ -62,6 +69,7 @@ func main() {
 	err = redisClient.Ping(pingCtx).Err()
 	cancel()
 	if err != nil {
+		appLogger.Error("redis ping failed", zap.Error(err))
 		appLogger.Fatal("connect to redis")
 	}
 	defer func() {
