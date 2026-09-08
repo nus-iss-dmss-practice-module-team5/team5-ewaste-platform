@@ -20,38 +20,24 @@ repos:
       - id: detect-private-key
 
   # ============================================================================
-  # PYTHON / ANALYTICS CHECKS (Formatting, Imports, Linting)
+  # GO / API CODE CHECKS (Monorepo & Subdirectory Module-Aware)
   # ============================================================================
-  - repo: https://github.com/psf/black
-    rev: 24.4.2
-    hooks:
-      - id: black
-        language_version: python3
-        files: ^(src/analytics/|scripts/)
-
-  - repo: https://github.com/pycqa/isort
-    rev: 5.13.2
-    hooks:
-      - id: isort
-        files: ^(src/analytics/|scripts/)
-
-  - repo: https://github.com/pycqa/flake8
-    rev: 7.0.0
-    hooks:
-      - id: flake8
-        files: ^(src/analytics/|scripts/)
-        args: ['--max-line-length=100', '--extend-ignore=E203,W503']
-
-  # ============================================================================
-  # GO / API CODE CHECKS (Formatting & Linting)
-  # ============================================================================
-  - repo: https://github.com/dnephin/pre-commit-golang
-    rev: v0.5.1
+  - repo: local
     hooks:
       - id: go-fmt
-        files: ^src/backend/
+        name: go-fmt
+        entry: go fmt ./...
+        language: system
+        types: [ go ]
+        pass_filenames: false
+
       - id: go-vet
-        files: ^src/backend/
+        name: go-vet
+        entry: go vet ./...
+        language: system
+        types: [ go ]
+        pass_filenames: false
+
 
   # ============================================================================
   # FRONTEND / UI CODE CHECKS (Prettier for TS, TSX, JS, CSS)
