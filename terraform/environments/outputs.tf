@@ -5,7 +5,12 @@ output "resource_group_name" {
 
 output "aca_api_fqdn" {
   value       = azurerm_container_app.api.latest_revision_fqdn
-  description = "Public FQDN of the deployed Container App."
+  description = "Public FQDN of the deployed API/workflow Container App."
+}
+
+output "aca_ui_fqdn" {
+  value       = azurerm_container_app.ui.latest_revision_fqdn
+  description = "Public FQDN of the deployed frontend UI Container App."
 }
 
 output "mysql_fqdn" {
@@ -36,4 +41,19 @@ output "managed_identity_client_id" {
 output "key_vault_uri" {
   value       = azurerm_key_vault.kv.vault_uri
   description = "Target environment Key Vault URI."
+}
+
+output "acr_private_endpoint_ip" {
+  value       = azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address
+  description = "Private IP allocated to the shared ACR endpoint in this environment."
+}
+
+output "key_vault_private_endpoint_ip" {
+  value       = azurerm_private_endpoint.key_vault.private_service_connection[0].private_ip_address
+  description = "Private IP allocated to the environment Key Vault endpoint."
+}
+
+output "redis_private_endpoint_ip" {
+  value       = azurerm_private_endpoint.redis.private_service_connection[0].private_ip_address
+  description = "Private IP allocated to the environment Redis endpoint."
 }

@@ -32,13 +32,21 @@ resource "azurerm_resource_group" "shared" {
 }
 
 # Centralized Azure Container Registry.
-# Admin credentials remain disabled; runtime pulls use managed identity.
+# Premium is required for Private Link. Public access and admin credentials are disabled.
 resource "azurerm_container_registry" "acr" {
-  name                = "acrewasteplatform"
-  resource_group_name = azurerm_resource_group.shared.name
-  location            = azurerm_resource_group.shared.location
-  sku                 = "Standard"
-  admin_enabled       = false
+  # checkov:skip=CKV_AZURE_164:Docker Content Trust cannot be enabled on new ACR registries after 2026-05-31; release images are signed and verified with Cosign in GitHub Actions instead.
+  name                          = "acrewasteplatform"
+  resource_group_name           = azurerm_resource_group.shared.name
+  location                      = azurerm_resource_group.shared.location
+  sku                           = "Premium"
+  admin_enabled                 = false
+  anonymous_pull_enabled        = false
+  public_network_access_enabled = false
+  network_rule_bypass_option    = "AzureServices"
+
+  network_rule_set {
+    default_action = "Deny"
+  }
 
   tags = {
     Project = "Responsible E-Waste Chain-of-Custody"
@@ -62,7 +70,7 @@ resource "azurerm_log_analytics_workspace" "logs" {
 
 output "acr_id" {
   value       = azurerm_container_registry.acr.id
-  description = "Shared ACR resource ID for RBAC bindings."
+  description = "Shared ACR resource ID for RBAC bindings and environment private endpoints."
 }
 
 output "acr_login_server" {

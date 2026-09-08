@@ -47,5 +47,11 @@ variable "db_admin_username" {
 variable "image_digest" {
   type        = string
   default     = "mcr.microsoft.com/azuredocs/aci-helloworld:latest"
-  description = "Immutable application image digest, or initial bootstrap image."
+  description = "Immutable API/workflow image digest from ACR, or initial bootstrap image."
+}
+
+variable "ui_image_digest" {
+  type        = string
+  default     = "mcr.microsoft.com/azuredocs/aci-helloworld:latest"
+  description = "Immutable Next.js frontend image digest from ACR, or initial bootstrap image."
 }
