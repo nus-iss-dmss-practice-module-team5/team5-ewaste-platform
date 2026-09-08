@@ -1,5 +1,5 @@
 environment                   = "dev"
-location                      = "southeastasia"
+location                      = "malaysiawest"
 shared_rg_name                = "rg-ewaste-shared"
 shared_acr_name               = "acrewasteplatform"
 shared_log_analytics_name     = "log-ewaste-centralized"

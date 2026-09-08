@@ -21,7 +21,7 @@ provider "azurerm" {
 # Persistent shared resource group.
 resource "azurerm_resource_group" "shared" {
   name     = "rg-ewaste-shared"
-  location = "southeastasia"
+  location = "malaysiawest"
 
   tags = {
     Project   = "Responsible E-Waste Chain-of-Custody"

@@ -29,7 +29,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AZURE_LOCATION: 'southeastasia'
   IMAGE_NAME_API: 'workflow-api'
   IMAGE_NAME_UI: 'workflow-ui'
 
