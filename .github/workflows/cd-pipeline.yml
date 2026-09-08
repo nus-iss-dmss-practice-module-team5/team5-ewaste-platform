@@ -113,6 +113,7 @@ jobs:
           echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
           echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
+          echo "ARM_USE_AZUREAD=true" >> $GITHUB_ENV
 
       - name: Setup Terraform CLI
         uses: hashicorp/setup-terraform@v3
@@ -125,7 +126,8 @@ jobs:
           terraform init \
             -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=${{ needs.resolve-environment.outputs.environment }}.tfstate"
+            -backend-config="key=${{ needs.resolve-environment.outputs.environment }}.tfstate" \
+            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
 
       - name: Apply Terraform Infrastructure Changes
         run: |
