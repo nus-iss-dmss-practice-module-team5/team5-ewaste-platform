@@ -2,9 +2,9 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/EWCSB-20-Database-Migration-Scripts]
   pull_request:
-    branches: [main]
+    branches: [dev]
     types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
