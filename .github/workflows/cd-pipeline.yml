@@ -29,7 +29,6 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  AZURE_LOCATION: 'southeastasia'
   IMAGE_NAME_API: 'workflow-api'
   IMAGE_NAME_UI: 'workflow-ui'
 
@@ -104,9 +103,16 @@ jobs:
         uses: azure/login@v2
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set ARM Credentials for Terraform
+        run: |
+          CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
+          echo "::add-mask::$CLIENT_SECRET"
+          echo "ARM_CLIENT_SECRET=$CLIENT_SECRET" >> $GITHUB_ENV
+          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
+          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
 
       - name: Setup Terraform CLI
         uses: hashicorp/setup-terraform@v3
@@ -119,16 +125,49 @@ jobs:
           terraform init \
             -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=tfstate" \
-            -backend-config="key=${{ needs.resolve-environment.outputs.environment }}.tfstate"
+            -backend-config="key=${{ needs.resolve-environment.outputs.environment }}.tfstate" \
+            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
 
-      - name: Apply Terraform Infrastructure Changes
+      # 1. APPLY SHARED INFRASTRUCTURE ONLY IF MISSING
+      - name: Ensure Shared Infrastructure Exists (ACR & Log Analytics)
+        run: |
+          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
+          if [ -z "$ACR_NAME" ]; then
+            ACR_NAME="acrewasteplatform"
+          fi
+
+          echo "Checking if Shared ACR '$ACR_NAME' in resource group 'rg-ewaste-shared' exists..."
+          ACR_EXISTS=$(az acr show --name "$ACR_NAME" --resource-group "rg-ewaste-shared" --query "name" -o tsv 2>/dev/null || echo "")
+
+          if [ -n "$ACR_EXISTS" ]; then
+            echo "Shared infrastructure ($ACR_NAME) already exists. Skipping terraform/shared."
+          else
+            echo "Shared infrastructure not found. Initializing and provisioning terraform/shared..."
+            cd terraform/shared
+            terraform init \
+              -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+              -backend-config="container_name=tfstate" \
+              -backend-config="key=shared.tfstate" \
+              -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
+
+            terraform apply -auto-approve
+          fi
+
+      # 2. APPLY TARGET ENVIRONMENT INFRASTRUCTURE (Dev / Stg / Prod)
+      - name: Apply Target Environment Infrastructure Changes
         run: |
           cd terraform/environments
+          terraform init \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=${{ needs.resolve-environment.outputs.environment }}.tfstate" \
+            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
+
           TF_VARS_FILE="environments/${{ needs.resolve-environment.outputs.environment }}.tfvars"
           if [ ! -f "$TF_VARS_FILE" ]; then
             TF_VARS_FILE="environments/dev.tfvars"
           fi
-          
+
           terraform apply -auto-approve \
             -var-file="$TF_VARS_FILE" \
             -var="environment=${{ needs.resolve-environment.outputs.environment }}" \
