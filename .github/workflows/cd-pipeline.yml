@@ -119,7 +119,7 @@ jobs:
           echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
           echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
           echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_ACCESS_KEY }}" >> $GITHUB_ENV
+          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
 
       - name: Setup Terraform CLI
         uses: hashicorp/setup-terraform@v3
@@ -148,7 +148,7 @@ jobs:
               -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
               -backend-config="container_name=tfstate" \
               -backend-config="key=shared.tfstate" \
-              -backend-config="access_key=${{ secrets.TF_STATE_ACCESS_KEY }}"
+              -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
 
             terraform apply -auto-approve
           fi
@@ -170,7 +170,7 @@ jobs:
             -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=$TARGET_ENV.tfstate" \
-            -backend-config="access_key=${{ secrets.TF_STATE_ACCESS_KEY }}"
+            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
 
           if [ -n "$APP_EXISTS" ]; then
             echo "Target environment ($TARGET_ENV) is already fully provisioned. Skipping terraform apply."
