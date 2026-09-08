@@ -18,7 +18,7 @@ concurrency:
 env:
   GO_VERSION: "1.26"
   PYTHON_VERSION: "3.14"
-  NODE_VERSION: "20"
+  NODE_VERSION: "24"
   PYTHON_MIN_COVERAGE: "85"
 
 jobs:
@@ -36,11 +36,11 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Setup Python Runtime
-        uses: actions/setup-python@v5
-        with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: pip
+#      - name: Setup Python Runtime
+#        uses: actions/setup-python@v5
+#        with:
+#          python-version: ${{ env.PYTHON_VERSION }}
+#          cache: pip
 
       - name: Setup Go Runtime
         uses: actions/setup-go@v5
