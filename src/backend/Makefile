@@ -1,4 +1,4 @@
-.PHONY: test vet build check docker-build docker-run docker-test
+.PHONY: test vet build check test-dependencies run-test docker-build docker-run docker-test
 
 test:
 	go test ./...
@@ -10,6 +10,12 @@ build:
 	go build ./cmd/server
 
 check: test vet build
+
+test-dependencies:
+	go run ./cmd/server -mode test -check-dependencies
+
+run-test:
+	go run ./cmd/server -mode test
 
 docker-build:
 	docker build -t ewaste-workflow-api:test .
