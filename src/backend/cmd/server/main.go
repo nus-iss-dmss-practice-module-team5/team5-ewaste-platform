@@ -13,6 +13,7 @@ import (
 
 	"workflow-api/internal/config"
 	"workflow-api/internal/controller"
+	"workflow-api/internal/docs"
 	"workflow-api/internal/health"
 	"workflow-api/internal/logger"
 	"workflow-api/internal/ratelimit"
@@ -90,6 +91,9 @@ func main() {
 	limiter := ratelimit.NewRedisLimiter(redisClient, cfg.RateLimit.Requests, cfg.RateLimit.Window)
 	checker := health.NewChecker(db, redisClient, 3*time.Second)
 	appRouter := router.NewAuthRouter(authController, tokens, repo, limiter, checker)
+	if cfg.Mode != config.ModeProduction {
+		docs.Register(appRouter)
+	}
 
 	appLogger.Info("workflow API listening", zap.String("address", cfg.Server.Port))
 	if err := appRouter.Run(cfg.Server.Port); err != nil {

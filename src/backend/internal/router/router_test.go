@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"workflow-api/internal/docs"
 	"workflow-api/internal/health"
 )
 
@@ -62,5 +63,25 @@ func TestAuthRouterReadinessReturns503WhenDependencyFails(t *testing.T) {
 	r.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if res.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected readiness 503, got %d", res.Code)
+	}
+}
+
+func TestDocsExposeOpenAPISpecAndSwaggerUI(t *testing.T) {
+	r := NewTestRouter()
+	docs.Register(r)
+
+	spec := httptest.NewRecorder()
+	r.ServeHTTP(spec, httptest.NewRequest(http.MethodGet, "/openapi.yaml", nil))
+	if spec.Code != http.StatusOK {
+		t.Fatalf("expected OpenAPI 200, got %d", spec.Code)
+	}
+	if spec.Header().Get("Content-Type") != "application/yaml; charset=utf-8" {
+		t.Fatalf("unexpected OpenAPI content type: %q", spec.Header().Get("Content-Type"))
+	}
+
+	ui := httptest.NewRecorder()
+	r.ServeHTTP(ui, httptest.NewRequest(http.MethodGet, "/docs/", nil))
+	if ui.Code != http.StatusOK {
+		t.Fatalf("expected Swagger UI 200, got %d", ui.Code)
 	}
 }
