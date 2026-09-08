@@ -45,11 +45,22 @@ repos:
   # ============================================================================
   # GO / API CODE CHECKS (Monorepo & Subdirectory Module-Aware)
   # ============================================================================
-  - repo: https://github.com/tekwizely/pre-commit-golang
-    rev: v1.0.0-rc.1
+  - repo: local
     hooks:
-      - id: go-fmt-mod
-      - id: go-vet-mod
+      - id: go-fmt
+        name: go-fmt
+        entry: go fmt ./...
+        language: system
+        types: [ go ]
+        pass_filenames: false
+
+      - id: go-vet
+        name: go-vet
+        entry: go vet ./...
+        language: system
+        types: [ go ]
+        pass_filenames: false
+
 
   # ============================================================================
   # FRONTEND / UI CODE CHECKS (Prettier for TS, TSX, JS, CSS)
