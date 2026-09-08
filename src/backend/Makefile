@@ -4,7 +4,8 @@ COMPOSE_ENV_FILE ?= $(CURDIR)/.env
 COMPOSE = docker compose -f $(COMPOSE_FILE) --env-file $(COMPOSE_ENV_FILE)
 
 .PHONY: test vet build check test-dependencies run-test docker-build docker-run docker-stop \
-	compose-config compose-build compose-up compose-down compose-restart compose-ps compose-logs compose-seed-users
+	compose-config compose-build compose-up compose-down compose-destroy-test compose-reset-test \
+	compose-restart compose-ps compose-logs compose-seed-users
 
 test:
 	go test ./...
@@ -44,6 +45,13 @@ compose-up: compose-config
 
 compose-down:
 	$(COMPOSE) down
+
+compose-destroy-test:
+	@echo "WARNING: destroying the Compose test stack, including MySQL and Redis volumes."
+	$(COMPOSE) down --volumes --remove-orphans
+
+compose-reset-test: compose-destroy-test
+	$(MAKE) compose-seed-users
 
 compose-restart:
 	$(COMPOSE) restart
