@@ -205,16 +205,6 @@ resource "azurerm_private_endpoint" "key_vault" {
   }
 }
 
-resource "azurerm_key_vault_secret" "db_password" {
-  name         = "mysql-admin-password"
-  value        = random_password.db_password.result
-  key_vault_id = azurerm_key_vault.kv.id
-
-  depends_on = [
-    azurerm_private_endpoint.key_vault
-  ]
-}
-
 resource "azurerm_user_assigned_identity" "aca_identity" {
   name                = "id-${local.name_prefix}"
   location            = azurerm_resource_group.env_rg.location
@@ -262,6 +252,13 @@ resource "azurerm_mysql_flexible_server" "db" {
   geo_redundant_backup_enabled = false
   tags                         = local.common_tags
 
+  lifecycle {
+    ignore_changes = [
+      zone,
+      high_availability[0].standby_availability_zone
+    ]
+  }
+
   depends_on = [
     azurerm_private_dns_zone_virtual_network_link.mysql_dns_link
   ]
@@ -308,17 +305,6 @@ resource "azurerm_private_endpoint" "redis" {
   }
 }
 
-resource "azurerm_key_vault_secret" "redis_connection" {
-  name         = "redis-connection-string"
-  value        = azurerm_redis_cache.redis.primary_connection_string
-  key_vault_id = azurerm_key_vault.kv.id
-
-  depends_on = [
-    azurerm_private_endpoint.key_vault,
-    azurerm_private_endpoint.redis
-  ]
-}
-
 # ============================================================================
 # 6. COMPUTE: AZURE CONTAINER APPS
 # ============================================================================
@@ -350,16 +336,15 @@ resource "azurerm_container_app" "api" {
     identity = azurerm_user_assigned_identity.aca_identity.id
   }
 
+  # Native ACA secrets (encrypted at rest by Azure)
   secret {
-    name                = "db-password"
-    key_vault_secret_id = azurerm_key_vault_secret.db_password.versionless_id
-    identity            = azurerm_user_assigned_identity.aca_identity.id
+    name  = "db-password"
+    value = random_password.db_password.result
   }
 
   secret {
-    name                = "redis-conn"
-    key_vault_secret_id = azurerm_key_vault_secret.redis_connection.versionless_id
-    identity            = azurerm_user_assigned_identity.aca_identity.id
+    name  = "redis-conn"
+    value = azurerm_redis_cache.redis.primary_connection_string
   }
 
   template {
