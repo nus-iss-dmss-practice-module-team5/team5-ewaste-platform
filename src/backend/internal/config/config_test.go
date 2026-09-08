@@ -11,6 +11,11 @@ func TestLoadReadsConfigFileAndEnvironmentOverrides(t *testing.T) {
 	contents := []byte(`
 server:
   port: ":9090"
+database:
+  host: "mysql"
+  port: 3306
+  name: "ewaste"
+  user: "ewaste_app"
 auth:
   access_ttl: "10m"
   refresh_ttl: "2h"
@@ -18,14 +23,18 @@ auth:
 	if err := os.WriteFile(configPath, contents, 0o600); err != nil {
 		t.Fatalf("write test config: %v", err)
 	}
-	t.Setenv("EWASTE_SERVER_PORT", ":9191")
+	t.Setenv("MYSQL_PASSWORD", "db-secret")
+	t.Setenv("REDIS_PASSWORD", "redis-secret")
 
 	cfg, err := Load(configPath)
 	if err != nil {
 		t.Fatalf("load config: %v", err)
 	}
-	if cfg.Server.Port != ":9191" {
-		t.Fatalf("expected environment override, got %q", cfg.Server.Port)
+	if cfg.Server.Port != ":9090" {
+		t.Fatalf("expected server port from config file, got %q", cfg.Server.Port)
+	}
+	if cfg.Database.Password != "db-secret" || cfg.Redis.Password != "redis-secret" {
+		t.Fatalf("expected credential environment values, got database=%q redis=%q", cfg.Database.Password, cfg.Redis.Password)
 	}
 	if cfg.Auth.AccessTTL.Minutes() != 10 || cfg.Auth.RefreshTTL.Hours() != 2 {
 		t.Fatalf("expected durations from config file, got access=%s refresh=%s", cfg.Auth.AccessTTL, cfg.Auth.RefreshTTL)
@@ -37,7 +46,7 @@ func TestApplyTestModeUsesLocalDependencies(t *testing.T) {
 	if err := cfg.ApplyMode(ModeTest); err != nil {
 		t.Fatalf("apply test mode: %v", err)
 	}
-	if cfg.Database.DSN == "" || cfg.Redis.Address != "localhost:6379" {
+	if cfg.Database.Host != "localhost" || cfg.Database.Port != 3307 || cfg.Redis.Address != "localhost:6379" {
 		t.Fatalf("expected localhost dependency defaults: %+v", cfg)
 	}
 }
