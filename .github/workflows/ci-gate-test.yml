@@ -413,14 +413,17 @@ jobs:
 
       # CONTAINER VULNERABILITY SCANNING
       - name: Scan Container with Grype
-        uses: anchore/scan-action@v3
+        uses: anchore/scan-action@v7
         with:
           image: ewaste-platform:${{ github.sha }}
           fail-build: true
           severity-cutoff: critical
+          cache-db: false
 
 
+      # ALWAYS RETAIN SBOM AS SECURITY EVIDENCE
       - name: Upload SBOM
+        if: always() && hashFiles('sbom.spdx.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: sbom-${{ github.sha }}
