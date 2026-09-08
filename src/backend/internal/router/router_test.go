@@ -2,6 +2,7 @@ package router
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -49,6 +50,13 @@ func TestAuthRouterHealthEndpoints(t *testing.T) {
 	if readiness.Code != http.StatusOK {
 		t.Fatalf("expected readiness 200, got %d", readiness.Code)
 	}
+	var report health.Report
+	if err := json.Unmarshal(readiness.Body.Bytes(), &report); err != nil {
+		t.Fatalf("decode readiness report: %v", err)
+	}
+	if report.Status != "ready" || report.MySQL != "ok" || report.Redis != "ok" {
+		t.Fatalf("unexpected readiness report: %+v", report)
+	}
 }
 
 func TestAuthRouterReadinessReturns503WhenDependencyFails(t *testing.T) {
@@ -63,6 +71,13 @@ func TestAuthRouterReadinessReturns503WhenDependencyFails(t *testing.T) {
 	r.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 	if res.Code != http.StatusServiceUnavailable {
 		t.Fatalf("expected readiness 503, got %d", res.Code)
+	}
+	var report health.Report
+	if err := json.Unmarshal(res.Body.Bytes(), &report); err != nil {
+		t.Fatalf("decode readiness failure report: %v", err)
+	}
+	if report.Status != "not_ready" || report.MySQL != "unavailable" || report.Redis != "ok" {
+		t.Fatalf("unexpected readiness failure report: %+v", report)
 	}
 }
 

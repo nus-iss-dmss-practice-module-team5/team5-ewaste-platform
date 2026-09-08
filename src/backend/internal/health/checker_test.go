@@ -42,3 +42,19 @@ func TestCheckerHonoursContextCancellation(t *testing.T) {
 		t.Fatalf("expected cancelled context, got %v", err)
 	}
 }
+
+func TestCheckerDetailedReportsEachDependency(t *testing.T) {
+	checker := NewCheckerWithPingers(
+		func(context.Context) error { return errors.New("mysql unavailable") },
+		func(context.Context) error { return nil },
+		time.Second,
+	)
+
+	report, err := checker.CheckDetailed(context.Background())
+	if err == nil {
+		t.Fatal("expected dependency error")
+	}
+	if report.Status != "not_ready" || report.MySQL != "unavailable" || report.Redis != "ok" {
+		t.Fatalf("unexpected health report: %+v", report)
+	}
+}
