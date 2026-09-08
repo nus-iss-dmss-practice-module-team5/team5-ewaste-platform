@@ -55,4 +55,5 @@ compose-logs:
 	$(COMPOSE) logs -f --tail=100
 
 compose-seed-users: compose-up
-	$(COMPOSE) exec -T mysql sh -c 'mysql -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" "$$MYSQL_DATABASE"' < ../../database/liquibase/seed/103-seed-users.sql
+	sed -E '/^--(liquibase|changeset|comment|rollback)/d' ../../database/liquibase/seed/103-seed-users.sql | \
+		$(COMPOSE) exec -T mysql sh -c 'mysql -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" "$$MYSQL_DATABASE"'
