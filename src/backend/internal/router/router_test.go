@@ -1,9 +1,14 @@
 package router
 
 import (
+	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"workflow-api/internal/health"
 )
 
 func TestNewTestRouterHelloEndpoint(t *testing.T) {
@@ -21,5 +26,41 @@ func TestNewTestRouterNotFoundEndpoint(t *testing.T) {
 	r.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/missing", nil))
 	if res.Code != http.StatusNotFound {
 		t.Fatalf("expected 404, got %d", res.Code)
+	}
+}
+
+func TestAuthRouterHealthEndpoints(t *testing.T) {
+	checker := health.NewCheckerWithPingers(
+		func(context.Context) error { return nil },
+		func(context.Context) error { return nil },
+		time.Second,
+	)
+	r := NewAuthRouter(nil, nil, nil, nil, checker)
+
+	liveness := httptest.NewRecorder()
+	r.ServeHTTP(liveness, httptest.NewRequest(http.MethodGet, "/healthz", nil))
+	if liveness.Code != http.StatusOK {
+		t.Fatalf("expected liveness 200, got %d", liveness.Code)
+	}
+
+	readiness := httptest.NewRecorder()
+	r.ServeHTTP(readiness, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if readiness.Code != http.StatusOK {
+		t.Fatalf("expected readiness 200, got %d", readiness.Code)
+	}
+}
+
+func TestAuthRouterReadinessReturns503WhenDependencyFails(t *testing.T) {
+	checker := health.NewCheckerWithPingers(
+		func(context.Context) error { return errors.New("mysql unavailable") },
+		func(context.Context) error { return nil },
+		time.Second,
+	)
+	r := NewAuthRouter(nil, nil, nil, nil, checker)
+
+	res := httptest.NewRecorder()
+	r.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/readyz", nil))
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected readiness 503, got %d", res.Code)
 	}
 }
