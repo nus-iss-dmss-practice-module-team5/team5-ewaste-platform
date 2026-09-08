@@ -2,7 +2,7 @@ FROM golang:1.26-alpine AS builder
 
 WORKDIR /src
 
-COPY go.mod ./
+COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
@@ -16,6 +16,7 @@ RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app
 COPY --from=builder /out/server ./server
+RUN mkdir -p /app/logs && chown -R app:app /app
 
 USER app
 
