@@ -4,7 +4,7 @@ COMPOSE_ENV_FILE ?= ../../.env
 COMPOSE = docker compose -f $(COMPOSE_FILE) --env-file $(COMPOSE_ENV_FILE)
 
 .PHONY: test vet build check test-dependencies run-test docker-build docker-run docker-stop \
-	compose-config compose-build compose-up compose-down compose-restart compose-ps compose-logs
+	compose-config compose-build compose-up compose-down compose-restart compose-ps compose-logs compose-seed-users
 
 test:
 	go test ./...
@@ -53,3 +53,6 @@ compose-ps:
 
 compose-logs:
 	$(COMPOSE) logs -f --tail=100
+
+compose-seed-users: compose-up
+	$(COMPOSE) exec -T mysql sh -c 'mysql -u"$$MYSQL_USER" -p"$$MYSQL_PASSWORD" "$$MYSQL_DATABASE"' < ../../database/liquibase/seed/103-seed-users.sql
