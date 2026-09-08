@@ -413,15 +413,25 @@ jobs:
 
       # CONTAINER VULNERABILITY SCANNING
       - name: Scan Container with Grype
+        id: grype-scan
         uses: anchore/scan-action@v7
         with:
           image: ewaste-platform:${{ github.sha }}
           fail-build: true
           severity-cutoff: critical
           cache-db: false
+          output-format: sarif
 
+      # RETAIN GRYPE VULNERABILITY REPORT
+      - name: Upload Grype Vulnerability Report
+        if: always() && steps.grype-scan.outputs.sarif != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-vulnerability-report-${{ github.sha }}
+          path: ${{ steps.grype-scan.outputs.sarif }}
+          retention-days: 30
 
-      # ALWAYS RETAIN SBOM AS SECURITY EVIDENCE
+      # RETAIN SBOM
       - name: Upload SBOM
         if: always() && hashFiles('sbom.spdx.json') != ''
         uses: actions/upload-artifact@v4
