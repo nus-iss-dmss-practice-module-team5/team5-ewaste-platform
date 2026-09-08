@@ -33,6 +33,12 @@ output "mysql_jdbc_url" {
   description = "Formatted JDBC URL consumed by Liquibase migrations in CI/CD."
 }
 
+output "mysql_admin_password" {
+  value       = random_password.db_password.result
+  sensitive   = true
+  description = "Administrator password for MySQL Flexible Server."
+}
+
 output "managed_identity_client_id" {
   value       = azurerm_user_assigned_identity.aca_identity.client_id
   description = "Client ID of the user-assigned managed identity."

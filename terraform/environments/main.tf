@@ -381,30 +381,6 @@ resource "azurerm_container_app" "api" {
         name        = "REDIS_CONN"
         secret_name = "redis-conn"
       }
-
-      readiness_probe {
-        transport               = "HTTP"
-        port                    = 8080
-        path                    = "/health/ready"
-        interval_seconds        = 10
-        failure_count_threshold = 3
-      }
-
-      liveness_probe {
-        transport               = "HTTP"
-        port                    = 8080
-        path                    = "/health/live"
-        interval_seconds        = 15
-        failure_count_threshold = 3
-      }
-
-      startup_probe {
-        transport               = "HTTP"
-        port                    = 8080
-        path                    = "/health/startup"
-        interval_seconds        = 5
-        failure_count_threshold = 10
-      }
     }
   }
 
@@ -417,6 +393,12 @@ resource "azurerm_container_app" "api" {
       percentage      = 100
       latest_revision = true
     }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image
+    ]
   }
 
   depends_on = [
@@ -464,30 +446,6 @@ resource "azurerm_container_app" "ui" {
       env {
         name  = "NEXT_PUBLIC_API_URL"
         value = "https://${azurerm_container_app.api.latest_revision_fqdn}"
-      }
-
-      readiness_probe {
-        transport               = "HTTP"
-        port                    = 3000
-        path                    = "/"
-        interval_seconds        = 10
-        failure_count_threshold = 3
-      }
-
-      liveness_probe {
-        transport               = "HTTP"
-        port                    = 3000
-        path                    = "/"
-        interval_seconds        = 15
-        failure_count_threshold = 3
-      }
-
-      startup_probe {
-        transport               = "HTTP"
-        port                    = 3000
-        path                    = "/"
-        interval_seconds        = 5
-        failure_count_threshold = 10
       }
     }
   }
