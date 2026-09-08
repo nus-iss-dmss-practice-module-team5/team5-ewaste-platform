@@ -195,14 +195,28 @@ jobs:
         run: |
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           cd terraform/environments
-          echo "acr_server=$(terraform output -raw acr_login_server 2>/dev/null || echo '${{ secrets.AZURE_ACR_NAME }}.azurecr.io')" >> $GITHUB_OUTPUT
-          echo "aca_env_name=cae-ewaste-$TARGET_ENV" >> $GITHUB_OUTPUT
-          echo "resource_group=rg-ewaste-$TARGET_ENV" >> $GITHUB_OUTPUT
-          echo "mysql_fqdn=$(terraform output -raw mysql_fqdn 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
-          echo "mysql_db=$(terraform output -raw mysql_database_name 2>/dev/null || echo 'ewastedb')" >> $GITHUB_OUTPUT
-          echo "aca_api_fqdn=$(terraform output -raw aca_api_fqdn 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
-          echo "aca_ui_fqdn=$(terraform output -raw aca_ui_fqdn 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
-          echo "key_vault_uri=$(terraform output -raw key_vault_uri 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
+
+          ACR_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || echo "")
+          if [ -z "$ACR_SERVER" ]; then
+            ACR_SERVER="acrewasteplatform.azurecr.io"
+          fi
+
+          MYSQL_FQDN=$(terraform output -raw mysql_fqdn 2>/dev/null || echo "")
+          MYSQL_DB=$(terraform output -raw mysql_database_name 2>/dev/null || echo "ewastedb")
+          ACA_API_FQDN=$(terraform output -raw aca_api_fqdn 2>/dev/null || echo "")
+          ACA_UI_FQDN=$(terraform output -raw aca_ui_fqdn 2>/dev/null || echo "")
+          KV_URI=$(terraform output -raw key_vault_uri 2>/dev/null || echo "")
+
+          {
+            echo "acr_server=${ACR_SERVER}"
+            echo "aca_env_name=cae-ewaste-${TARGET_ENV}"
+            echo "resource_group=rg-ewaste-${TARGET_ENV}"
+            echo "mysql_fqdn=${MYSQL_FQDN}"
+            echo "mysql_db=${MYSQL_DB}"
+            echo "aca_api_fqdn=${ACA_API_FQDN}"
+            echo "aca_ui_fqdn=${ACA_UI_FQDN}"
+            echo "key_vault_uri=${KV_URI}"
+          } >> "$GITHUB_OUTPUT"
 
 #  # ============================================================================
 #  # STAGE 2: PRIVATE DATABASE MIGRATIONS (Liquibase via ACA Job)
