@@ -41,7 +41,7 @@ compose-build:
 	$(COMPOSE) build
 
 compose-up: compose-config
-	$(COMPOSE) up -d --build
+	$(COMPOSE) up -d --build --force-recreate
 
 compose-down:
 	$(COMPOSE) down
