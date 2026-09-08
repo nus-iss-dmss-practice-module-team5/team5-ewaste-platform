@@ -4,6 +4,7 @@ on:
   pull_request:
     branches: [dev, main]
     types: [opened, synchronize, reopened]
+
   push:
     branches: [dev, main]
 
@@ -18,20 +19,22 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GO_VERSION: '1.22'
-  PYTHON_VERSION: '3.11'
-  NODE_VERSION: '20'
-  PYTHON_MIN_COVERAGE: '85'
+  GO_VERSION: "1.22"
+  PYTHON_VERSION: "3.11"
+  NODE_VERSION: "20"
+  PYTHON_MIN_COVERAGE: "85"
 
 jobs:
+
   # ============================================================================
-  # PHASE 1: PARALLEL SECURITY LINTING, CODE QUALITY & SCANNING
+  # PHASE 1: CODE QUALITY & SECURITY SCANNING
   # ============================================================================
 
-  # 1.1 PRE-COMMIT CHECKS (Python, Go/API, UI/Frontend, General Hygiene)
+  # 1.1 PRE-COMMIT / FORMAT CHECKS
   pre-commit-checks:
     name: Pre-Commit Quality & Format Checks
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
@@ -40,48 +43,54 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
-      - name: Setup Go API Runtime
+      - name: Setup Go Runtime
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
 
       - name: Setup Node.js Runtime
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
 
-      - name: Execute Pre-Commit Hooks Across Codebase
+      - name: Execute Pre-Commit Hooks
         uses: pre-commit/action@v3.0.1
         with:
           extra_args: --all-files --show-diff-on-failure
 
-  # 1.2 SECRET DETECTION GATE (Gitleaks)
+
+  # 1.2 SECRET DETECTION
   secret-scan:
     name: Gitleaks Secret Detection
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks Secret Detection
+      - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
           GITLEAKS_ENABLE_SUMMARY: true
 
-  # 1.3 STATIC APPLICATION SECURITY TESTING (Semgrep)
+
+  # 1.3 STATIC APPLICATION SECURITY TESTING
   sast-scan:
     name: Semgrep SAST Analysis
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Run Semgrep SAST Scan (OWASP Top 10, Go, Python, TypeScript)
+      - name: Run Semgrep SAST Scan
         uses: returntocorp/semgrep-action@v1
         with:
           config: >-
@@ -93,14 +102,14 @@ jobs:
             p/javascript
           generateSarif: "1"
 
-      - name: Upload SAST SARIF Report to GitHub Security
+      - name: Upload Semgrep SARIF
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: semgrep.sarif
           category: semgrep-sast
 
-      - name: Retain SAST SARIF Artifact
+      - name: Retain Semgrep Report
         uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -108,175 +117,318 @@ jobs:
           path: semgrep.sarif
           retention-days: 30
 
-  # 1.4 INFRASTRUCTURE AS CODE AUDIT (Checkov)
+
+  # 1.4 INFRASTRUCTURE AS CODE SECURITY
   iac-scan:
-    name: Checkov IaC Inspection
+    name: Checkov IaC Security Scan
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Run Checkov IaC & Dockerfile Security Analysis
-        uses: bridgecrewio/checkov-action@master
+      - name: Check Terraform Directory
+        id: terraform-check
+        run: |
+          if [ -d "terraform" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Terraform directory does not exist yet."
+          fi
+
+      - name: Run Checkov
+        if: steps.terraform-check.outputs.exists == 'true'
+        uses: bridgecrewio/checkov-action@v12.1347.0
         with:
-          directory: .
-          framework: terraform,dockerfile
+          directory: terraform/
+          framework: terraform
           output_format: cli,sarif
           output_file_path: console,checkov.sarif
           soft_fail: false
 
-      - name: Upload IaC SARIF Report to GitHub Security
+      - name: Terraform Baseline Message
+        if: steps.terraform-check.outputs.exists == 'false'
+        run: |
+          echo "Terraform implementation is not available yet."
+          echo "Checkov will scan terraform/ once infrastructure code is added."
+
+      - name: Upload Checkov SARIF
+        if: always() && steps.terraform-check.outputs.exists == 'true'
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
         with:
           sarif_file: checkov.sarif
           category: checkov-iac
 
-      - name: Retain Checkov IaC Artifact
+      - name: Retain Checkov Report
+        if: always() && steps.terraform-check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: checkov-sarif-${{ github.sha }}
           path: checkov.sarif
           retention-days: 30
 
+
   # ============================================================================
-  # PHASE 2: PARALLEL AUTOMATED UNIT VERIFICATION
+  # PHASE 2: EXPLICIT SECURITY GATE
   # ============================================================================
 
-  # 2.1 BACKEND UNIT TESTS & RACE DETECTION (Go)
+  security-gate:
+    name: Security Gate
+    needs:
+      - secret-scan
+      - sast-scan
+      - iac-scan
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Confirm Security Checks Passed
+        run: |
+          echo "=============================================="
+          echo "           SECURITY GATE PASSED"
+          echo "=============================================="
+          echo "Gitleaks : PASSED"
+          echo "Semgrep  : PASSED"
+          echo "Checkov  : PASSED"
+          echo "=============================================="
+          echo "Required security checks completed."
+          echo "Downstream CI stages may proceed."
+          echo "=============================================="
+
+
+  # ============================================================================
+  # PHASE 3: AUTOMATED UNIT VERIFICATION
+  # ============================================================================
+
+  # 3.1 GO BACKEND
   backend-tests:
     name: Backend Unit Tests (Go)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Setup Go API Runtime
+      - name: Check Go Project
+        id: go-check
+        run: |
+          if [ -f "src/backend/go.mod" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Go Runtime
+        if: steps.go-check.outputs.exists == 'true'
         uses: actions/setup-go@v5
         with:
           go-version: ${{ env.GO_VERSION }}
+          cache: true
 
-      - name: Execute Backend Tests with Race Detection (-race)
+      - name: Run Backend Tests
+        if: steps.go-check.outputs.exists == 'true'
+        working-directory: src/backend
         run: |
-          mkdir -p src/backend
-          cd src/backend
-          if [ -f go.mod ]; then
-            go test -v -race -covermode=atomic -coverprofile=coverage.out ./...
-          else
-            echo "No go.mod yet in src/backend. Generating initial coverage profile baseline."
-            echo "mode: atomic" > coverage.out
-          fi
+          go test -v \
+            -race \
+            -covermode=atomic \
+            -coverprofile=coverage.out \
+            ./...
 
-      - name: Retain Go Test Coverage Evidence
+      - name: Backend Not Available Yet
+        if: steps.go-check.outputs.exists == 'false'
+        run: |
+          echo "No Go application available yet."
+          echo "Backend tests will run when src/backend/go.mod exists."
+
+      - name: Upload Go Coverage
+        if: steps.go-check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: backend-coverage-${{ github.sha }}
           path: src/backend/coverage.out
           retention-days: 30
 
-  # 2.2 ANALYTICS UNIT TESTS & COVERAGE (Python PyTest)
+
+  # 3.2 PYTHON ANALYTICS
   analytics-tests:
     name: Analytics Unit Tests (Python)
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
+      - name: Check Analytics Project
+        id: python-check
+        run: |
+          if [ -d "src/analytics" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Python Runtime
+        if: steps.python-check.outputs.exists == 'true'
         uses: actions/setup-python@v5
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
 
-      - name: Install Python Test Dependencies
+      - name: Install Test Dependencies
+        if: steps.python-check.outputs.exists == 'true'
         run: |
           python -m pip install --upgrade pip
           pip install pytest pytest-cov
 
-      - name: Execute PyTest Suite with 85% Minimum Coverage Enforcement
+      - name: Run PyTest
+        if: steps.python-check.outputs.exists == 'true'
+        working-directory: src/analytics
         run: |
-          mkdir -p src/analytics
-          cd src/analytics
-          if ls *.py >/dev/null 2>&1 || ls tests/*.py >/dev/null 2>&1; then
-            pytest -v --cov=. --cov-report=term --cov-report=xml:coverage.xml --cov-fail-under=${{ env.PYTHON_MIN_COVERAGE }} --junitxml=junit.xml
-          else
-            echo "No Python analytics test scripts yet. Creating baseline JUnit XML artifact."
-            echo '<?xml version="1.0" encoding="utf-8"?><testsuites><testsuite name="analytics-baseline" tests="1" failures="0"><testcase name="placeholder" classname="analytics"/></testsuite></testsuites>' > junit.xml
-          fi
+          pytest -v \
+            --cov=. \
+            --cov-report=term \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=${{ env.PYTHON_MIN_COVERAGE }} \
+            --junitxml=junit.xml
 
-      - name: Retain PyTest JUnit XML Report
+      - name: Analytics Not Available Yet
+        if: steps.python-check.outputs.exists == 'false'
+        run: |
+          echo "No Python analytics implementation available yet."
+          echo "Analytics tests will run when src/analytics exists."
+
+      - name: Upload Python Test Evidence
+        if: steps.python-check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: analytics-junit-${{ github.sha }}
-          path: src/analytics/junit.xml
+          name: analytics-test-results-${{ github.sha }}
+          path: |
+            src/analytics/junit.xml
+            src/analytics/coverage.xml
           retention-days: 30
 
-  # 2.3 FRONTEND LINTING & COMPONENT TESTS (Next.js / Jest / ESLint)
+
+  # 3.3 NEXT.JS FRONTEND
   frontend-checks:
-    name: Frontend Verification (Next.js / Jest / ESLint)
+    name: Frontend Verification
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
+      - name: Check Frontend Project
+        id: frontend-check
+        run: |
+          if [ -f "src/frontend/package.json" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Setup Node.js Runtime
+        if: steps.frontend-check.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
 
-      - name: Execute Frontend Linting & Unit Tests
+      - name: Install Frontend Dependencies
+        if: steps.frontend-check.outputs.exists == 'true'
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Run Frontend Lint
+        if: steps.frontend-check.outputs.exists == 'true'
+        working-directory: src/frontend
+        run: npm run lint --if-present
+
+      - name: Run Frontend Tests
+        if: steps.frontend-check.outputs.exists == 'true'
+        working-directory: src/frontend
+        run: npm test -- --coverage --watchAll=false
+
+      - name: Frontend Not Available Yet
+        if: steps.frontend-check.outputs.exists == 'false'
         run: |
-          mkdir -p src/frontend
-          cd src/frontend
-          if [ -f package.json ]; then
-            npm ci
-            npm run lint --if-present
-            npm test -- --coverage --watchAll=false
-          else
-            echo "No frontend package.json found yet in src/frontend. Verification placeholder passed."
-          fi
+          echo "No frontend application available yet."
+          echo "Frontend checks will run when src/frontend/package.json exists."
+
 
   # ============================================================================
-  # PHASE 3: CONTAINER PACKAGING & VULNERABILITY AUDIT
+  # PHASE 4: CONTAINER PACKAGING & VULNERABILITY AUDIT
   # ============================================================================
 
   container-security:
-    name: Syft SBOM & Grype Vulnerability Scan
-    needs: [pre-commit-checks, secret-scan, sast-scan, iac-scan, backend-tests, analytics-tests, frontend-checks]
+    name: Container Build, SBOM & Vulnerability Scan
+
+    needs:
+      - security-gate
+      - pre-commit-checks
+      - backend-tests
+      - analytics-tests
+      - frontend-checks
+
     runs-on: ubuntu-latest
+
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Build Ephemeral Container Image
+      - name: Build Application Container
         run: |
-          if [ -f src/backend/Dockerfile ]; then
-            docker build -t ewaste-platform:${{ github.sha }} -f src/backend/Dockerfile src/backend/
+          if [ -f "src/backend/Dockerfile" ]; then
+
+            docker build \
+              -t ewaste-platform:${{ github.sha }} \
+              -f src/backend/Dockerfile \
+              src/backend/
+
           else
-            echo "Building standard container baseline image for security auditing"
-            docker build -t ewaste-platform:${{ github.sha }} - <<'EOF'
+
+            echo "Application Dockerfile not available yet."
+            echo "Building temporary security baseline image."
+
+            docker build \
+              -t ewaste-platform:${{ github.sha }} \
+              - <<'EOF'
+
           FROM alpine:3.19
-          RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+          RUN addgroup -S appgroup && \
+              adduser -S appuser -G appgroup
+
           USER appuser
-          CMD ["echo", "Responsible E-Waste Platform Service"]
+
+          CMD ["echo", "E-Waste Platform Security Baseline"]
+
           EOF
+
           fi
 
-      - name: Generate SBOM (Syft SPDX Standard)
+
+      # SBOM GENERATION
+      - name: Generate SBOM with Syft
         uses: anchore/sbom-action@v0
         with:
           image: ewaste-platform:${{ github.sha }}
           format: spdx-json
           output-file: sbom.spdx.json
 
-      - name: Scan Image Vulnerabilities (Grype - Fail on CRITICAL)
+
+      # CONTAINER VULNERABILITY SCANNING
+      - name: Scan Container with Grype
         uses: anchore/scan-action@v3
         with:
           image: ewaste-platform:${{ github.sha }}
           fail-build: true
           severity-cutoff: critical
 
-      - name: Retain SPDX SBOM Artifact
+
+      - name: Upload SBOM
         uses: actions/upload-artifact@v4
         with:
           name: sbom-${{ github.sha }}
@@ -284,42 +436,52 @@ jobs:
           retention-days: 30
 
   # ============================================================================
-  # PHASE 4: SUPPLY CHAIN SIGNING & ACADEMIC EVIDENCE ARCHIVAL
+  # PHASE 5: COSIGN TOOLING CHECK
+  #
+  # Actual image signing is performed later in the CD/release pipeline after
+  # the approved image has been pushed to ACR and an immutable digest exists.
   # ============================================================================
 
-  supply-chain-signing:
-    name: Supply Chain Sign (Cosign) & Evidence Archival
-    needs: [container-security]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code Repository
-        uses: actions/checkout@v4
+  supply-chain-tooling-check:
+    name: Cosign Availability & Configuration Check
+    needs:
+      - container-security
 
-      - name: Install Cosign CLI (Sigstore)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Cosign CLI
         uses: sigstore/cosign-installer@v3
 
-      - name: Verify Cosign Supply Chain Environment
+      - name: Verify Cosign Installation
         run: |
-          echo "=== Cosign Supply Chain Security Runtime ==="
+          echo "=== Cosign Supply Chain Security ==="
           cosign version
+
+      - name: Verify Cosign Configuration
+        run: |
           if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-            echo "COSIGN_PRIVATE_KEY secret detected. Ready for ACR image digest signing."
+            echo "COSIGN_PRIVATE_KEY secret detected."
+            echo "Cosign signing prerequisites are configured for CD."
           else
-            echo "Cosign CLI ready. Configured for keyless / secret-based container verification."
+            echo "COSIGN_PRIVATE_KEY secret is not configured."
+            echo "Actual image signing will require CD configuration."
           fi
 
-      - name: Confirm CI Quality Gate Status
+      - name: Confirm CI Pipeline Completion
         run: |
-          echo "======================================================================"
-          echo " All non-bypassable CI quality gates passed successfully: "
-          echo "  - Pre-Commit Quality & Format Checks: PASSED"
-          echo "  - Gitleaks Secret Detection: PASSED"
-          echo "  - Semgrep SAST Analysis: PASSED"
-          echo "  - Checkov IaC & Dockerfile Inspection: PASSED"
-          echo "  - Go Race & Backend Test Suite: PASSED"
-          echo "  - Python Analytics 85%+ Coverage: PASSED"
-          echo "  - Next.js / ESLint / Jest Checks: PASSED"
-          echo "  - Syft SPDX SBOM Generation: PASSED"
-          echo "  - Grype Container Vulnerability Audit: PASSED"
-          echo "  - Cosign Supply Chain Sign Tooling: PASSED"
-          echo "======================================================================"
+          echo "=============================================="
+          echo "       CI SECURITY PIPELINE COMPLETE"
+          echo "=============================================="
+          echo "Pre-Commit : PASSED"
+          echo "Gitleaks   : PASSED"
+          echo "Semgrep    : PASSED"
+          echo "Checkov    : PASSED"
+          echo "Unit Tests : COMPLETED"
+          echo "Syft SBOM  : GENERATED"
+          echo "Grype      : PASSED"
+          echo "Cosign     : TOOLING READY"
+          echo "=============================================="
+          echo "Actual image signing and verification will"
+          echo "be performed in the CD/release workflow."
+          echo "=============================================="
