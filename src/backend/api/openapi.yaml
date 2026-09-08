@@ -39,7 +39,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusResponse'
-              example: {status: ready}
+              example: {status: ready, mysql: ok, redis: ok}
           headers:
             X-Correlation-ID:
               $ref: '#/components/headers/CorrelationId'
@@ -49,7 +49,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StatusResponse'
-              example: {status: not_ready}
+              example: {status: not_ready, mysql: unavailable, redis: ok}
           headers:
             X-Correlation-ID:
               $ref: '#/components/headers/CorrelationId'
@@ -213,9 +213,11 @@ components:
         correlationId: {type: string, maxLength: 100}
     StatusResponse:
       type: object
-      required: [status]
+      required: [status, mysql, redis]
       properties:
         status: {type: string, enum: [ok, ready, not_ready]}
+        mysql: {type: string, enum: [ok, unavailable]}
+        redis: {type: string, enum: [ok, unavailable]}
   responses:
     BadRequest:
       description: Missing or malformed request.

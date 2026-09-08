@@ -22,11 +22,16 @@ func NewAuthRouter(authController *controller.AuthController, tokens *token.Serv
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 	r.GET("/readyz", func(c *gin.Context) {
-		if checker == nil || checker.Check(c.Request.Context()) != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready"})
+		if checker == nil {
+			c.JSON(http.StatusServiceUnavailable, health.Report{Status: "not_ready", MySQL: "unavailable", Redis: "unavailable"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"status": "ready"})
+		report, err := checker.CheckDetailed(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, report)
+			return
+		}
+		c.JSON(http.StatusOK, report)
 	})
 
 	r.GET("/api/v1/hello", func(c *gin.Context) {
