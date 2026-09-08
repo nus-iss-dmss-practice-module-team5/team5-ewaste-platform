@@ -4,10 +4,14 @@ server:
   port: ":8080"
 
 database:
-  dsn: ""
+  host: "mysql"
+  port: 3306
+  name: "ewaste"
+  user: "ewaste_app"
+  password: ""
 
 redis:
-  address: "localhost:6379"
+  address: "redis:6379"
   password: ""
   db: 0
 

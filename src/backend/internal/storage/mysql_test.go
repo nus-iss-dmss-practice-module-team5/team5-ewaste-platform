@@ -7,7 +7,30 @@ import (
 	"github.com/DATA-DOG/go-sqlmock"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+
+	"workflow-api/internal/config"
 )
+
+func TestBuildMySQLDSNSeparatesConnectionSettings(t *testing.T) {
+	dsn := buildMySQLDSN(config.DatabaseConfig{
+		Host: "mysql", Port: 3306, Name: "ewaste", User: "ewaste_app", Password: "secret",
+	})
+
+	for _, expected := range []string{"ewaste_app:secret@tcp(mysql:3306)/ewaste", "charset=utf8mb4", "parseTime=true"} {
+		if !contains(dsn, expected) {
+			t.Fatalf("expected DSN to contain %q, got %q", expected, dsn)
+		}
+	}
+}
+
+func contains(value, fragment string) bool {
+	for i := 0; i+len(fragment) <= len(value); i++ {
+		if value[i:i+len(fragment)] == fragment {
+			return true
+		}
+	}
+	return false
+}
 
 func TestPingMySQLUsesDatabaseConnection(t *testing.T) {
 	sqlDB, mock, err := sqlmock.New(sqlmock.MonitorPingsOption(true))

@@ -25,8 +25,6 @@ const (
 	ModeProduction  = "production"
 )
 
-const testMySQLDSN = "ewaste_app:ewaste-local-only@tcp(localhost:3307)/ewaste?charset=utf8mb4&parseTime=True&loc=UTC"
-
 // ApplyMode applies only safe mode defaults. Explicit config-file and environment values win.
 func (c *Config) ApplyMode(mode string) error {
 	mode = strings.ToLower(strings.TrimSpace(mode))
@@ -40,8 +38,11 @@ func (c *Config) ApplyMode(mode string) error {
 		return errors.New("unsupported application mode")
 	}
 	if mode == ModeTest {
-		if c.Database.DSN == "" {
-			c.Database.DSN = testMySQLDSN
+		if c.Database.Host == "" {
+			c.Database.Host = "localhost"
+		}
+		if c.Database.Port == 0 {
+			c.Database.Port = 3307
 		}
 		if c.Redis.Address == "" {
 			c.Redis.Address = "localhost:6379"
@@ -55,7 +56,11 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	DSN string `mapstructure:"dsn"`
+	Host     string `mapstructure:"host"`
+	Port     int    `mapstructure:"port"`
+	Name     string `mapstructure:"name"`
+	User     string `mapstructure:"user"`
+	Password string `mapstructure:"password"`
 }
 
 type RedisConfig struct {
@@ -123,7 +128,11 @@ func Load(configFile string) (Config, error) {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("mode", ModeDevelopment)
 	v.SetDefault("server.port", ":8080")
-	v.SetDefault("database.dsn", "")
+	v.SetDefault("database.host", "localhost")
+	v.SetDefault("database.port", 3306)
+	v.SetDefault("database.name", "ewaste")
+	v.SetDefault("database.user", "ewaste_app")
+	v.SetDefault("database.password", "")
 	v.SetDefault("redis.address", "localhost:6379")
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
@@ -145,15 +154,18 @@ func setDefaults(v *viper.Viper) {
 }
 
 func bindEnvironment(v *viper.Viper) {
-	keys := []string{
-		"mode",
-		"server.port", "database.dsn", "redis.address", "redis.password", "redis.db",
-		"auth.issuer", "auth.access_secret", "auth.refresh_secret", "auth.refresh_hash_secret",
-		"auth.access_ttl", "auth.refresh_ttl", "rate_limit.requests", "rate_limit.window",
-		"logging.level", "logging.file_path", "logging.max_size_mb", "logging.max_backups",
-		"logging.max_age_days", "logging.compress", "logging.console",
+	keys := []struct {
+		key string
+		env []string
+	}{
+		{key: "database.password", env: []string{"MYSQL_PASSWORD"}},
+		{key: "redis.password", env: []string{"REDIS_PASSWORD"}},
+		{key: "auth.access_secret", env: []string{"EWASTE_AUTH_ACCESS_SECRET"}},
+		{key: "auth.refresh_secret", env: []string{"EWASTE_AUTH_REFRESH_SECRET"}},
+		{key: "auth.refresh_hash_secret", env: []string{"EWASTE_AUTH_REFRESH_HASH_SECRET"}},
 	}
-	for _, key := range keys {
-		_ = v.BindEnv(key)
+	for _, item := range keys {
+		args := append([]string{item.key}, item.env...)
+		_ = v.BindEnv(args...)
 	}
 }

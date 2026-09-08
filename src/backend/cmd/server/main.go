@@ -53,7 +53,7 @@ func main() {
 		}
 	}()
 
-	if cfg.Database.DSN == "" || (!*checkDependencies && (cfg.Auth.AccessSecret == "" || cfg.Auth.RefreshSecret == "" || cfg.Auth.RefreshHashSecret == "")) {
+	if cfg.Database.Host == "" || cfg.Database.Port == 0 || cfg.Database.Name == "" || cfg.Database.User == "" || cfg.Database.Password == "" || (!*checkDependencies && (cfg.Auth.AccessSecret == "" || cfg.Auth.RefreshSecret == "" || cfg.Auth.RefreshHashSecret == "")) {
 		appLogger.Fatal("database DSN and all auth secrets must be configured")
 	}
 	db, err := storage.OpenMySQL(cfg.Database)

@@ -16,7 +16,7 @@ RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app
 COPY --from=builder /out/server ./server
-COPY --from=builder /src/config.compose.yaml ./config.compose.yaml
+COPY --from=builder /src/config.yaml ./config.yaml
 RUN mkdir -p /app/logs && chown -R app:app /app
 
 USER app
