@@ -1,15 +1,13 @@
-mode: development
+mode: test
 
 server:
   port: ":8080"
 
 database:
-  # Supply the credential-bearing DSN through EWASTE_DATABASE_DSN.
   dsn: ""
 
 redis:
   address: "localhost:6379"
-  # Supply the password through EWASTE_REDIS_PASSWORD.
   password: ""
   db: 0
 
