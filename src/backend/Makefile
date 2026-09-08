@@ -1,5 +1,5 @@
 COMPOSE_FILE ?= ../../docker-compose.yml
-COMPOSE_ENV_FILE ?= ../../.env
+COMPOSE_ENV_FILE ?= .env
 
 COMPOSE = docker compose -f $(COMPOSE_FILE) --env-file $(COMPOSE_ENV_FILE)
 
