@@ -19,7 +19,7 @@ output "mysql_fqdn" {
 }
 
 output "mysql_database_name" {
-  value       = azurerm_mysql_flexible_server_database.ewastedb.name
+  value       = azurerm_mysql_flexible_database.ewastedb.name
   description = "Operational database name for Liquibase schema targeting."
 }
 
@@ -29,7 +29,7 @@ output "mysql_admin_username" {
 }
 
 output "mysql_jdbc_url" {
-  value       = "jdbc:mysql://${azurerm_mysql_flexible_server.db.fqdn}:3306/${azurerm_mysql_flexible_server_database.ewastedb.name}?useSSL=true&requireSSL=true"
+  value       = "jdbc:mysql://${azurerm_mysql_flexible_server.db.fqdn}:3306/${azurerm_mysql_flexible_database.ewastedb.name}?useSSL=true&requireSSL=true"
   description = "Formatted JDBC URL consumed by Liquibase migrations in CI/CD."
 }
 
