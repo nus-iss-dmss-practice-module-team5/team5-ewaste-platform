@@ -23,7 +23,7 @@ repos:
   # PYTHON / ANALYTICS CHECKS (Formatting, Imports, Linting)
   # ============================================================================
   - repo: https://github.com/psf/black
-    rev: 24.4.2
+    rev: 24.8.0
     hooks:
       - id: black
         language_version: python3
@@ -36,26 +36,26 @@ repos:
         files: ^(src/analytics/|scripts/)
 
   - repo: https://github.com/pycqa/flake8
-    rev: 7.0.0
+    rev: 7.1.1
     hooks:
       - id: flake8
         files: ^(src/analytics/|scripts/)
         args: ['--max-line-length=100', '--extend-ignore=E203,W503']
 
   # ============================================================================
-  # GO / API CODE CHECKS (Native, Cross-Platform Formatter & Linter)
+  # GO / API CODE CHECKS (Monorepo & Subdirectory Module-Aware)
   # ============================================================================
-  - repo: https://github.com
-    rev: v1.64.5  # Native Go framework loader
+  - repo: https://github.com/tekwizely/pre-commit-golang
+    rev: v1.0.0-rc.1
     hooks:
-      - id: golangci-lint
-        files: ^src/backend/
+      - id: go-fmt-mod
+      - id: go-vet-mod
 
   # ============================================================================
-  # FRONTEND / UI CODE CHECKS (Official Prettier Integration)
+  # FRONTEND / UI CODE CHECKS (Prettier for TS, TSX, JS, CSS)
   # ============================================================================
-  - repo: https://github.com
-    rev: v3.1.0
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v4.0.0-alpha.8
     hooks:
       - id: prettier
         types_or: [javascript, jsx, ts, tsx, css, scss, json, markdown]

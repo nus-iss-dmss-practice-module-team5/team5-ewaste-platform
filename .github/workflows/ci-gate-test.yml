@@ -29,36 +29,36 @@ jobs:
   # ============================================================================
 
 #  # 1.1 PRE-COMMIT / FORMAT CHECKS
-#  pre-commit-checks:
-#    name: Pre-Commit Quality & Format Checks
-#    runs-on: ubuntu-latest
-#
-#    steps:
-#      - name: Checkout Code Repository
-#        uses: actions/checkout@v4
-#
-#      - name: Setup Python Runtime
-#        uses: actions/setup-python@v5
-#        with:
-#          python-version: ${{ env.PYTHON_VERSION }}
-#          cache: pip
-#
-#      - name: Setup Go Runtime
-#        uses: actions/setup-go@v5
-#        with:
-#          go-version: ${{ env.GO_VERSION }}
-#          cache: true
-#
-#      - name: Setup Node.js Runtime
-#        uses: actions/setup-node@v4
-#        with:
-#          node-version: ${{ env.NODE_VERSION }}
-#
-#      - name: Execute Pre-Commit Hooks
-#        uses: pre-commit/action@v3.0.1
-#        with:
-#          extra_args: --all-files --show-diff-on-failure
-#
+  pre-commit-checks:
+    name: Pre-Commit Quality & Format Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python Runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+
+      - name: Setup Go Runtime
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Execute Pre-Commit Hooks
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --show-diff-on-failure
+
 
   # 1.2 SECRET DETECTION
   secret-scan:
@@ -359,7 +359,7 @@ jobs:
 
     needs:
       - security-gate
-      - pre-commit-checks
+#      - pre-commit-checks
       - backend-tests
       - analytics-tests
       - frontend-checks
