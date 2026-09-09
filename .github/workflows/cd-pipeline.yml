@@ -125,6 +125,7 @@ jobs:
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.8.0
+          terraform_wrapper: false
 
       # ------------------------------------------------------------------------
       # 1.1. SHARED INFRASTRUCTURE (ACR & Log Analytics Workspace)
@@ -212,9 +213,9 @@ jobs:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       # ------------------------------------------------------------------------
-      # 2.1 OPEN EPHEMERAL ACCESS TO ACR FOR RUNNER PUSH
+      # 2.1 OPEN EPHEMERAL ACCESS TO ACR FOR PIPELINE PUSH & ACA JOB VALIDATION
       # ------------------------------------------------------------------------
-      - name: Open Ephemeral Access to ACR for Pipeline Push
+      - name: Open Ephemeral Access to ACR
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
           ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
@@ -259,21 +260,7 @@ jobs:
           echo "MIGRATION_IMAGE=$MIGRATION_IMAGE" >> $GITHUB_ENV
 
       # ------------------------------------------------------------------------
-      # 2.3 RESTORE ZERO-TRUST PERIMETER (ALWAYS EXECUTES)
-      # ------------------------------------------------------------------------
-      - name: Restore ACR Zero-Trust Perimeter (Disable Public Access)
-        if: always()
-        run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
-          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1); fi
-          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
-
-          echo "Restoring ACR zero-trust perimeter: public network access disabled and default action Deny..."
-          az acr update --name "$ACR_NAME" --public-network-enabled false --default-action Deny || true
-
-      # ------------------------------------------------------------------------
-      # 2.4 EXECUTE MIGRATION INSIDE VNET BOUNDARY VIA ACA JOB
+      # 2.3 EXECUTE MIGRATION INSIDE VNET BOUNDARY VIA ACA JOB
       # ------------------------------------------------------------------------
       - name: Execute Migration Inside VNet Boundary
         uses: azure/cli@v2
@@ -352,6 +339,20 @@ jobs:
               --name "$JOB_NAME" \
               --resource-group "$RG" \
               --yes
+
+      # ------------------------------------------------------------------------
+      # 2.4 RESTORE ZERO-TRUST PERIMETER (ALWAYS EXECUTES AFTER ACA JOB COMPLETION)
+      # ------------------------------------------------------------------------
+      - name: Restore ACR Zero-Trust Perimeter (Disable Public Access)
+        if: always()
+        run: |
+          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
+          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1); fi
+          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
+
+          echo "Restoring ACR zero-trust perimeter: public network access disabled and default action Deny..."
+          az acr update --name "$ACR_NAME" --public-network-enabled false --default-action Deny || true
 
 #  # ============================================================================
 #  # STAGE 3: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
