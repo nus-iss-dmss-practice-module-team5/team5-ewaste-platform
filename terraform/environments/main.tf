@@ -324,159 +324,159 @@ resource "azurerm_container_app_environment" "aca_env" {
   }
 }
 
-# 6.1 Backend API / workflow Container App.
-resource "azurerm_container_app" "api" {
-  name                         = "aca-${local.name_prefix}-api"
-  container_app_environment_id = azurerm_container_app_environment.aca_env.id
-  resource_group_name          = azurerm_resource_group.env_rg.name
-  revision_mode                = "Single"
-  tags                         = local.common_tags
-
-  identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.aca_identity.id]
-  }
-
-  registry {
-    server   = data.azurerm_container_registry.shared_acr.login_server
-    identity = azurerm_user_assigned_identity.aca_identity.id
-  }
-
-  # Native ACA secrets (encrypted at rest by Azure)
-  secret {
-    name  = "db-password"
-    value = random_password.db_password.result
-  }
-
-  secret {
-    name  = "redis-conn"
-    value = azurerm_redis_cache.redis.primary_connection_string
-  }
-
-  template {
-    min_replicas = 1
-    max_replicas = 2
-
-    container {
-      name   = "auth-workflow-api"
-      image  = var.image_digest
-      cpu    = 0.5
-      memory = "1.0Gi"
-
-      env {
-        name  = "APP_ENV"
-        value = var.environment
-      }
-
-      env {
-        name  = "DB_HOST"
-        value = azurerm_mysql_flexible_server.db.fqdn
-      }
-
-      env {
-        name  = "DB_USER"
-        value = var.db_admin_username
-      }
-
-      env {
-        name        = "DB_PASSWORD"
-        secret_name = "db-password"
-      }
-
-      env {
-        name        = "REDIS_CONN"
-        secret_name = "redis-conn"
-      }
-    }
-  }
-
-  ingress {
-    external_enabled = true
-    target_port      = 80
-    transport        = "auto"
-
-    traffic_weight {
-      percentage      = 100
-      latest_revision = true
-    }
-  }
-
-  lifecycle {
-    ignore_changes = [
-      template[0].container[0].image,
-      ingress[0].target_port
-    ]
-  }
-
-  depends_on = [
-    azurerm_role_assignment.kv_secrets_user,
-    azurerm_role_assignment.acr_pull,
-    azurerm_private_endpoint.acr,
-    azurerm_private_endpoint.key_vault,
-    azurerm_private_endpoint.redis
-  ]
-}
-
-# 6.2 Frontend UI (Next.js) Container App.
-resource "azurerm_container_app" "ui" {
-  name                         = "aca-${local.name_prefix}-ui"
-  container_app_environment_id = azurerm_container_app_environment.aca_env.id
-  resource_group_name          = azurerm_resource_group.env_rg.name
-  revision_mode                = "Single"
-  tags                         = local.common_tags
-
-  identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.aca_identity.id]
-  }
-
-  registry {
-    server   = data.azurerm_container_registry.shared_acr.login_server
-    identity = azurerm_user_assigned_identity.aca_identity.id
-  }
-
-  template {
-    min_replicas = 1
-    max_replicas = 2
-
-    container {
-      name   = "ewaste-frontend-ui"
-      image  = var.ui_image_digest
-      cpu    = 0.5
-      memory = "1.0Gi"
-
-      env {
-        name  = "APP_ENV"
-        value = var.environment
-      }
-
-      env {
-        name  = "NEXT_PUBLIC_API_URL"
-        value = "https://${azurerm_container_app.api.latest_revision_fqdn}"
-      }
-    }
-  }
-
-  ingress {
-    external_enabled = true
-    target_port      = 80
-    transport        = "auto"
-
-    traffic_weight {
-      percentage      = 100
-      latest_revision = true
-    }
-  }
-
-  lifecycle {
-    ignore_changes = [
-      template[0].container[0].image,
-      ingress[0].target_port
-    ]
-  }
-
-  depends_on = [
-    azurerm_role_assignment.acr_pull,
-    azurerm_private_endpoint.acr
-  ]
-}
+# # 6.1 Backend API / workflow Container App.
+# resource "azurerm_container_app" "api" {
+#   name                         = "aca-${local.name_prefix}-api"
+#   container_app_environment_id = azurerm_container_app_environment.aca_env.id
+#   resource_group_name          = azurerm_resource_group.env_rg.name
+#   revision_mode                = "Single"
+#   tags                         = local.common_tags
+#
+#   identity {
+#     type         = "UserAssigned"
+#     identity_ids = [azurerm_user_assigned_identity.aca_identity.id]
+#   }
+#
+#   registry {
+#     server   = data.azurerm_container_registry.shared_acr.login_server
+#     identity = azurerm_user_assigned_identity.aca_identity.id
+#   }
+#
+#   # Native ACA secrets (encrypted at rest by Azure)
+#   secret {
+#     name  = "db-password"
+#     value = random_password.db_password.result
+#   }
+#
+#   secret {
+#     name  = "redis-conn"
+#     value = azurerm_redis_cache.redis.primary_connection_string
+#   }
+#
+#   template {
+#     min_replicas = 1
+#     max_replicas = 2
+#
+#     container {
+#       name   = "auth-workflow-api"
+#       image  = var.image_digest
+#       cpu    = 0.5
+#       memory = "1.0Gi"
+#
+#       env {
+#         name  = "APP_ENV"
+#         value = var.environment
+#       }
+#
+#       env {
+#         name  = "DB_HOST"
+#         value = azurerm_mysql_flexible_server.db.fqdn
+#       }
+#
+#       env {
+#         name  = "DB_USER"
+#         value = var.db_admin_username
+#       }
+#
+#       env {
+#         name        = "DB_PASSWORD"
+#         secret_name = "db-password"
+#       }
+#
+#       env {
+#         name        = "REDIS_CONN"
+#         secret_name = "redis-conn"
+#       }
+#     }
+#   }
+#
+#   ingress {
+#     external_enabled = true
+#     target_port      = 80
+#     transport        = "auto"
+#
+#     traffic_weight {
+#       percentage      = 100
+#       latest_revision = true
+#     }
+#   }
+#
+#   lifecycle {
+#     ignore_changes = [
+#       template[0].container[0].image,
+#       ingress[0].target_port
+#     ]
+#   }
+#
+#   depends_on = [
+#     azurerm_role_assignment.kv_secrets_user,
+#     azurerm_role_assignment.acr_pull,
+#     azurerm_private_endpoint.acr,
+#     azurerm_private_endpoint.key_vault,
+#     azurerm_private_endpoint.redis
+#   ]
+# }
+#
+# # 6.2 Frontend UI (Next.js) Container App.
+# resource "azurerm_container_app" "ui" {
+#   name                         = "aca-${local.name_prefix}-ui"
+#   container_app_environment_id = azurerm_container_app_environment.aca_env.id
+#   resource_group_name          = azurerm_resource_group.env_rg.name
+#   revision_mode                = "Single"
+#   tags                         = local.common_tags
+#
+#   identity {
+#     type         = "UserAssigned"
+#     identity_ids = [azurerm_user_assigned_identity.aca_identity.id]
+#   }
+#
+#   registry {
+#     server   = data.azurerm_container_registry.shared_acr.login_server
+#     identity = azurerm_user_assigned_identity.aca_identity.id
+#   }
+#
+#   template {
+#     min_replicas = 1
+#     max_replicas = 2
+#
+#     container {
+#       name   = "ewaste-frontend-ui"
+#       image  = var.ui_image_digest
+#       cpu    = 0.5
+#       memory = "1.0Gi"
+#
+#       env {
+#         name  = "APP_ENV"
+#         value = var.environment
+#       }
+#
+#       env {
+#         name  = "NEXT_PUBLIC_API_URL"
+#         value = "https://${azurerm_container_app.api.latest_revision_fqdn}"
+#       }
+#     }
+#   }
+#
+#   ingress {
+#     external_enabled = true
+#     target_port      = 80
+#     transport        = "auto"
+#
+#     traffic_weight {
+#       percentage      = 100
+#       latest_revision = true
+#     }
+#   }
+#
+#   lifecycle {
+#     ignore_changes = [
+#       template[0].container[0].image,
+#       ingress[0].target_port
+#     ]
+#   }
+#
+#   depends_on = [
+#     azurerm_role_assignment.acr_pull,
+#     azurerm_private_endpoint.acr
+#   ]
+# }

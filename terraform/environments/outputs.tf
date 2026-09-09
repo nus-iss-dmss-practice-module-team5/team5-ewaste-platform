@@ -69,7 +69,12 @@ output "acr_login_server" {
   description = "Login server for the shared Azure Container Registry."
 }
 
+output "aca_env_name" {
+  value       = azurerm_container_app_environment.aca_env.name
+  description = "ACA Managed Environment name."
+}
+
 output "aca_identity_id" {
   value       = azurerm_user_assigned_identity.aca_identity.id
-  description = "Resource ID of the user-assigned managed identity."
+  description = "User Assigned Managed Identity Resource ID."
 }

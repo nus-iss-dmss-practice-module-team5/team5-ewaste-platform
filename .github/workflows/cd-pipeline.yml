@@ -94,8 +94,6 @@ jobs:
       mysql_db: ${{ steps.tf_outputs.outputs.mysql_db }}
       mysql_admin_password: ${{ steps.tf_outputs.outputs.mysql_admin_password }}
       aca_identity_id: ${{ steps.tf_outputs.outputs.aca_identity_id }}
-      aca_api_fqdn: ${{ steps.tf_outputs.outputs.aca_api_fqdn }}
-      aca_ui_fqdn: ${{ steps.tf_outputs.outputs.aca_ui_fqdn }}
       key_vault_uri: ${{ steps.tf_outputs.outputs.key_vault_uri }}
     steps:
       - name: Checkout Code Repository
@@ -165,7 +163,7 @@ jobs:
             -var="environment=$TARGET_ENV" \
             -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}"
 
-            # ------------------------------------------------------------------------
+      # ------------------------------------------------------------------------
       # 1.3. EXPORT OUTPUTS FOR SUBSEQUENT STAGES
       # ------------------------------------------------------------------------
       - name: Export Deployment Outputs
@@ -181,8 +179,6 @@ jobs:
 
           MYSQL_FQDN=$(terraform output -raw mysql_fqdn 2>/dev/null || echo "")
           MYSQL_DB=$(terraform output -raw mysql_database_name 2>/dev/null || echo "ewastedb")
-          ACA_API_FQDN=$(terraform output -raw aca_api_fqdn 2>/dev/null || echo "")
-          ACA_UI_FQDN=$(terraform output -raw aca_ui_fqdn 2>/dev/null || echo "")
           KV_URI=$(terraform output -raw key_vault_uri 2>/dev/null || echo "")
           MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "${{ secrets.DB_PASSWORD }}")
           ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
@@ -197,8 +193,6 @@ jobs:
             echo "resource_group=rg-ewaste-${TARGET_ENV}"
             echo "mysql_fqdn=${MYSQL_FQDN}"
             echo "mysql_db=${MYSQL_DB}"
-            echo "aca_api_fqdn=${ACA_API_FQDN}"
-            echo "aca_ui_fqdn=${ACA_UI_FQDN}"
             echo "key_vault_uri=${KV_URI}"
             echo "mysql_admin_password=${MYSQL_PASS}"
             echo "aca_identity_id=${ACA_IDENTITY_ID}"
@@ -322,6 +316,9 @@ jobs:
 #    needs: [resolve-environment, provision-infrastructure, database-migration]
 #    runs-on: ubuntu-latest
 #    environment: ${{ needs.resolve-environment.outputs.environment }}
+#    outputs:
+#      aca_api_fqdn: ${{ steps.api_deploy.outputs.aca_api_fqdn }}
+#      aca_ui_fqdn: ${{ steps.ui_deploy.outputs.aca_ui_fqdn }}
 #    steps:
 #      - name: Checkout Code Repository
 #        uses: actions/checkout@v4
@@ -351,7 +348,7 @@ jobs:
 #            EOF
 #          fi
 #
-#          # Build and push inside ACR via Service Principal
+#          # Build and push directly inside ACR via Service Principal
 #          az acr build \
 #            --registry "$ACR_NAME" \
 #            --image "${{ env.IMAGE_NAME_API }}:${{ github.sha }}" \
@@ -383,15 +380,48 @@ jobs:
 #          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
 #          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 #
-#      - name: Deploy API Revision to Azure Container Apps
+#      - name: Deploy API Container to Azure Container Apps
+#        id: api_deploy
 #        uses: azure/cli@v2
 #        with:
 #          inlineScript: |
-#            az containerapp update \
-#              --name aca-ewaste-${{ needs.resolve-environment.outputs.environment }}-api \
-#              --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
+#            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+#            RG="${{ needs.provision-infrastructure.outputs.resource_group }}"
+#            CAE="${{ needs.provision-infrastructure.outputs.aca_env_name }}"
+#            IDENTITY="${{ needs.provision-infrastructure.outputs.aca_identity_id }}"
+#            ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+#            DB_HOST="${{ needs.provision-infrastructure.outputs.mysql_fqdn }}"
+#            DB_PASS="${{ needs.provision-infrastructure.outputs.mysql_admin_password }}"
+#            APP_NAME="aca-ewaste-${TARGET_ENV}-api"
+#
+#            echo "Deploying Backend API Container App ($APP_NAME)..."
+#            az containerapp create \
+#              --name "$APP_NAME" \
+#              --resource-group "$RG" \
+#              --environment "$CAE" \
 #              --image "${{ env.API_IMMUTABLE_DIGEST }}" \
-#              || echo "Azure Container App API updated."
+#              --target-port 8080 \
+#              --ingress external \
+#              --min-replicas 1 \
+#              --max-replicas 2 \
+#              --cpu 0.5 \
+#              --memory 1.0Gi \
+#              --user-assigned "$IDENTITY" \
+#              --registry-server "$ACR_SERVER" \
+#              --registry-identity "$IDENTITY" \
+#              --secrets db-password="$DB_PASS" \
+#              --env-vars APP_ENV="$TARGET_ENV" \
+#                         DB_HOST="$DB_HOST" \
+#                         DB_USER="ewasteadmin" \
+#                         DB_PASSWORD=secretref:db-password \
+#              2>/dev/null || az containerapp update \
+#                --name "$APP_NAME" \
+#                --resource-group "$RG" \
+#                --image "${{ env.API_IMMUTABLE_DIGEST }}"
+#
+#            API_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
+#            echo "aca_api_fqdn=$API_FQDN" >> "$GITHUB_OUTPUT"
+#            echo "API FQDN: https://$API_FQDN"
 #
 #      # ------------------------------------------------------------------------
 #      # 3.2 FRONTEND UI CONTAINER (Build via SP, Sign & Deploy)
@@ -409,11 +439,11 @@ jobs:
 #            EOF
 #          fi
 #
-#          # Build and push inside ACR via Service Principal
+#          # Build and push directly inside ACR via Service Principal
 #          az acr build \
 #            --registry "$ACR_NAME" \
 #            --image "${{ env.IMAGE_NAME_UI }}:${{ github.sha }}" \
-#            --build-arg NEXT_PUBLIC_API_URL="https://${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}" \
+#            --build-arg NEXT_PUBLIC_API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}" \
 #            --file src/frontend/Dockerfile \
 #            src/frontend/
 #
@@ -442,45 +472,75 @@ jobs:
 #          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
 #          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 #
-#      - name: Deploy UI Revision to Azure Container Apps
+#      - name: Deploy UI Container to Azure Container Apps
+#        id: ui_deploy
 #        uses: azure/cli@v2
 #        with:
 #          inlineScript: |
-#            az containerapp update \
-#              --name aca-ewaste-${{ needs.resolve-environment.outputs.environment }}-ui \
-#              --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
+#            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+#            RG="${{ needs.provision-infrastructure.outputs.resource_group }}"
+#            CAE="${{ needs.provision-infrastructure.outputs.aca_env_name }}"
+#            IDENTITY="${{ needs.provision-infrastructure.outputs.aca_identity_id }}"
+#            ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+#            API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
+#            APP_NAME="aca-ewaste-${TARGET_ENV}-ui"
+#
+#            echo "Deploying Frontend UI Container App ($APP_NAME)..."
+#            az containerapp create \
+#              --name "$APP_NAME" \
+#              --resource-group "$RG" \
+#              --environment "$CAE" \
 #              --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
-#              || echo "Azure Container App UI updated."
+#              --target-port 3000 \
+#              --ingress external \
+#              --min-replicas 1 \
+#              --max-replicas 2 \
+#              --cpu 0.5 \
+#              --memory 1.0Gi \
+#              --user-assigned "$IDENTITY" \
+#              --registry-server "$ACR_SERVER" \
+#              --registry-identity "$IDENTITY" \
+#              --env-vars APP_ENV="$TARGET_ENV" \
+#                         NEXT_PUBLIC_API_URL="$API_URL" \
+#              2>/dev/null || az containerapp update \
+#                --name "$APP_NAME" \
+#                --resource-group "$RG" \
+#                --image "${{ env.UI_IMMUTABLE_DIGEST }}"
+#
+#            UI_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
+#            echo "aca_ui_fqdn=$UI_FQDN" >> "$GITHUB_OUTPUT"
+#            echo "UI FQDN: https://$UI_FQDN"
 #
 #      # ------------------------------------------------------------------------
 #      # 3.3 LIVE CONTAINER READINESS PROBES (API & UI)
 #      # ------------------------------------------------------------------------
 #      - name: Verify Live ACA Health Readiness Probes (API & UI)
 #        run: |
-#          if [ -n "${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}" ]; then
-#            API_HEALTH="https://${{ needs.provision-infrastructure.outputs.aca_api_fqdn }}/health/ready"
-#            echo "Verifying API readiness at: $API_HEALTH"
+#          API_FQDN="${{ steps.api_deploy.outputs.aca_api_fqdn }}"
+#          UI_FQDN="${{ steps.ui_deploy.outputs.aca_ui_fqdn }}"
+#
+#          if [ -n "$API_FQDN" ]; then
+#            echo "Verifying API ingress accessibility at: https://$API_FQDN"
 #            for i in {1..12}; do
-#              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" $API_HEALTH || true)
-#              if [ "$STATUS_CODE" == "200" ]; then
-#                echo "API readiness probe verified (HTTP 200 OK)."
+#              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$API_FQDN" || true)
+#              echo "API Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
+#              if [ "$STATUS_CODE" != "000" ] && [ "$STATUS_CODE" -lt 500 ]; then
+#                echo "API verified successfully (HTTP $STATUS_CODE)."
 #                break
 #              fi
-#              echo "Waiting for API readiness... attempt $i/12 (Current HTTP: $STATUS_CODE)"
 #              sleep 10
 #            done
 #          fi
 #
-#          if [ -n "${{ needs.provision-infrastructure.outputs.aca_ui_fqdn }}" ]; then
-#            UI_HEALTH="https://${{ needs.provision-infrastructure.outputs.aca_ui_fqdn }}/"
-#            echo "Verifying UI readiness at: $UI_HEALTH"
+#          if [ -n "$UI_FQDN" ]; then
+#            echo "Verifying UI ingress accessibility at: https://$UI_FQDN"
 #            for i in {1..12}; do
-#              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" $UI_HEALTH || true)
-#              if [ "$STATUS_CODE" == "200" ]; then
-#                echo "UI readiness probe verified (HTTP 200 OK)."
+#              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$UI_FQDN" || true)
+#              echo "UI Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
+#              if [ "$STATUS_CODE" != "000" ] && [ "$STATUS_CODE" -lt 500 ]; then
+#                echo "UI verified successfully (HTTP $STATUS_CODE)."
 #                break
 #              fi
-#              echo "Waiting for UI readiness... attempt $i/12 (Current HTTP: $STATUS_CODE)"
 #              sleep 10
 #            done
 #          fi
