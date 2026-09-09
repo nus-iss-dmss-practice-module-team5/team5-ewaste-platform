@@ -3,3 +3,7 @@
 FROM liquibase/liquibase:5.0.3
 
 RUN lpm add mysql --global
+
+# Set working directory and copy migration changelogs and seed data for ACA Job execution
+WORKDIR /liquibase/changelog
+COPY . /liquibase/changelog/

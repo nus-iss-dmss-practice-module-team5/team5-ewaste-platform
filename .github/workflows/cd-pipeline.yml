@@ -215,26 +215,31 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Build & Publish Ephemeral Migration Container via SP
+      - name: Authenticate Docker to ACR
         run: |
+          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
           ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
+          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1); fi
 
-          MIGRATION_IMAGE="${{ needs.provision-infrastructure.outputs.acr_server }}/db-migrator:${{ github.sha }}"
-          mkdir -p db/changelog
+          echo "Authenticating Docker to ACR: $ACR_SERVER"
+          if echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -e .clientSecret >/dev/null 2>&1; then
+            CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
+            CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
+            echo "$CLIENT_SECRET" | docker login "$ACR_SERVER" -u "$CLIENT_ID" --password-stdin
+          else
+            az acr login --name "$ACR_NAME"
+          fi
 
-          # Create inline Dockerfile for Liquibase
-          cat <<'EOF' > db/Dockerfile
-          FROM liquibase/liquibase:4.27
-          COPY changelog /liquibase/changelog
-          EOF
+      - name: Build & Publish Liquibase Migration Container
+        run: |
+          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          MIGRATION_IMAGE="${ACR_SERVER}/db-migrator:${{ github.sha }}"
 
-          # Build and push directly inside Azure using Service Principal
-          az acr build \
-            --registry "$ACR_NAME" \
-            --image "db-migrator:${{ github.sha }}" \
-            --file db/Dockerfile \
-            db/
+          echo "Building migration image: $MIGRATION_IMAGE"
+          docker build -t "$MIGRATION_IMAGE" -f database/Dockerfile database/
+
+          echo "Pushing migration image to ACR..."
+          docker push "$MIGRATION_IMAGE"
 
           echo "MIGRATION_IMAGE=$MIGRATION_IMAGE" >> $GITHUB_ENV
 
@@ -274,7 +279,7 @@ jobs:
               --replica-retry-limit 0 \
               --image "${{ env.MIGRATION_IMAGE }}" \
               --args "update" \
-                     "--changelog-file=/liquibase/changelog/db.changelog-master.xml" \
+                     "--changelog-file=/liquibase/changelog/changelog-master.yaml" \
                      "--url=$JDBC_URL" \
                      "--username=ewasteadmin" \
                      "--password=$DB_PASS"
@@ -335,9 +340,9 @@ jobs:
 #      # 3.1 BACKEND API CONTAINER (Build via SP, Sign & Deploy)
 #      # ------------------------------------------------------------------------
 #      - name: Build & Publish Backend API Container via SP
-#        run: |
-#          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-#          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
+#        run: |\
+#          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+#          IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
 #
 #          if [ ! -f src/backend/Dockerfile ]; then
 #            mkdir -p src/backend
@@ -348,24 +353,15 @@ jobs:
 #            EOF
 #          fi
 #
-#          # Build and push directly inside ACR via Service Principal
-#          az acr build \
-#            --registry "$ACR_NAME" \
-#            --image "${{ env.IMAGE_NAME_API }}:${{ github.sha }}" \
-#            --file src/backend/Dockerfile \
-#            src/backend/
+#          docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
+#          docker push "$IMAGE_TAG"
 #
 #          # Retrieve immutable digest
-#          API_DIGEST=$(az acr repository show-manifests \
-#            --name "$ACR_NAME" \
-#            --repository "${{ env.IMAGE_NAME_API }}" \
-#            --query "[?tags[?contains(@, '${{ github.sha }}')]].digest | [0]" -o tsv)
-#
-#          FULL_DIGEST="${{ needs.provision-infrastructure.outputs.acr_server }}/${{ env.IMAGE_NAME_API }}@$API_DIGEST"
-#          echo "API_IMMUTABLE_DIGEST=$FULL_DIGEST" >> $GITHUB_ENV
+#          API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
+#          echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
 #
 #      - name: Sign API Container Image Digest with Cosign
-#        run: |
+#        run: |\
 #          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
 #          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
 #            cosign sign --yes \
@@ -384,7 +380,7 @@ jobs:
 #        id: api_deploy
 #        uses: azure/cli@v2
 #        with:
-#          inlineScript: |
+#          inlineScript: |\
 #            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
 #            RG="${{ needs.provision-infrastructure.outputs.resource_group }}"
 #            CAE="${{ needs.provision-infrastructure.outputs.aca_env_name }}"
@@ -427,9 +423,9 @@ jobs:
 #      # 3.2 FRONTEND UI CONTAINER (Build via SP, Sign & Deploy)
 #      # ------------------------------------------------------------------------
 #      - name: Build & Publish Frontend UI Container via SP
-#        run: |
-#          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-#          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
+#        run: |\
+#          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+#          IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
 #
 #          if [ ! -f src/frontend/Dockerfile ]; then
 #            mkdir -p src/frontend
@@ -439,25 +435,14 @@ jobs:
 #            EOF
 #          fi
 #
-#          # Build and push directly inside ACR via Service Principal
-#          az acr build \
-#            --registry "$ACR_NAME" \
-#            --image "${{ env.IMAGE_NAME_UI }}:${{ github.sha }}" \
-#            --build-arg NEXT_PUBLIC_API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}" \
-#            --file src/frontend/Dockerfile \
-#            src/frontend/
+#          docker build -t "$IMAGE_TAG" --build-arg NEXT_PUBLIC_API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}" -f src/frontend/Dockerfile src/frontend/
+#          docker push "$IMAGE_TAG"
 #
-#          # Retrieve immutable digest
-#          UI_DIGEST=$(az acr repository show-manifests \
-#            --name "$ACR_NAME" \
-#            --repository "${{ env.IMAGE_NAME_UI }}" \
-#            --query "[?tags[?contains(@, '${{ github.sha }}')]].digest | [0]" -o tsv)
-#
-#          FULL_UI_DIGEST="${{ needs.provision-infrastructure.outputs.acr_server }}/${{ env.IMAGE_NAME_UI }}@$UI_DIGEST"
-#          echo "UI_IMMUTABLE_DIGEST=$FULL_UI_DIGEST" >> $GITHUB_ENV
+#          UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
+#          echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
 #
 #      - name: Sign UI Container Image Digest with Cosign
-#        run: |
+#        run: |\
 #          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
 #          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
 #            cosign sign --yes \
@@ -476,7 +461,7 @@ jobs:
 #        id: ui_deploy
 #        uses: azure/cli@v2
 #        with:
-#          inlineScript: |
+#          inlineScript: |\
 #            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
 #            RG="${{ needs.provision-infrastructure.outputs.resource_group }}"
 #            CAE="${{ needs.provision-infrastructure.outputs.aca_env_name }}"
@@ -515,7 +500,7 @@ jobs:
 #      # 3.3 LIVE CONTAINER READINESS PROBES (API & UI)
 #      # ------------------------------------------------------------------------
 #      - name: Verify Live ACA Health Readiness Probes (API & UI)
-#        run: |
+#        run: |\
 #          API_FQDN="${{ steps.api_deploy.outputs.aca_api_fqdn }}"
 #          UI_FQDN="${{ steps.ui_deploy.outputs.aca_ui_fqdn }}"
 #
@@ -570,7 +555,7 @@ jobs:
 #        if: always()
 #        with:
 #          name: zap-dast-${{ needs.resolve-environment.outputs.environment }}-${{ github.sha }}
-#          path: |
+#          path: |\
 #            report_html.html
 #            report_md.md
 #            report_json.json
@@ -588,7 +573,7 @@ jobs:
 #        uses: actions/checkout@v4
 #
 #      - name: Execute Seeded-User Login API Smoke Test
-#        run: |
+#        run: |\
 #          API_FQDN="${{ needs.deploy-application.outputs.aca_api_fqdn }}"
 #          if [ -n "$API_FQDN" ]; then
 #            API_URL="https://${API_FQDN}/api/v1/auth/login"
@@ -610,7 +595,7 @@ jobs:
 #          fi
 #
 #      - name: Execute Frontend UI Endpoint Smoke Test
-#        run: |
+#        run: |\
 #          UI_FQDN="${{ needs.deploy-application.outputs.aca_ui_fqdn }}"
 #          if [ -n "$UI_FQDN" ]; then
 #            UI_URL="https://${UI_FQDN}/"
@@ -622,7 +607,7 @@ jobs:
 #          fi
 #
 #      - name: Confirm Deployment & Archival State
-#        run: |
+#        run: |\
 #          echo "======================================================================"
 #          echo "  DEPLOYMENT & AUDIT SUITE COMPLETED SUCCESSFULLY"
 #          echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
