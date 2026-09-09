@@ -220,13 +220,16 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Open Ephemeral Access to ACR for Pipeline Push
         run: |
+          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
           ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "${{ needs.provision-infrastructure.outputs.acr_server }}" | cut -d'.' -f1); fi
+          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1); fi
           if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
 
-          echo "Temporarily enabling ACR public access for GitHub runner push..."
-          az acr update --name "$ACR_NAME" --public-network-enabled true
-          sleep 5
+          echo "Temporarily enabling ACR public access and default action Allow for: $ACR_NAME"
+          az acr update --name "$ACR_NAME" --public-network-enabled true --default-action Allow
+
+          echo "Waiting 15 seconds for ACR network configuration propagation..."
+          sleep 15
 
       # ------------------------------------------------------------------------
       # 2.2 AUTHENTICATE & PUSH MIGRATION IMAGE
@@ -265,12 +268,13 @@ jobs:
       - name: Restore ACR Zero-Trust Perimeter (Disable Public Access)
         if: always()
         run: |
+          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
           ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "${{ needs.provision-infrastructure.outputs.acr_server }}" | cut -d'.' -f1); fi
+          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1); fi
           if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
 
-          echo "Restoring ACR zero-trust perimeter: public network access disabled..."
-          az acr update --name "$ACR_NAME" --public-network-enabled false || true
+          echo "Restoring ACR zero-trust perimeter: public network access disabled and default action Deny..."
+          az acr update --name "$ACR_NAME" --public-network-enabled false --default-action Deny || true
 
       - name: Retrieve Database Password from Azure Key Vault
         uses: azure/cli@v2
