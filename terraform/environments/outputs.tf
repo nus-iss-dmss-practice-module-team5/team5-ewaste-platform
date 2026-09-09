@@ -24,7 +24,7 @@ output "mysql_jdbc_url" {
 }
 
 output "mysql_admin_password" {
-  value       = random_password.db_password.result
+  value       = var.db_admin_password
   sensitive   = true
   description = "Administrator password for MySQL Flexible Server."
 }

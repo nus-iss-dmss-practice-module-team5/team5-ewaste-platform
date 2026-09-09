@@ -44,6 +44,12 @@ variable "db_admin_username" {
   description = "Administrator login for MySQL Flexible Server."
 }
 
+variable "db_admin_password" {
+  type        = string
+  sensitive   = true
+  description = "Administrator password for MySQL Flexible Server."
+}
+
 variable "image_digest" {
   type        = string
   default     = "mcr.microsoft.com/azuredocs/aci-helloworld:latest"

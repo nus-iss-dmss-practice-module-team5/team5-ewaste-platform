@@ -160,12 +160,6 @@ resource "azurerm_private_endpoint" "acr" {
 # 4. ENVIRONMENT KEY VAULT & MANAGED IDENTITY
 # ============================================================================
 
-resource "random_password" "db_password" {
-  length           = 20
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
-}
-
 resource "azurerm_key_vault" "kv" {
   # checkov:skip=CKV_AZURE_110:Sprint 1 baseline permits clean environment teardown/recreation.
   name                          = "kv-${local.name_prefix}"
@@ -235,7 +229,7 @@ resource "azurerm_mysql_flexible_server" "db" {
   resource_group_name    = azurerm_resource_group.env_rg.name
   location               = azurerm_resource_group.env_rg.location
   administrator_login    = var.db_admin_username
-  administrator_password = random_password.db_password.result
+  administrator_password = var.db_admin_password
 
   sku_name = "B_Standard_B1ms"
   version  = "8.0.21"
