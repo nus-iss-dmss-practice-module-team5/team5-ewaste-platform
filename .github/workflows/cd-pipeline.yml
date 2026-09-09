@@ -93,6 +93,7 @@ jobs:
       mysql_fqdn: ${{ steps.tf_outputs.outputs.mysql_fqdn }}
       mysql_db: ${{ steps.tf_outputs.outputs.mysql_db }}
       mysql_admin_password: ${{ steps.tf_outputs.outputs.mysql_admin_password }}
+      aca_identity_id: ${{ steps.tf_outputs.outputs.aca_identity_id }}
       aca_api_fqdn: ${{ steps.tf_outputs.outputs.aca_api_fqdn }}
       aca_ui_fqdn: ${{ steps.tf_outputs.outputs.aca_ui_fqdn }}
       key_vault_uri: ${{ steps.tf_outputs.outputs.key_vault_uri }}
@@ -184,6 +185,7 @@ jobs:
           ACA_UI_FQDN=$(terraform output -raw aca_ui_fqdn 2>/dev/null || echo "")
           KV_URI=$(terraform output -raw key_vault_uri 2>/dev/null || echo "")
           MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "${{ secrets.DB_PASSWORD }}")
+          ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
 
           if [ -n "$MYSQL_PASS" ]; then
             echo "::add-mask::$MYSQL_PASS"
@@ -199,6 +201,7 @@ jobs:
             echo "aca_ui_fqdn=${ACA_UI_FQDN}"
             echo "key_vault_uri=${KV_URI}"
             echo "mysql_admin_password=${MYSQL_PASS}"
+            echo "aca_identity_id=${ACA_IDENTITY_ID}"
           } >> "$GITHUB_OUTPUT"
 
   # ============================================================================
@@ -257,15 +260,21 @@ jobs:
         uses: azure/cli@v2
         with:
           inlineScript: |
+            set -e
             JOB_NAME="job-db-migrate-${{ github.sha }}"
             JDBC_URL="jdbc:mysql://${{ needs.provision-infrastructure.outputs.mysql_fqdn }}:3306/${{ needs.provision-infrastructure.outputs.mysql_db }}?useSSL=true&requireSSL=true"
             DB_PASS="${{ needs.provision-infrastructure.outputs.mysql_admin_password }}"
-          
+            IDENTITY_ID="${{ needs.provision-infrastructure.outputs.aca_identity_id }}"
+            ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+
             echo "Creating ephemeral ACA migration job inside VNet for ${{ needs.resolve-environment.outputs.environment }}..."
             az containerapp job create \
               --name "$JOB_NAME" \
               --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
               --environment "${{ needs.provision-infrastructure.outputs.aca_env_name }}" \
+              --mi-user-assigned "$IDENTITY_ID" \
+              --registry-server "$ACR_SERVER" \
+              --registry-identity "$IDENTITY_ID" \
               --trigger-type "Manual" \
               --replica-timeout 300 \
               --replica-retry-limit 0 \
@@ -274,21 +283,19 @@ jobs:
                      "--changelog-file=/liquibase/changelog/db.changelog-master.xml" \
                      "--url=$JDBC_URL" \
                      "--username=ewasteadmin" \
-                     "--password=$DB_PASS" \
-              || echo "ACA Job creation completed or bypassed."
-            
+                     "--password=$DB_PASS"
+
             echo "Starting migration execution..."
             az containerapp job start \
               --name "$JOB_NAME" \
-              --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
-              || echo "ACA Job started."
-            
+              --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}"
+
             echo "Polling migration execution status..."
             for i in {1..15}; do
               STATUS=$(az containerapp job execution list \
                 --name "$JOB_NAME" \
                 --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
-                --query "[0].status" -o tsv 2>/dev/null || echo "Succeeded")
+                --query "[0].status" -o tsv)
               echo "Status: $STATUS (Attempt $i/15)"
               if [ "$STATUS" == "Succeeded" ]; then
                 echo "Liquibase migrations applied successfully."
@@ -305,7 +312,7 @@ jobs:
             az containerapp job delete \
               --name "$JOB_NAME" \
               --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
-              --yes 2>/dev/null || true
+              --yes
 
 #  # ============================================================================
 #  # STAGE 3: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT

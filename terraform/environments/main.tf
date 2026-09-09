@@ -316,6 +316,12 @@ resource "azurerm_container_app_environment" "aca_env" {
   log_analytics_workspace_id = data.azurerm_log_analytics_workspace.shared_logs.id
   infrastructure_subnet_id   = azurerm_subnet.aca_subnet.id
   tags                       = local.common_tags
+
+  lifecycle {
+    ignore_changes = [
+      infrastructure_resource_group_name
+    ]
+  }
 }
 
 # 6.1 Backend API / workflow Container App.
@@ -397,7 +403,8 @@ resource "azurerm_container_app" "api" {
 
   lifecycle {
     ignore_changes = [
-      template[0].container[0].image
+      template[0].container[0].image,
+      ingress[0].target_port
     ]
   }
 
@@ -459,6 +466,13 @@ resource "azurerm_container_app" "ui" {
       percentage      = 100
       latest_revision = true
     }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      template[0].container[0].image,
+      ingress[0].target_port
+    ]
   }
 
   depends_on = [
