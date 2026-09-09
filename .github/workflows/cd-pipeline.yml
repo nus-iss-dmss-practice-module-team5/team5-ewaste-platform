@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [feature/test-liquibase-mogrations]
+    branches: [feature/test-liquibase-migrations]
   pull_request:
     branches: [dev]
     types: [opened, synchronize, reopened]
