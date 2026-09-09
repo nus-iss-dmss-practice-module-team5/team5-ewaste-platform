@@ -1,4 +1,10 @@
-import { sessionFromTokens, type AuthErrorBody, type Session, type SessionUser, type TokenResponse } from "./types";
+import {
+  sessionFromTokens,
+  type AuthErrorBody,
+  type Session,
+  type SessionUser,
+  type TokenResponse,
+} from "./types";
 
 type SeededUser = SessionUser & { password: string };
 
@@ -70,7 +76,9 @@ function toBase64Url(value: string): string {
 }
 
 function newRefreshToken(): string {
-  const id = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  const id =
+    globalThis.crypto?.randomUUID?.() ??
+    `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   return `mock-refresh-${id}`;
 }
 
@@ -142,7 +150,10 @@ export function mockRevokeRefresh(refreshToken: string): void {
   refreshSessions.delete(refreshToken);
 }
 
-export async function mockLogin(email: string, password: string): Promise<Session> {
+export async function mockLogin(
+  email: string,
+  password: string,
+): Promise<Session> {
   await delay(700);
 
   const trimmedEmail = email.trim();
@@ -156,7 +167,9 @@ export async function mockLogin(email: string, password: string): Promise<Sessio
   }
 
   const match = SEEDED_USERS.find(
-    (user) => user.email.toLowerCase() === trimmedEmail.toLowerCase() && user.password === password,
+    (user) =>
+      user.email.toLowerCase() === trimmedEmail.toLowerCase() &&
+      user.password === password,
   );
   if (!match) {
     const error: AuthErrorBody = {
@@ -181,7 +194,9 @@ export async function mockRefresh(refreshToken: string): Promise<Session> {
   }
 
   refreshSessions.delete(refreshToken);
-  return rememberRefresh(sessionFromTokens(record.user, tokenResponse(record.user)));
+  return rememberRefresh(
+    sessionFromTokens(record.user, tokenResponse(record.user)),
+  );
 }
 
 export async function mockLogout(accessToken: string): Promise<void> {

@@ -6,7 +6,13 @@ import { useSession } from "@/lib/auth/session-context";
 import { useState } from "react";
 
 export function HomeShell() {
-  const { session, justRenewed, logout, simulateAccessExpiry, simulateSessionExpiry } = useSession();
+  const {
+    session,
+    justRenewed,
+    logout,
+    simulateAccessExpiry,
+    simulateSessionExpiry,
+  } = useSession();
   const [activeNav, setActiveNav] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -78,9 +84,9 @@ export function HomeShell() {
             </p>
           ) : null}
           <p className="max-w-xl text-sm text-slate-600">
-            Signed in as {user.name} ({ROLE_LABEL[user.role]}). This home only shows{" "}
-            {ROLE_LABEL[user.role]} navigation. The role label is not a switcher. Other screens stay
-            placeholders until later sprint work.
+            Signed in as {user.name} ({ROLE_LABEL[user.role]}). This home only
+            shows {ROLE_LABEL[user.role]} navigation. The role label is not a
+            switcher. Other screens stay placeholders until later sprint work.
           </p>
           <p className="mt-3 text-sm text-slate-500">
             Current section: {nav.find((item) => item.id === current)?.label}
@@ -88,10 +94,13 @@ export function HomeShell() {
 
           {USE_MOCK_AUTH ? (
             <div className="mt-8 max-w-xl rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-              <p className="font-medium text-slate-800">Mock session (until the login API is ready)</p>
+              <p className="font-medium text-slate-800">
+                Mock session (until the login API is ready)
+              </p>
               <p className="mt-1 text-xs text-slate-500">
-                Access tokens last 15 minutes, then refresh silently. Refresh tokens last 24 hours.
-                Use these only to demo expiry without waiting.
+                Access tokens last 15 minutes, then refresh silently. Refresh
+                tokens last 24 hours. Use these only to demo expiry without
+                waiting.
               </p>
               <div className="mt-3 flex flex-wrap gap-3">
                 <button

@@ -37,7 +37,10 @@ export function LoginForm({ expired = false }: { expired?: boolean }) {
   const banner = error
     ? { tone: "error" as const, text: error }
     : expired
-      ? { tone: "expired" as const, text: "Your session expired. Please sign in again." }
+      ? {
+          tone: "expired" as const,
+          text: "Your session expired. Please sign in again.",
+        }
       : null;
   const fieldsInvalid = banner?.tone === "error";
 
@@ -54,7 +57,9 @@ export function LoginForm({ expired = false }: { expired?: boolean }) {
           id={errorId}
           role="alert"
           aria-live="assertive"
-          data-testid={banner.tone === "expired" ? "login-session-expired" : "login-error"}
+          data-testid={
+            banner.tone === "expired" ? "login-session-expired" : "login-error"
+          }
           className={
             banner.tone === "error"
               ? "flex items-start gap-2 rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800"
@@ -69,7 +74,10 @@ export function LoginForm({ expired = false }: { expired?: boolean }) {
       ) : null}
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={emailId} className="text-sm font-semibold text-slate-700">
+        <label
+          htmlFor={emailId}
+          className="text-sm font-semibold text-slate-700"
+        >
           Email
         </label>
         <input
@@ -90,7 +98,10 @@ export function LoginForm({ expired = false }: { expired?: boolean }) {
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <label htmlFor={passwordId} className="text-sm font-semibold text-slate-700">
+        <label
+          htmlFor={passwordId}
+          className="text-sm font-semibold text-slate-700"
+        >
           Password
         </label>
         <div className="relative">
@@ -139,7 +150,9 @@ export function LoginForm({ expired = false }: { expired?: boolean }) {
         )}
       </button>
 
-      <p className="text-center text-xs text-slate-500">Use your organisation account.</p>
+      <p className="text-center text-xs text-slate-500">
+        Use your organisation account.
+      </p>
     </form>
   );
 }

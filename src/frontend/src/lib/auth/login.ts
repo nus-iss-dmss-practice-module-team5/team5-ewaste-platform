@@ -10,7 +10,10 @@ export async function login(email: string, password: string): Promise<Session> {
   return apiLogin(email, password);
 }
 
-export async function refreshSession(refreshToken: string, previous?: SessionUser): Promise<Session> {
+export async function refreshSession(
+  refreshToken: string,
+  previous?: SessionUser,
+): Promise<Session> {
   if (USE_MOCK_AUTH) {
     return mockRefresh(refreshToken);
   }

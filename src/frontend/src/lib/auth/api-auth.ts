@@ -1,7 +1,13 @@
 import axios from "axios";
 import { api } from "./api-client";
 import { userFromAccessToken } from "./jwt";
-import { isAuthError, sessionFromTokens, type AuthErrorBody, type Session, type TokenResponse } from "./types";
+import {
+  isAuthError,
+  sessionFromTokens,
+  type AuthErrorBody,
+  type Session,
+  type TokenResponse,
+} from "./types";
 
 const NETWORK_ERROR: AuthErrorBody = {
   code: "AUTH_SERVICE_UNAVAILABLE",
@@ -47,12 +53,18 @@ function isTokenResponse(value: unknown): value is TokenResponse {
   );
 }
 
-function sessionFromResponse(data: unknown, fallbacks?: { email?: string; name?: string; organisationName?: string }): Session {
+function sessionFromResponse(
+  data: unknown,
+  fallbacks?: { email?: string; name?: string; organisationName?: string },
+): Session {
   if (!isTokenResponse(data)) {
     throw NETWORK_ERROR;
   }
   try {
-    return sessionFromTokens(userFromAccessToken(data.accessToken, fallbacks), data);
+    return sessionFromTokens(
+      userFromAccessToken(data.accessToken, fallbacks),
+      data,
+    );
   } catch {
     const error: AuthErrorBody = {
       code: "AUTH_INVALID_SESSION",
@@ -63,7 +75,10 @@ function sessionFromResponse(data: unknown, fallbacks?: { email?: string; name?:
   }
 }
 
-export async function apiLogin(email: string, password: string): Promise<Session> {
+export async function apiLogin(
+  email: string,
+  password: string,
+): Promise<Session> {
   const trimmedEmail = email.trim();
   try {
     const response = await api.post<TokenResponse>("/api/v1/auth/login", {
@@ -81,7 +96,9 @@ export async function apiRefresh(
   previous?: { email: string; name: string; organisationName: string },
 ): Promise<Session> {
   try {
-    const response = await api.post<TokenResponse>("/api/v1/auth/refresh", { refreshToken });
+    const response = await api.post<TokenResponse>("/api/v1/auth/refresh", {
+      refreshToken,
+    });
     return sessionFromResponse(response.data, previous);
   } catch (error) {
     throw toAuthError(error);

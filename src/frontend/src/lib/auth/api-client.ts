@@ -9,7 +9,8 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use((config) => {
-  const correlationId = globalThis.crypto?.randomUUID?.() ?? `corr-${Date.now()}`;
+  const correlationId =
+    globalThis.crypto?.randomUUID?.() ?? `corr-${Date.now()}`;
   config.headers["X-Correlation-ID"] = correlationId;
   return config;
 });

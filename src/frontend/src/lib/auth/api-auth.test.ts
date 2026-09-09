@@ -12,7 +12,9 @@ vi.mock("./api-client", () => ({
 const post = vi.mocked(api.post);
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+  const header = Buffer.from(
+    JSON.stringify({ alg: "none", typ: "JWT" }),
+  ).toString("base64url");
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${header}.${body}.sig`;
 }
@@ -74,10 +76,12 @@ describe("apiLogin", () => {
       }),
     );
 
-    await expect(apiLogin("donor1@ewaste.test", "wrong")).rejects.toMatchObject({
-      code: "AUTH_INVALID_CREDENTIALS",
-      message: "Invalid email or password",
-    });
+    await expect(apiLogin("donor1@ewaste.test", "wrong")).rejects.toMatchObject(
+      {
+        code: "AUTH_INVALID_CREDENTIALS",
+        message: "Invalid email or password",
+      },
+    );
   });
 
   it("does not treat an Axios network code as an auth error body", async () => {
@@ -85,7 +89,9 @@ describe("apiLogin", () => {
     failure.code = "ERR_BAD_RESPONSE";
     post.mockRejectedValue(failure);
 
-    await expect(apiLogin("donor1@ewaste.test", "secret")).rejects.toMatchObject({
+    await expect(
+      apiLogin("donor1@ewaste.test", "secret"),
+    ).rejects.toMatchObject({
       code: "AUTH_SERVICE_UNAVAILABLE",
     });
   });
@@ -103,7 +109,9 @@ describe("apiRefresh", () => {
       name: "Green Office Donor",
       organisationName: "DON-001",
     });
-    expect(post).toHaveBeenCalledWith("/api/v1/auth/refresh", { refreshToken: "old-refresh" });
+    expect(post).toHaveBeenCalledWith("/api/v1/auth/refresh", {
+      refreshToken: "old-refresh",
+    });
     expect(session.user.role).toBe("DONOR");
   });
 });

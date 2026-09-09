@@ -1,9 +1,4 @@
-export type Role =
-  | "DONOR"
-  | "RECYCLER"
-  | "COLLECTOR"
-  | "AUDITOR"
-  | "ADMIN";
+export type Role = "DONOR" | "RECYCLER" | "COLLECTOR" | "AUDITOR" | "ADMIN";
 
 export type SessionUser = {
   id: string;
@@ -48,7 +43,11 @@ export function isAuthError(error: unknown): error is AuthErrorBody {
   );
 }
 
-export function sessionFromTokens(user: SessionUser, tokens: TokenResponse, now = Date.now()): Session {
+export function sessionFromTokens(
+  user: SessionUser,
+  tokens: TokenResponse,
+  now = Date.now(),
+): Session {
   return {
     user,
     tokens,

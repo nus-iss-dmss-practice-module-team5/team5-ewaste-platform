@@ -15,7 +15,8 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "E-Waste Platform",
-  description: "E-waste collection, recycling traceability, and environmental impact platform",
+  description:
+    "E-waste collection, recycling traceability, and environmental impact platform",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -9,7 +9,9 @@ function Brand() {
       </span>
       <div>
         <h1 className="text-xl font-bold text-teal-900">E-Waste Platform</h1>
-        <p className="text-xs text-slate-500">Recycle responsibly. Build a cleaner future.</p>
+        <p className="text-xs text-slate-500">
+          Recycle responsibly. Build a cleaner future.
+        </p>
       </div>
     </div>
   );

@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { userFromAccessToken } from "./jwt";
 
 function jwtWithPayload(payload: Record<string, unknown>): string {
-  const header = Buffer.from(JSON.stringify({ alg: "none", typ: "JWT" })).toString("base64url");
+  const header = Buffer.from(
+    JSON.stringify({ alg: "none", typ: "JWT" }),
+  ).toString("base64url");
   const body = Buffer.from(JSON.stringify(payload)).toString("base64url");
   return `${header}.${body}.sig`;
 }
@@ -36,21 +38,25 @@ describe("userFromAccessToken", () => {
       sid: "session-1",
       typ: "access",
     });
-    expect(userFromAccessToken(donor, { email: "donor1@ewaste.test" })).toEqual({
-      id: "USR-003",
-      email: "donor1@ewaste.test",
-      name: "Green Office Donor",
-      organisationId: "DON-001",
-      organisationName: "DON-001",
-      role: "DONOR",
-    });
+    expect(userFromAccessToken(donor, { email: "donor1@ewaste.test" })).toEqual(
+      {
+        id: "USR-003",
+        email: "donor1@ewaste.test",
+        name: "Green Office Donor",
+        organisationId: "DON-001",
+        organisationName: "DON-001",
+        role: "DONOR",
+      },
+    );
 
     const admin = jwtWithPayload({
       sub: "USR-001",
       role: "SYSTEM_ADMIN",
       org: "PLATFORM",
     });
-    expect(userFromAccessToken(admin, { email: "admin@ewaste.test" }).role).toBe("ADMIN");
+    expect(
+      userFromAccessToken(admin, { email: "admin@ewaste.test" }).role,
+    ).toBe("ADMIN");
   });
 
   it("rejects a token that has no role", () => {

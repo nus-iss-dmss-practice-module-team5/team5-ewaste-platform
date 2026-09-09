@@ -10,10 +10,19 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ACCESS_REFRESH_SKEW_MS, EXPIRED_LOGIN_PATH, LOGIN_PATH, USE_MOCK_AUTH } from "./config";
+import {
+  ACCESS_REFRESH_SKEW_MS,
+  EXPIRED_LOGIN_PATH,
+  LOGIN_PATH,
+  USE_MOCK_AUTH,
+} from "./config";
 import { logoutSession, refreshSession } from "./login";
 import { mockRestoreRefresh, mockRevokeRefresh } from "./mock-auth";
-import { readStoredSession, replaceLocation, writeStoredSession } from "./storage";
+import {
+  readStoredSession,
+  replaceLocation,
+  writeStoredSession,
+} from "./storage";
 import type { Session } from "./types";
 
 type SessionContextValue = {
@@ -134,7 +143,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
     const now = Date.now();
     const refreshRemaining = session.refreshExpiresAt - now;
-    const accessDelay = Math.max(0, session.accessExpiresAt - now - ACCESS_REFRESH_SKEW_MS);
+    const accessDelay = Math.max(
+      0,
+      session.accessExpiresAt - now - ACCESS_REFRESH_SKEW_MS,
+    );
     let cancelled = false;
 
     if (refreshRemaining <= 0) {
@@ -155,7 +167,10 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const next = await refreshSession(current.tokens.refreshToken, current.user);
+        const next = await refreshSession(
+          current.tokens.refreshToken,
+          current.user,
+        );
         if (cancelled) {
           return;
         }
@@ -191,10 +206,20 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       simulateAccessExpiry,
       simulateSessionExpiry,
     }),
-    [session, ready, justRenewed, setSession, logout, simulateAccessExpiry, simulateSessionExpiry],
+    [
+      session,
+      ready,
+      justRenewed,
+      setSession,
+      logout,
+      simulateAccessExpiry,
+      simulateSessionExpiry,
+    ],
   );
 
-  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  );
 }
 
 export function useSession(): SessionContextValue {

@@ -63,7 +63,9 @@ describe("LoginForm", () => {
     await user.type(screen.getByTestId("login-password"), "wrong-password");
     await user.click(screen.getByTestId("login-submit"));
 
-    expect(await screen.findByTestId("login-error")).toHaveTextContent("Invalid email or password");
+    expect(await screen.findByTestId("login-error")).toHaveTextContent(
+      "Invalid email or password",
+    );
     expect(setSession).not.toHaveBeenCalled();
   });
 
