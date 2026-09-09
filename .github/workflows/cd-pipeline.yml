@@ -220,12 +220,13 @@ jobs:
 
       - name: Install Liquibase
         run: |
-          wget -qO- https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz | tar -xz -C /tmp
-          sudo mv /tmp/liquibase /usr/local/bin/liquibase
+          sudo mkdir -p /opt/liquibase
+          wget -qO- https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz | sudo tar -xz -C /opt/liquibase
+          sudo ln -sf /opt/liquibase/liquibase /usr/local/bin/liquibase
           sudo chmod +x /usr/local/bin/liquibase
+          # MySQL Connector driver
           wget -qO /tmp/mysql-connector-j-8.3.0.jar https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar
-          sudo mkdir -p /usr/local/bin/lib
-          sudo mv /tmp/mysql-connector-j-8.3.0.jar /usr/local/bin/lib/
+          sudo cp /tmp/mysql-connector-j-8.3.0.jar /opt/liquibase/lib/
 
       - name: Execute Liquibase Migrations
         env:
@@ -235,8 +236,12 @@ jobs:
           MYSQL_PASS: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
           TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
         run: |
-          echo "Applying migrations to ${MYSQL_HOST}/${MYSQL_DB}..."
-          
+          # Fallback to default admin user if output was empty
+          DB_USER="${MYSQL_USER:-ewasteadmin}"
+          DB_NAME="${MYSQL_DB:-ewastedb}"
+
+          echo "Applying migrations to ${MYSQL_HOST}/${DB_NAME} as ${DB_USER}..."
+
           CONTEXT_PARAM=""
           if [ "$TARGET_ENV" != "prod" ]; then
             CONTEXT_PARAM="--contexts=seed"
@@ -244,10 +249,9 @@ jobs:
 
           liquibase \
             --changelog-file=database/changelog-master.yaml \
-            --url="jdbc:mysql://${MYSQL_HOST}:3306/${MYSQL_DB}?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true" \
-            --username="${MYSQL_USER}" \
+            --url="jdbc:mysql://${MYSQL_HOST}:3306/${DB_NAME}?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true" \
+            --username="${DB_USER}" \
             --password="${MYSQL_PASS}" \
-            --classpath="/usr/local/bin/lib/mysql-connector-j-8.3.0.jar" \
             $CONTEXT_PARAM \
             update
 
