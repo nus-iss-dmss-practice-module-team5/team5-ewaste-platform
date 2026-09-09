@@ -234,9 +234,6 @@ resource "azurerm_mysql_flexible_server" "db" {
   sku_name = "B_Standard_B1ms"
   version  = "8.0.21"
 
-  # Enabled for direct runner access and Container Apps connectivity
-  public_network_access_enabled = true
-
   storage {
     size_gb           = 20
     auto_grow_enabled = false
