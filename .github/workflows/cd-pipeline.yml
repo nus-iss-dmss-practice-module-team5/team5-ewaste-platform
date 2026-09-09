@@ -215,6 +215,22 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      # ------------------------------------------------------------------------
+      # 2.1 OPEN EPHEMERAL ACCESS TO ACR FOR RUNNER PUSH
+      # ------------------------------------------------------------------------
+      - name: Open Ephemeral Access to ACR for Pipeline Push
+        run: |
+          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
+          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "${{ needs.provision-infrastructure.outputs.acr_server }}" | cut -d'.' -f1); fi
+          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
+
+          echo "Temporarily enabling ACR public access for GitHub runner push..."
+          az acr update --name "$ACR_NAME" --public-network-enabled true
+          sleep 5
+
+      # ------------------------------------------------------------------------
+      # 2.2 AUTHENTICATE & PUSH MIGRATION IMAGE
+      # ------------------------------------------------------------------------
       - name: Authenticate Docker to ACR
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
@@ -242,6 +258,19 @@ jobs:
           docker push "$MIGRATION_IMAGE"
 
           echo "MIGRATION_IMAGE=$MIGRATION_IMAGE" >> $GITHUB_ENV
+
+      # ------------------------------------------------------------------------
+      # 2.3 RESTORE ZERO-TRUST PERIMETER (ALWAYS EXECUTES)
+      # ------------------------------------------------------------------------
+      - name: Restore ACR Zero-Trust Perimeter (Disable Public Access)
+        if: always()
+        run: |
+          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
+          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "${{ needs.provision-infrastructure.outputs.acr_server }}" | cut -d'.' -f1); fi
+          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
+
+          echo "Restoring ACR zero-trust perimeter: public network access disabled..."
+          az acr update --name "$ACR_NAME" --public-network-enabled false || true
 
       - name: Retrieve Database Password from Azure Key Vault
         uses: azure/cli@v2
