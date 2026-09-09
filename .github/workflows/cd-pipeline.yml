@@ -66,7 +66,7 @@ jobs:
 
           echo "environment=$TARGET" >> $GITHUB_OUTPUT
           echo "deployment_desc=$DESC" >> $GITHUB_OUTPUT
-          
+
           if [ "$TARGET" == "prod" ]; then
             echo "is_production=true" >> $GITHUB_OUTPUT
           else
