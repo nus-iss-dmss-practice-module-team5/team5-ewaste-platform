@@ -172,12 +172,8 @@ jobs:
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           cd terraform/environments
 
-          ACR_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || echo "")
-          if [ -z "$ACR_SERVER" ]; then
-            ACR_SERVER="acrewasteplatform.azurecr.io"
-          fi
-
-          MYSQL_FQDN=$(terraform output -raw mysql_fqdn 2>/dev/null || echo "")
+          ACR_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || echo "acrewasteplatform.azurecr.io")
+          MYSQL_FQDN=$(terraform output -raw mysql_fqdn 2>/dev/null || echo "mysql-ewaste-${TARGET_ENV}.mysql.database.azure.com")
           MYSQL_DB=$(terraform output -raw mysql_database_name 2>/dev/null || echo "ewastedb")
           KV_URI=$(terraform output -raw key_vault_uri 2>/dev/null || echo "")
           MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "${{ secrets.DB_PASSWORD }}")
@@ -276,34 +272,49 @@ jobs:
           echo "Restoring ACR zero-trust perimeter: public network access disabled and default action Deny..."
           az acr update --name "$ACR_NAME" --public-network-enabled false --default-action Deny || true
 
-      - name: Retrieve Database Password from Azure Key Vault
-        uses: azure/cli@v2
-        id: kv_secret
-        with:
-          inlineScript: |
-            DB_PASS=$(az keyvault secret show \
-              --name mysql-admin-password \
-              --vault-name kv-ewaste-${{ needs.resolve-environment.outputs.environment }} \
-              --query value -o tsv 2>/dev/null || echo "${{ secrets.DB_PASSWORD }}")
-            echo "::add-mask::$DB_PASS"
-            echo "db_pass=$DB_PASS" >> $GITHUB_OUTPUT
-
+      # ------------------------------------------------------------------------
+      # 2.4 EXECUTE MIGRATION INSIDE VNET BOUNDARY VIA ACA JOB
+      # ------------------------------------------------------------------------
       - name: Execute Migration Inside VNet Boundary
         uses: azure/cli@v2
         with:
           inlineScript: |
             set -e
-            JOB_NAME="job-db-migrate-${{ github.sha }}"
-            JDBC_URL="jdbc:mysql://${{ needs.provision-infrastructure.outputs.mysql_fqdn }}:3306/${{ needs.provision-infrastructure.outputs.mysql_db }}?useSSL=true&requireSSL=true"
-            DB_PASS="${{ needs.provision-infrastructure.outputs.mysql_admin_password }}"
-            IDENTITY_ID="${{ needs.provision-infrastructure.outputs.aca_identity_id }}"
+            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+            RG="${{ needs.provision-infrastructure.outputs.resource_group }}"
+            if [ -z "$RG" ]; then RG="rg-ewaste-${TARGET_ENV}"; fi
+            CAE="${{ needs.provision-infrastructure.outputs.aca_env_name }}"
+            if [ -z "$CAE" ]; then CAE="cae-ewaste-${TARGET_ENV}"; fi
             ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+            if [ -z "$ACR_SERVER" ]; then ACR_SERVER="acrewasteplatform.azurecr.io"; fi
 
-            echo "Creating ephemeral ACA migration job inside VNet for ${{ needs.resolve-environment.outputs.environment }}..."
+            # Resolve Managed Identity ID
+            IDENTITY_ID="${{ needs.provision-infrastructure.outputs.aca_identity_id }}"
+            if [ -z "$IDENTITY_ID" ]; then
+              echo "Resolving User Assigned Identity ID for id-ewaste-${TARGET_ENV}..."
+              IDENTITY_ID=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || echo "")
+            fi
+
+            # Resolve MySQL Password
+            DB_PASS="${{ needs.provision-infrastructure.outputs.mysql_admin_password }}"
+            if [ -z "$DB_PASS" ]; then
+              DB_PASS="${{ secrets.DB_PASSWORD }}"
+            fi
+
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
+            JOB_NAME="job-db-migrate-${SHORT_SHA}"
+            MYSQL_HOST="${{ needs.provision-infrastructure.outputs.mysql_fqdn }}"
+            if [ -z "$MYSQL_HOST" ]; then MYSQL_HOST="mysql-ewaste-${TARGET_ENV}.mysql.database.azure.com"; fi
+            MYSQL_DATABASE="${{ needs.provision-infrastructure.outputs.mysql_db }}"
+            if [ -z "$MYSQL_DATABASE" ]; then MYSQL_DATABASE="ewastedb"; fi
+
+            JDBC_URL="jdbc:mysql://${MYSQL_HOST}:3306/${MYSQL_DATABASE}?useSSL=true&requireSSL=true"
+
+            echo "Creating ephemeral ACA migration job ($JOB_NAME) inside VNet for ${TARGET_ENV}..."
             az containerapp job create \
               --name "$JOB_NAME" \
-              --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
-              --environment "${{ needs.provision-infrastructure.outputs.aca_env_name }}" \
+              --resource-group "$RG" \
+              --environment "$CAE" \
               --mi-user-assigned "$IDENTITY_ID" \
               --registry-server "$ACR_SERVER" \
               --registry-identity "$IDENTITY_ID" \
@@ -311,30 +322,26 @@ jobs:
               --replica-timeout 300 \
               --replica-retry-limit 0 \
               --image "${{ env.MIGRATION_IMAGE }}" \
-              --args "update" \
-                     "--changelog-file=/liquibase/changelog/changelog-master.yaml" \
-                     "--url=$JDBC_URL" \
-                     "--username=ewasteadmin" \
-                     "--password=$DB_PASS"
+              --args "update --changelog-file=/liquibase/changelog/changelog-master.yaml --url=${JDBC_URL} --username=ewasteadmin --password=${DB_PASS}"
 
             echo "Starting migration execution..."
             az containerapp job start \
               --name "$JOB_NAME" \
-              --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}"
+              --resource-group "$RG"
 
             echo "Polling migration execution status..."
-            for i in {1..15}; do
+            for i in {1..20}; do
               STATUS=$(az containerapp job execution list \
                 --name "$JOB_NAME" \
-                --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
-                --query "[0].status" -o tsv)
-              echo "Status: $STATUS (Attempt $i/15)"
+                --resource-group "$RG" \
+                --query "[0].status" -o tsv 2>/dev/null || echo "Running")
+              echo "Status: $STATUS (Attempt $i/20)"
               if [ "$STATUS" == "Succeeded" ]; then
                 echo "Liquibase migrations applied successfully."
                 break
               elif [ "$STATUS" == "Failed" ]; then
                 echo "ERROR: Liquibase migration execution failed."
-                az containerapp job delete --name "$JOB_NAME" --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" --yes 2>/dev/null || true
+                az containerapp job delete --name "$JOB_NAME" --resource-group "$RG" --yes 2>/dev/null || true
                 exit 1
               fi
               sleep 10
@@ -343,7 +350,7 @@ jobs:
             echo "Cleaning up ephemeral migration job..."
             az containerapp job delete \
               --name "$JOB_NAME" \
-              --resource-group "${{ needs.provision-infrastructure.outputs.resource_group }}" \
+              --resource-group "$RG" \
               --yes
 
 #  # ============================================================================
