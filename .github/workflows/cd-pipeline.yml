@@ -162,7 +162,8 @@ jobs:
           terraform apply -auto-approve \
             -var-file="$TF_VARS_FILE" \
             -var="environment=$TARGET_ENV" \
-            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}"
+            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
+            -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
 
       # ------------------------------------------------------------------------
       # 1.3. EXPORT OUTPUTS FOR SUBSEQUENT STAGES
@@ -177,7 +178,10 @@ jobs:
           MYSQL_FQDN=$(terraform output -raw mysql_fqdn 2>/dev/null || echo "mysql-ewaste-${TARGET_ENV}.mysql.database.azure.com")
           MYSQL_DB=$(terraform output -raw mysql_database_name 2>/dev/null || echo "ewastedb")
           KV_URI=$(terraform output -raw key_vault_uri 2>/dev/null || echo "")
-          MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "${{ secrets.DB_PASSWORD }}")
+          MYSQL_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+          if [ -z "$MYSQL_PASS" ]; then
+            MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "")
+          fi
           ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
 
           if [ -n "$MYSQL_PASS" ]; then
@@ -282,10 +286,10 @@ jobs:
               IDENTITY_ID=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || echo "")
             fi
 
-            # Resolve MySQL Password
-            DB_PASS="${{ needs.provision-infrastructure.outputs.mysql_admin_password }}"
+            # Resolve MySQL Password directly from repository secret
+            DB_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
             if [ -z "$DB_PASS" ]; then
-              DB_PASS="${{ secrets.DB_PASSWORD }}"
+              DB_PASS="${{ needs.provision-infrastructure.outputs.mysql_admin_password }}"
             fi
 
             SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
@@ -428,7 +432,7 @@ jobs:
             IDENTITY="${{ needs.provision-infrastructure.outputs.aca_identity_id }}"
             ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
             DB_HOST="${{ needs.provision-infrastructure.outputs.mysql_fqdn }}"
-            DB_PASS="${{ needs.provision-infrastructure.outputs.mysql_admin_password }}"
+            DB_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
             APP_NAME="aca-ewaste-${TARGET_ENV}-api"
 
             echo "Deploying Backend API Container App ($APP_NAME)..."
