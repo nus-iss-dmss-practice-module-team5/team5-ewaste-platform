@@ -3,16 +3,6 @@ output "resource_group_name" {
   description = "Target environment resource group."
 }
 
-output "aca_api_fqdn" {
-  value       = azurerm_container_app.api.latest_revision_fqdn
-  description = "Public FQDN of the deployed API/workflow Container App."
-}
-
-output "aca_ui_fqdn" {
-  value       = azurerm_container_app.ui.latest_revision_fqdn
-  description = "Public FQDN of the deployed frontend UI Container App."
-}
-
 output "mysql_fqdn" {
   value       = azurerm_mysql_flexible_server.db.fqdn
   description = "Private FQDN for internal MySQL connectivity."
