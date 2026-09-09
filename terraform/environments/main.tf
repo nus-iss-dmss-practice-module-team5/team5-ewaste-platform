@@ -234,8 +234,8 @@ resource "azurerm_mysql_flexible_server" "db" {
   sku_name = "B_Standard_B1ms"
   version  = "8.0.21"
 
-  delegated_subnet_id = azurerm_subnet.mysql_subnet.id
-  private_dns_zone_id = azurerm_private_dns_zone.mysql_dns.id
+  # Enabled for direct runner access and Container Apps connectivity
+  public_network_access_enabled = true
 
   storage {
     size_gb           = 20
@@ -252,10 +252,15 @@ resource "azurerm_mysql_flexible_server" "db" {
       high_availability[0].standby_availability_zone
     ]
   }
+}
 
-  depends_on = [
-    azurerm_private_dns_zone_virtual_network_link.mysql_dns_link
-  ]
+# Allow Azure Container Apps and GitHub Actions runners to connect
+resource "azurerm_mysql_flexible_server_firewall_rule" "allow_azure_services" {
+  name                = "allow-azure-and-runners"
+  resource_group_name = azurerm_resource_group.env_rg.name
+  server_name         = azurerm_mysql_flexible_server.db.name
+  start_ip_address    = "0.0.0.0"
+  end_ip_address      = "255.255.255.255"
 }
 
 resource "azurerm_mysql_flexible_database" "ewastedb" {
