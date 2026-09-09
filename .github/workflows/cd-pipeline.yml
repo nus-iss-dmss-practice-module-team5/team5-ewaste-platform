@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [feature/EWCSB-50-Terraform-Scripts]
+    branches: [feature/test-liquibase-mogrations]
   pull_request:
     branches: [dev]
     types: [opened, synchronize, reopened]
