@@ -10,7 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ACCESS_REFRESH_SKEW_MS, EXPIRED_LOGIN_PATH, LOGIN_PATH } from "./config";
+import { ACCESS_REFRESH_SKEW_MS, EXPIRED_LOGIN_PATH, LOGIN_PATH, USE_MOCK_AUTH } from "./config";
 import { logoutSession, refreshSession } from "./login";
 import { mockRestoreRefresh, mockRevokeRefresh } from "./mock-auth";
 import { readStoredSession, replaceLocation, writeStoredSession } from "./storage";
@@ -42,7 +42,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const timer = window.setTimeout(() => {
       const stored = readStoredSession();
       if (stored && stored.refreshExpiresAt > Date.now()) {
-        mockRestoreRefresh(stored);
+        if (USE_MOCK_AUTH) {
+          mockRestoreRefresh(stored);
+        }
         setSessionState(stored);
       } else if (stored) {
         writeStoredSession(null);
@@ -70,7 +72,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
 
   const expireSession = useCallback(() => {
     const current = sessionRef.current;
-    if (current) {
+    if (USE_MOCK_AUTH && current) {
       mockRevokeRefresh(current.tokens.refreshToken);
     }
     setJustRenewed(false);
@@ -85,7 +87,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       try {
         await logoutSession(current.tokens.accessToken);
       } catch {
-        mockRevokeRefresh(current.tokens.refreshToken);
+        if (USE_MOCK_AUTH) {
+          mockRevokeRefresh(current.tokens.refreshToken);
+        }
       }
     }
     setJustRenewed(false);
@@ -105,7 +109,9 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     if (!current) {
       return;
     }
-    mockRevokeRefresh(current.tokens.refreshToken);
+    if (USE_MOCK_AUTH) {
+      mockRevokeRefresh(current.tokens.refreshToken);
+    }
     setSessionState({
       ...current,
       accessExpiresAt: Date.now() - 1,
@@ -149,7 +155,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
         return;
       }
       try {
-        const next = await refreshSession(current.tokens.refreshToken);
+        const next = await refreshSession(current.tokens.refreshToken, current.user);
         if (cancelled) {
           return;
         }

@@ -41,7 +41,10 @@ export function isAuthError(error: unknown): error is AuthErrorBody {
     error !== null &&
     "message" in error &&
     "code" in error &&
-    typeof (error as AuthErrorBody).message === "string"
+    "correlationId" in error &&
+    typeof (error as AuthErrorBody).message === "string" &&
+    typeof (error as AuthErrorBody).code === "string" &&
+    typeof (error as AuthErrorBody).correlationId === "string"
   );
 }
 

@@ -1,6 +1,6 @@
 # Frontend
 
-Next.js login increment for the e-waste platform. Login is mocked until the Go `/api/v1/auth/login` API exists. After login the UI shows **only that user’s role** — the role pill is a label, not a switcher.
+Next.js login increment for the e-waste platform. Login is **mocked by default**. After login the UI shows **only that user’s role** — the role pill is a label, not a switcher.
 
 From the repo root:
 
@@ -22,6 +22,15 @@ Open http://localhost:3000. Seeded mock accounts (password `Password1!`):
 - `auditor@example.com`
 - `admin@example.com`
 
+To use Jiamin’s workflow API instead, in `.env.local` set:
+
+```bash
+NEXT_PUBLIC_USE_MOCK_AUTH=false
+API_PROXY_TARGET=http://localhost:8080
+```
+
+The browser still calls `/api/v1/auth/login` on the Next.js origin. Next rewrites that to `API_PROXY_TARGET` so you do not depend on Go CORS. Restart `npm run dev` after changing env. Use the seeded users from the workflow API, not the mock emails above.
+
 Copy `.env.example` at the repo root for the API base URL. Do not commit `.env` or `.env.local`.
 
 ## Redirects and session expiry
@@ -33,4 +42,4 @@ Copy `.env.example` at the repo root for the API base URL. Do not commit `.env` 
 - **Logout** returns to `/login` with no expiry banner.
 - **F5 / reload** keeps you on `/home` if the session is still valid. Closing the tab ends the session. This is not `localStorage`; a tab-only copy is used.
 
-Until Jiamin’s login API is ready, home has mock-only **Simulate access-token expiry** (stay signed in) and **Simulate expired session** (amber banner).
+When mock auth is on, home has **Simulate access-token expiry** (stay signed in) and **Simulate expired session** (amber banner). Those controls are hidden against the real API.
