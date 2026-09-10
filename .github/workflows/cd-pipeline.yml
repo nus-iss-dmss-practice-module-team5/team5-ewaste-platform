@@ -280,11 +280,27 @@ jobs:
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      - name: Log in to Azure Container Registry
+      - name: Diagnose ACR access
         run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
-          ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
-          az acr login --name "$ACR_NAME"
+          set -x
+
+          az account show
+
+          echo "=== ACR configuration ==="
+          az acr show \
+            --name acrewasteplatform \
+            --query '{
+              loginServer:loginServer,
+              publicNetworkAccess:publicNetworkAccess,
+              defaultAction:networkRuleSet.defaultAction,
+              bypass:networkRuleBypassOption
+            }' \
+            -o json
+
+          echo "=== ACR health ==="
+          az acr check-health \
+            --name acrewasteplatform \
+            --yes
 
       # ------------------------------------------------------------------------
       # 3.1 BACKEND API CONTAINER (Build via SP, Sign & Deploy)
