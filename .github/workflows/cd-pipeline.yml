@@ -280,7 +280,6 @@ jobs:
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      # Docker logs in through the private endpoint inside the VNet
       - name: Log in to Azure Container Registry
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
@@ -296,7 +295,7 @@ jobs:
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
           echo "Building API image: $IMAGE_TAG"
           docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
-          echo "Pushing API image to ACR via Private Endpoint..."
+          echo "Pushing API image to ACR..."
           docker push "$IMAGE_TAG"
           echo "API_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
@@ -312,7 +311,9 @@ jobs:
               ${{ env.API_IMMUTABLE_DIGEST }}
           else
             echo "Generating ephemeral keypair for API signing..."
-            cosign generate-key-pair
+            if [ ! -f cosign.key ]; then
+              cosign generate-key-pair
+            fi
             cosign sign --yes --key cosign.key ${{ env.API_IMMUTABLE_DIGEST }}
           fi
         env:
@@ -371,7 +372,7 @@ jobs:
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
           echo "Building UI image: $IMAGE_TAG"
           docker build -t "$IMAGE_TAG" --build-arg NEXT_PUBLIC_API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}" -f src/frontend/Dockerfile src/frontend/
-          echo "Pushing UI image to ACR via Private Endpoint..."
+          echo "Pushing UI image to ACR..."
           docker push "$IMAGE_TAG"
           echo "UI_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
@@ -386,8 +387,10 @@ jobs:
               --key env://COSIGN_PRIVATE_KEY \
               ${{ env.UI_IMMUTABLE_DIGEST }}
           else
-            echo "Generating ephemeral keypair for UI signing..."
-            cosign generate-key-pair
+            echo "Signing UI image with cosign key..."
+            if [ ! -f cosign.key ]; then
+              cosign generate-key-pair
+            fi
             cosign sign --yes --key cosign.key ${{ env.UI_IMMUTABLE_DIGEST }}
           fi
         env:
@@ -555,4 +558,3 @@ jobs:
           echo "  - Runtime Health: ACA Ingress Probes Verified (Port 8080 API & Port 3000 UI)"
           echo "  - DAST Scan: OWASP ZAP Report Retained for Academic Review"
           echo "======================================================================"
- 
