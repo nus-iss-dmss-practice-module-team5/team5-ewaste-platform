@@ -34,6 +34,11 @@ output "managed_identity_client_id" {
   description = "Client ID of the user-assigned managed identity."
 }
 
+output "aca_identity_id" {
+  value       = azurerm_user_assigned_identity.aca_identity.id
+  description = "Resource ID of the user-assigned managed identity for ACA."
+}
+
 output "key_vault_uri" {
   value       = azurerm_key_vault.kv.vault_uri
   description = "Target environment Key Vault URI."
@@ -57,14 +62,4 @@ output "redis_private_endpoint_ip" {
 output "acr_login_server" {
   value       = data.azurerm_container_registry.shared_acr.login_server
   description = "Login server for the shared Azure Container Registry."
-}
-
-output "aca_env_name" {
-  value       = azurerm_container_app_environment.aca_env.name
-  description = "ACA Managed Environment name."
-}
-
-output "aca_identity_id" {
-  value       = azurerm_user_assigned_identity.aca_identity.id
-  description = "User Assigned Managed Identity Resource ID."
 }
