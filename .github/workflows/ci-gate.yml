@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
   push:
-    branches: [dev, main]
+    branches: [dev, main, feature/EWCSB-12-login]
 
 permissions:
   contents: read
