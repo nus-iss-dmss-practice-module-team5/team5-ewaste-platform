@@ -235,7 +235,7 @@ resource "tls_private_key" "runner_ssh_key" {
 
 resource "azurerm_linux_virtual_machine" "runner" {
   name                  = "vm-shared-runner"
-  location              = azurerm_resource_group.shared.location
+  location              = "japaneast"
   resource_group_name   = azurerm_resource_group.shared.name
   size                  = "Standard_B1ms"
   admin_username        = var.vm_admin_username
