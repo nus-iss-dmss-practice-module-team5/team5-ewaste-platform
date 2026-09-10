@@ -1,0 +1,39 @@
+mode: test
+
+server:
+  port: ":8080"
+
+database:
+  host: "mysql"
+  port: 3306
+  name: "ewaste"
+  user: "ewaste_app"
+  # Supply the password through MYSQL_PASSWORD.
+  password: ""
+
+redis:
+  address: "redis:6379"
+  # Supply the password through REDIS_PASSWORD.
+  password: ""
+  db: 0
+
+auth:
+  issuer: "ewaste-workflow-api"
+  access_secret: ""
+  refresh_secret: ""
+  refresh_hash_secret: ""
+  access_ttl: "15m"
+  refresh_ttl: "24h"
+
+rate_limit:
+  requests: 10
+  window: "1m"
+
+logging:
+  level: "info"
+  file_path: "logs/workflow-api.log"
+  max_size_mb: 10
+  max_backups: 5
+  max_age_days: 30
+  compress: true
+  console: true
