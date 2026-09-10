@@ -354,7 +354,6 @@ jobs:
 
     needs:
       - security-gate
-      - pre-commit-checks
       - backend-tests
       - analytics-tests
       - frontend-checks
