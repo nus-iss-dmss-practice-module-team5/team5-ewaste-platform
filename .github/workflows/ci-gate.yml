@@ -55,6 +55,7 @@ jobs:
           extra_args: --all-files --show-diff-on-failure
 
 
+  
   # 1.2 SECRET DETECTION
   secret-scan:
     name: Gitleaks Secret Detection
@@ -66,13 +67,55 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Run Gitleaks
-        uses: gitleaks/gitleaks-action@v2
+      - name: Install Gitleaks
+        run: |
+          brew install gitleaks
+
+      - name: Run Gitleaks on PR Changes
+        if: github.event_name == 'pull_request'
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
-          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: true
-          GITLEAKS_ENABLE_SUMMARY: true
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "=============================================="
+          echo "       GITLEAKS PR SECURITY SCAN"
+          echo "=============================================="
+          echo "Base commit: $BASE_SHA"
+          echo "Head commit: $HEAD_SHA"
+          echo "Scanning added/changed lines in this PR..."
+
+          git diff --unified=0 "$BASE_SHA" "$HEAD_SHA" -- . \
+            | grep -E '^\+[^+]' \
+            | sed 's/^+//' \
+            | gitleaks stdin \
+                --redact \
+                --exit-code 1 \
+                --report-format sarif \
+                --report-path gitleaks-results.sarif \
+                --log-level info
+
+      - name: Run Gitleaks on Push
+        if: github.event_name == 'push'
+        run: |
+          echo "=============================================="
+          echo "       GITLEAKS PUSH SECURITY SCAN"
+          echo "=============================================="
+          echo "Scanning repository for secrets..."
+
+          gitleaks git \
+            --redact \
+            --exit-code 1 \
+            --report-format sarif \
+            --report-path gitleaks-results.sarif \
+            --log-level info
+
+      - name: Upload Gitleaks Report
+        if: always() && hashFiles('gitleaks-results.sarif') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-results-${{ github.sha }}
+          path: gitleaks-results.sarif
+          retention-days: 30
 
   # 1.3 STATIC APPLICATION SECURITY TESTING
   sast-scan:
