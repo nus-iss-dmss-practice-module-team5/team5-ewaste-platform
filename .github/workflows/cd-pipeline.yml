@@ -280,6 +280,12 @@ jobs:
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
+      - name: Log in to Azure Container Registry
+        run: |
+          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
+          az acr login --name "$ACR_NAME"
+
       # ------------------------------------------------------------------------
       # 3.1 BACKEND API CONTAINER (Build via SP, Sign & Deploy)
       # ------------------------------------------------------------------------
@@ -287,9 +293,11 @@ jobs:
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
-
+          echo "Building API image: $IMAGE_TAG"
           docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
+          echo "Pushing API image to ACR..."
           docker push "$IMAGE_TAG"
+          echo "API_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
           # Retrieve immutable digest
           API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
