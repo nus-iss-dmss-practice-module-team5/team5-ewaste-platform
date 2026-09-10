@@ -139,8 +139,7 @@ jobs:
             -backend-config="key=shared.tfstate" \
             -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
 
-          terraform apply -auto-approve \
-            -var="github_runner_token=${{ secrets.RUNNER_REGISTRATION_TOKEN }}"
+          terraform apply -auto-approve
 
       # ------------------------------------------------------------------------
       # 1.2. ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, ACA Environment)
