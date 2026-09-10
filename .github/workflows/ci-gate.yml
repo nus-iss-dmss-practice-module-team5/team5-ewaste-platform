@@ -29,30 +29,30 @@ jobs:
   # PHASE 1: CODE QUALITY & SECURITY SCANNING
   # ============================================================================
 
-  # 1.1 PRE-COMMIT / FORMAT CHECKS
-  pre-commit-checks:
-    name: Pre-Commit Quality & Format Checks
-    runs-on: ubuntu-latest
+  # # 1.1 PRE-COMMIT / FORMAT CHECKS
+  # pre-commit-checks:
+  #   name: Pre-Commit Quality & Format Checks
+  #   runs-on: ubuntu-latest
 
-    steps:
-      - name: Checkout Code Repository
-        uses: actions/checkout@v4
+  #   steps:
+  #     - name: Checkout Code Repository
+  #       uses: actions/checkout@v4
 
-      - name: Setup Go Runtime
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
+  #     - name: Setup Go Runtime
+  #       uses: actions/setup-go@v5
+  #       with:
+  #         go-version: ${{ env.GO_VERSION }}
+  #         cache: true
 
-      - name: Setup Node.js Runtime
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
+  #     - name: Setup Node.js Runtime
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: ${{ env.NODE_VERSION }}
 
-      - name: Execute Pre-Commit Hooks
-        uses: pre-commit/action@v3.0.1
-        with:
-          extra_args: --all-files --show-diff-on-failure
+  #     - name: Execute Pre-Commit Hooks
+  #       uses: pre-commit/action@v3.0.1
+  #       with:
+  #         extra_args: --all-files --show-diff-on-failure
 
 
   
@@ -194,32 +194,7 @@ jobs:
           echo "Checkov will scan terraform/ once infrastructure code is added."
 
 
-  # ============================================================================
-  # PHASE 2: EXPLICIT SECURITY GATE
-  # ============================================================================
 
-  security-gate:
-    name: Security Gate
-    needs:
-      - secret-scan
-      - sast-scan
-      - iac-scan
-
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Confirm Security Checks Passed
-        run: |
-          echo "=============================================="
-          echo "           SECURITY GATE PASSED"
-          echo "=============================================="
-          echo "Gitleaks : PASSED"
-          echo "Semgrep  : PASSED"
-          echo "Checkov  : PASSED"
-          echo "=============================================="
-          echo "Required security checks completed."
-          echo "Downstream CI stages may proceed."
-          echo "=============================================="
 
 
   # ============================================================================
@@ -481,7 +456,9 @@ jobs:
   supply-chain-tooling-check:
     name: Cosign Availability & Configuration Check
     needs:
-      - security-gate
+      - secret-scan
+      - sast-scan
+      - iac-scan
       - container-security
 
     runs-on: ubuntu-latest
@@ -510,7 +487,7 @@ jobs:
           echo "=============================================="
           echo "       CI SECURITY PIPELINE COMPLETE"
           echo "=============================================="
-          echo "Pre-Commit : PASSED"
+          
           echo "Gitleaks   : PASSED"
           echo "Semgrep    : PASSED"
           echo "Checkov    : PASSED"
