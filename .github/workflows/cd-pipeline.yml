@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/build-deploy-to-aca-bug-fixes]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -288,15 +288,6 @@ jobs:
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
 
-          if [ ! -f src/backend/Dockerfile ]; then
-            mkdir -p src/backend
-            cat <<'EOF' > src/backend/Dockerfile
-            FROM alpine:3.19
-            RUN apk add --no-cache curl
-            CMD ["echo", "Responsible E-Waste Platform API Running"]
-            EOF
-          fi
-
           docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
           docker push "$IMAGE_TAG"
 
@@ -370,14 +361,6 @@ jobs:
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
-
-          if [ ! -f src/frontend/Dockerfile ]; then
-            mkdir -p src/frontend
-            cat <<'EOF' > src/frontend/Dockerfile
-            FROM nginx:alpine
-            RUN echo "<html><body><h1>Responsible E-Waste Platform UI</h1></body></html>" > /usr/share/nginx/html/index.html
-            EOF
-          fi
 
           docker build -t "$IMAGE_TAG" --build-arg NEXT_PUBLIC_API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}" -f src/frontend/Dockerfile src/frontend/
           docker push "$IMAGE_TAG"
