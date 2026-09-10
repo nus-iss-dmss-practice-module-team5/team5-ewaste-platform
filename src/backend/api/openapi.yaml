@@ -120,7 +120,7 @@ paths:
             schema:
               $ref: '#/components/schemas/RefreshRequest'
             example:
-              refreshToken: eyJhbGciOiJIUzI1NiIs...
+              refreshToken: ...
       responses:
         '200':
           description: Token pair rotated successfully
