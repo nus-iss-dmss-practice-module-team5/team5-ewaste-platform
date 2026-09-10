@@ -312,6 +312,8 @@ resource "azurerm_linux_virtual_machine" "runner" {
   )
 
   depends_on = [
+    azurerm_network_interface.runner_nic,
+    azurerm_subnet_network_security_group_association.runner_nsg_assoc,
     azurerm_private_endpoint.shared_acr_pe,
     azurerm_role_assignment.runner_acr_push
   ]
