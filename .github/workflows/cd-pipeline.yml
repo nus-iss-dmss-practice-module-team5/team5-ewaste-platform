@@ -139,7 +139,8 @@ jobs:
             -backend-config="key=shared.tfstate" \
             -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
 
-          terraform apply -auto-approve
+          terraform apply -auto-approve \
+            -var="github_runner_token=${{ secrets.RUNNER_REGISTRATION_TOKEN }}"
 
       # ------------------------------------------------------------------------
       # 1.2. ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, ACA Environment)
@@ -263,7 +264,8 @@ jobs:
   deploy-application:
     name: Package, Sign & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, database-migration]
-    runs-on: ubuntu-latest
+    # RUN ON VNET RUNNER (Resolves ACR via Private DNS 10.100.1.4)
+    runs-on: [self-hosted, azure-vnet-runner]
     environment: ${{ needs.resolve-environment.outputs.environment }}
     outputs:
       aca_api_fqdn: ${{ steps.api_deploy.outputs.aca_api_fqdn }}
@@ -280,42 +282,26 @@ jobs:
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      - name: Diagnose ACR access
+      # Docker logs in through the private endpoint inside the VNet
+      - name: Log in to Azure Container Registry
         run: |
-          set -x
-
-          az account show
-
-          echo "=== ACR configuration ==="
-          az acr show \
-            --name acrewasteplatform \
-            --query '{
-              loginServer:loginServer,
-              publicNetworkAccess:publicNetworkAccess,
-              defaultAction:networkRuleSet.defaultAction,
-              bypass:networkRuleBypassOption
-            }' \
-            -o json
-
-          echo "=== ACR health ==="
-          az acr check-health \
-            --name acrewasteplatform \
-            --yes
+          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
+          az acr login --name "$ACR_NAME"
 
       # ------------------------------------------------------------------------
-      # 3.1 BACKEND API CONTAINER (Build via SP, Sign & Deploy)
+      # 3.1 BACKEND API CONTAINER
       # ------------------------------------------------------------------------
-      - name: Build & Publish Backend API Container via SP
+      - name: Build & Publish Backend API Container
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
           echo "Building API image: $IMAGE_TAG"
           docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
-          echo "Pushing API image to ACR..."
+          echo "Pushing API image to ACR via Private Endpoint..."
           docker push "$IMAGE_TAG"
           echo "API_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
-          # Retrieve immutable digest
           API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
           echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
 
@@ -381,13 +367,15 @@ jobs:
       # ------------------------------------------------------------------------
       # 3.2 FRONTEND UI CONTAINER (Build via SP, Sign & Deploy)
       # ------------------------------------------------------------------------
-      - name: Build & Publish Frontend UI Container via SP
+      - name: Build & Publish Frontend UI Container
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
-
+          echo "Building UI image: $IMAGE_TAG"
           docker build -t "$IMAGE_TAG" --build-arg NEXT_PUBLIC_API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}" -f src/frontend/Dockerfile src/frontend/
+          echo "Pushing UI image to ACR via Private Endpoint..."
           docker push "$IMAGE_TAG"
+          echo "UI_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
           UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
           echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
