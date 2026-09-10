@@ -302,23 +302,23 @@ jobs:
           API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
           echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
 
-      - name: Sign API Container Image Digest with Cosign
-        run: |
-          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
-          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-            cosign sign --yes \
-              --key env://COSIGN_PRIVATE_KEY \
-              ${{ env.API_IMMUTABLE_DIGEST }}
-          else
-            echo "Generating ephemeral keypair for API signing..."
-            if [ ! -f cosign.key ]; then
-              cosign generate-key-pair
-            fi
-            cosign sign --yes --key cosign.key ${{ env.API_IMMUTABLE_DIGEST }}
-          fi
-        env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+#      - name: Sign API Container Image Digest with Cosign
+#        run: |
+#          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
+#          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
+#            cosign sign --yes \
+#              --key env://COSIGN_PRIVATE_KEY \
+#              ${{ env.API_IMMUTABLE_DIGEST }}
+#          else
+#            echo "Generating ephemeral keypair for API signing..."
+#            if [ ! -f cosign.key ]; then
+#              cosign generate-key-pair
+#            fi
+#            cosign sign --yes --key cosign.key ${{ env.API_IMMUTABLE_DIGEST }}
+#          fi
+#        env:
+#          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+#          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
       - name: Deploy API Container to Azure Container Apps
         id: api_deploy
@@ -366,7 +366,7 @@ jobs:
                   --env-vars APP_ENV="$TARGET_ENV" \
                              DB_HOST="$DB_HOST" \
                              DB_USER="ewasteadmin" \
-                             DB_PASSWORD=secretref:db-password
+                             DB_PASSWORD=
               else
                 az containerapp create \
                   --name "$APP_NAME" \
@@ -384,7 +384,7 @@ jobs:
                   --env-vars APP_ENV="$TARGET_ENV" \
                              DB_HOST="$DB_HOST" \
                              DB_USER="ewasteadmin" \
-                             DB_PASSWORD=secretref:db-password
+                             DB_PASSWORD=
               fi
             fi
 
@@ -408,23 +408,23 @@ jobs:
           UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
           echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
 
-      - name: Sign UI Container Image Digest with Cosign
-        run: |
-          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
-          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-            cosign sign --yes \
-              --key env://COSIGN_PRIVATE_KEY \
-              ${{ env.UI_IMMUTABLE_DIGEST }}
-          else
-            echo "Signing UI image with cosign key..."
-            if [ ! -f cosign.key ]; then
-              cosign generate-key-pair
-            fi
-            cosign sign --yes --key cosign.key ${{ env.UI_IMMUTABLE_DIGEST }}
-          fi
-        env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+#      - name: Sign UI Container Image Digest with Cosign
+#        run: |
+#          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
+#          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
+#            cosign sign --yes \
+#              --key env://COSIGN_PRIVATE_KEY \
+#              ${{ env.UI_IMMUTABLE_DIGEST }}
+#          else
+#            echo "Signing UI image with cosign key..."
+#            if [ ! -f cosign.key ]; then
+#              cosign generate-key-pair
+#            fi
+#            cosign sign --yes --key cosign.key ${{ env.UI_IMMUTABLE_DIGEST }}
+#          fi
+#        env:
+#          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+#          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
       - name: Deploy UI Container to Azure Container Apps
         id: ui_deploy
