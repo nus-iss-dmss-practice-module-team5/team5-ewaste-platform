@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
   push:
-    branches: [dev, main]
+    branches: [dev, main, security-testing-v2]
 
 permissions:
   contents: read
@@ -183,7 +183,7 @@ jobs:
           directory: terraform/
           framework: terraform
           output_format: cli,sarif
-          output-file-path: checkov.sarif
+          output_file_path: console,checkov.sarif
           soft_fail: false
 
       - name: Terraform Baseline Message
