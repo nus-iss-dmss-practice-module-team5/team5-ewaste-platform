@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [feature/EWCSB-50-Terraform-Scripts]
+    branches: [feature/test-liquibase-migrations]
   pull_request:
     branches: [dev]
     types: [opened, synchronize, reopened]
@@ -200,163 +200,62 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
   # ============================================================================
-  # STAGE 2: PRIVATE DATABASE MIGRATIONS (Liquibase via ACA Job)
+  # STAGE 2: DATABASE MIGRATIONS (Direct Liquibase Runner)
   # ============================================================================
   database-migration:
     name: Liquibase Migration (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment: ${{ needs.resolve-environment.outputs.environment }}
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Authenticate to Microsoft Azure
-        uses: azure/login@v2
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          distribution: 'temurin'
+          java-version: '17'
 
-      # ------------------------------------------------------------------------
-      # 2.1 OPEN EPHEMERAL ACCESS TO ACR FOR PIPELINE PUSH & ACA JOB VALIDATION
-      # ------------------------------------------------------------------------
-      - name: Open Ephemeral Access to ACR
+      - name: Install Liquibase
         run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
-          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1); fi
-          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
+          sudo mkdir -p /opt/liquibase
+          wget -qO- https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz | sudo tar -xz -C /opt/liquibase
+          sudo ln -sf /opt/liquibase/liquibase /usr/local/bin/liquibase
+          sudo chmod +x /usr/local/bin/liquibase
+          # MySQL Connector driver
+          wget -qO /tmp/mysql-connector-j-8.3.0.jar https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar
+          sudo cp /tmp/mysql-connector-j-8.3.0.jar /opt/liquibase/lib/
 
-          echo "Temporarily enabling ACR public access and default action Allow for: $ACR_NAME"
-          az acr update --name "$ACR_NAME" --public-network-enabled true --default-action Allow
-
-          echo "Waiting 15 seconds for ACR network configuration propagation..."
-          sleep 15
-
-      # ------------------------------------------------------------------------
-      # 2.2 AUTHENTICATE & PUSH MIGRATION IMAGE
-      # ------------------------------------------------------------------------
-      - name: Authenticate Docker to ACR
+      - name: Execute Liquibase Migrations
+        env:
+          MYSQL_HOST: ${{ needs.provision-infrastructure.outputs.mysql_fqdn }}
+          MYSQL_DB: ${{ needs.provision-infrastructure.outputs.mysql_db }}
+          MYSQL_USER: ${{ needs.provision-infrastructure.outputs.mysql_admin_username }}
+          MYSQL_PASS: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
+          TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
         run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
-          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1); fi
+          # Fallback to default admin user if output was empty
+          DB_USER="${MYSQL_USER:-ewasteadmin}"
+          DB_NAME="${MYSQL_DB:-ewastedb}"
 
-          echo "Authenticating Docker to ACR: $ACR_SERVER"
-          if echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -e .clientSecret >/dev/null 2>&1; then
-            CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
-            CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
-            echo "$CLIENT_SECRET" | docker login "$ACR_SERVER" -u "$CLIENT_ID" --password-stdin
-          else
-            az acr login --name "$ACR_NAME"
+          echo "Applying migrations to ${MYSQL_HOST}/${DB_NAME} as ${DB_USER}..."
+
+          CONTEXT_PARAM=""
+          if [ "$TARGET_ENV" != "prod" ]; then
+            CONTEXT_PARAM="--contexts=seed"
           fi
 
-      - name: Build & Publish Liquibase Migration Container
-        run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
-          MIGRATION_IMAGE="${ACR_SERVER}/db-migrator:${{ github.sha }}"
+          liquibase \
+            --changelog-file=database/changelog-master.yaml \
+            --url="jdbc:mysql://${MYSQL_HOST}:3306/${DB_NAME}?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true" \
+            --username="${DB_USER}" \
+            --password="${MYSQL_PASS}" \
+            $CONTEXT_PARAM \
+            update
 
-          echo "Building migration image: $MIGRATION_IMAGE"
-          docker build -t "$MIGRATION_IMAGE" -f database/Dockerfile database/
-
-          echo "Pushing migration image to ACR..."
-          docker push "$MIGRATION_IMAGE"
-
-          echo "MIGRATION_IMAGE=$MIGRATION_IMAGE" >> $GITHUB_ENV
-
-      # ------------------------------------------------------------------------
-      # 2.3 EXECUTE MIGRATION INSIDE VNET BOUNDARY VIA ACA JOB
-      # ------------------------------------------------------------------------
-      - name: Execute Migration Inside VNet Boundary
-        uses: azure/cli@v2
-        with:
-          inlineScript: |
-            set -e
-            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-            RG="${{ needs.provision-infrastructure.outputs.resource_group }}"
-            if [ -z "$RG" ]; then RG="rg-ewaste-${TARGET_ENV}"; fi
-            CAE="${{ needs.provision-infrastructure.outputs.aca_env_name }}"
-            if [ -z "$CAE" ]; then CAE="cae-ewaste-${TARGET_ENV}"; fi
-            ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
-            if [ -z "$ACR_SERVER" ]; then ACR_SERVER="acrewasteplatform.azurecr.io"; fi
-
-            # Resolve Managed Identity ID
-            IDENTITY_ID="${{ needs.provision-infrastructure.outputs.aca_identity_id }}"
-            if [ -z "$IDENTITY_ID" ]; then
-              echo "Resolving User Assigned Identity ID for id-ewaste-${TARGET_ENV}......"
-              IDENTITY_ID=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || echo "")
-            fi
-
-            # Resolve MySQL Password directly from repository secret
-            DB_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
-            if [ -z "$DB_PASS" ]; then
-              DB_PASS="${{ needs.provision-infrastructure.outputs.mysql_admin_password }}"
-            fi
-
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-8)
-            JOB_NAME="job-db-migrate-${SHORT_SHA}"
-            MYSQL_HOST="${{ needs.provision-infrastructure.outputs.mysql_fqdn }}"
-            if [ -z "$MYSQL_HOST" ]; then MYSQL_HOST="mysql-ewaste-${TARGET_ENV}.mysql.database.azure.com"; fi
-            MYSQL_DATABASE="${{ needs.provision-infrastructure.outputs.mysql_db }}"
-            if [ -z "$MYSQL_DATABASE" ]; then MYSQL_DATABASE="ewastedb"; fi
-
-            JDBC_URL="jdbc:mysql://${MYSQL_HOST}:3306/${MYSQL_DATABASE}?useSSL=true&requireSSL=true"
-
-            echo "Creating ephemeral ACA migration job ($JOB_NAME) inside VNet for ${TARGET_ENV}..."
-            az containerapp job create \
-              --name "$JOB_NAME" \
-              --resource-group "$RG" \
-              --environment "$CAE" \
-              --mi-user-assigned "$IDENTITY_ID" \
-              --registry-server "$ACR_SERVER" \
-              --registry-identity "$IDENTITY_ID" \
-              --trigger-type "Manual" \
-              --replica-timeout 300 \
-              --replica-retry-limit 0 \
-              --image "${{ env.MIGRATION_IMAGE }}" \
-              --args "update --changelog-file=/liquibase/changelog/changelog-master.yaml --url=${JDBC_URL} --username=ewasteadmin --password=${DB_PASS}"
-
-            echo "Starting migration execution..."
-            az containerapp job start \
-              --name "$JOB_NAME" \
-              --resource-group "$RG"
-
-            echo "Polling migration execution status..."
-            for i in {1..20}; do
-              STATUS=$(az containerapp job execution list \
-                --name "$JOB_NAME" \
-                --resource-group "$RG" \
-                --query "[0].status" -o tsv 2>/dev/null || echo "Running")
-              echo "Status: $STATUS (Attempt $i/20)"
-              if [ "$STATUS" == "Succeeded" ]; then
-                echo "Liquibase migrations applied successfully."
-                break
-              elif [ "$STATUS" == "Failed" ]; then
-                echo "ERROR: Liquibase migration execution failed."
-                az containerapp job delete --name "$JOB_NAME" --resource-group "$RG" --yes 2>/dev/null || true
-                exit 1
-              fi
-              sleep 10
-            done
-
-            echo "Cleaning up ephemeral migration job..."
-            az containerapp job delete \
-              --name "$JOB_NAME" \
-              --resource-group "$RG" \
-              --yes
-
-      # ------------------------------------------------------------------------
-      # 2.4 RESTORE ZERO-TRUST PERIMETER (ALWAYS EXECUTES AFTER ACA JOB COMPLETION)
-      # ------------------------------------------------------------------------
-      - name: Restore ACR Zero-Trust Perimeter (Disable Public Access)
-        if: always()
-        run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
-          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-          if [ -z "$ACR_NAME" ]; then ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1); fi
-          if [ -z "$ACR_NAME" ]; then ACR_NAME="acrewasteplatform"; fi
-
-          echo "Restoring ACR zero-trust perimeter: public network access disabled and default action Deny..."
-          az acr update --name "$ACR_NAME" --public-network-enabled false --default-action Deny || true
+          echo "Database migrations and seed records completed successfully."
 
 #  # ============================================================================
 #  # STAGE 3: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
