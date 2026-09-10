@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
   push:
-    branches: [dev, main]
+    branches: [dev, main, security-testing-v2]
 
 permissions:
   contents: read
