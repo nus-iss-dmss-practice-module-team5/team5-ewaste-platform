@@ -391,7 +391,6 @@ jobs:
     name: Container Build, SBOM & Vulnerability Scan
 
     needs:
-      - security-gate
       - backend-tests
       - analytics-tests
       - frontend-checks
@@ -482,6 +481,7 @@ jobs:
   supply-chain-tooling-check:
     name: Cosign Availability & Configuration Check
     needs:
+      - security-gate
       - container-security
 
     runs-on: ubuntu-latest
