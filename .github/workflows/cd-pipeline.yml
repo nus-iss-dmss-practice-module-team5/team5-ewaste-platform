@@ -263,8 +263,7 @@ jobs:
   deploy-application:
     name: Package, Sign & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, database-migration]
-    # RUN ON VNET RUNNER (Resolves ACR via Private DNS 10.100.1.4)
-    runs-on: [self-hosted, azure-vnet-runner]
+    runs-on: [ubuntu-latest]
     environment: ${{ needs.resolve-environment.outputs.environment }}
     outputs:
       aca_api_fqdn: ${{ steps.api_deploy.outputs.aca_api_fqdn }}
