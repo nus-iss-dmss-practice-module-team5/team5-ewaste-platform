@@ -238,6 +238,7 @@ resource "azurerm_linux_virtual_machine" "runner" {
   location              = azurerm_resource_group.shared.location
   resource_group_name   = azurerm_resource_group.shared.name
   size                  = "Standard_B2s" # 2 vCPU, 4 GB RAM
+  zone                  = "2" # Deploys specifically to Availability Zone 2
   admin_username        = var.vm_admin_username
   network_interface_ids = [azurerm_network_interface.runner_nic.id]
 
