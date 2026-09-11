@@ -480,7 +480,13 @@ jobs:
             EOF
           fi
 
-          docker build -t "$IMAGE_TAG" --build-arg NEXT_PUBLIC_API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}" -f src/frontend/Dockerfile src/frontend/
+          API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
+          docker build -t "$IMAGE_TAG" \
+            --build-arg NEXT_PUBLIC_USE_MOCK_AUTH="false" \
+            --build-arg API_PROXY_TARGET="$API_URL" \
+            --build-arg NEXT_PUBLIC_API_BASE_URL="$API_URL" \
+            --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
+            -f src/frontend/Dockerfile src/frontend/
           docker push "$IMAGE_TAG"
 
           UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
@@ -532,10 +538,24 @@ jobs:
               --registry-identity "$IDENTITY" \
               --env-vars APP_ENV="$TARGET_ENV" \
                          NEXT_PUBLIC_API_URL="$API_URL" \
+                         NEXT_PUBLIC_API_BASE_URL="$API_URL" \
+                         API_PROXY_TARGET="$API_URL" \
+                         NEXT_PUBLIC_USE_MOCK_AUTH="false" \
+                         NODE_ENV="production" \
+                         PORT="3000" \
+                         HOSTNAME="0.0.0.0" \
               2>/dev/null || az containerapp update \
                 --name "$APP_NAME" \
                 --resource-group "$RG" \
-                --image "${{ env.UI_IMMUTABLE_DIGEST }}"
+                --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
+                --set-env-vars APP_ENV="$TARGET_ENV" \
+                               NEXT_PUBLIC_API_URL="$API_URL" \
+                               NEXT_PUBLIC_API_BASE_URL="$API_URL" \
+                               API_PROXY_TARGET="$API_URL" \
+                               NEXT_PUBLIC_USE_MOCK_AUTH="false" \
+                               NODE_ENV="production" \
+                               PORT="3000" \
+                               HOSTNAME="0.0.0.0"
 
             UI_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
             echo "aca_ui_fqdn=$UI_FQDN" >> "$GITHUB_OUTPUT"
