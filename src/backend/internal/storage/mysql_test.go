@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
+	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 
@@ -20,12 +21,18 @@ func TestBuildMySQLDSNSeparatesConnectionSettings(t *testing.T) {
 		"ewaste_app:secret@tcp(mysql:3306)/ewaste",
 		"charset=utf8mb4",
 		"parseTime=true",
-		"allowNativePasswords=true",
 		"tls=preferred",
 	} {
 		if !contains(dsn, expected) {
 			t.Fatalf("expected DSN to contain %q, got %q", expected, dsn)
 		}
+	}
+	parsed, err := mysqlDriver.ParseDSN(dsn)
+	if err != nil {
+		t.Fatalf("parse DSN: %v", err)
+	}
+	if !parsed.AllowNativePasswords {
+		t.Fatal("expected native password authentication to be allowed")
 	}
 }
 
@@ -57,7 +64,7 @@ func TestPingMySQLUsesDatabaseConnection(t *testing.T) {
 	gormDB, err := gorm.Open(mysql.New(mysql.Config{
 		Conn:                      sqlDB,
 		SkipInitializeWithVersion: true,
-	}), &gorm.Config{})
+	}), &gorm.Config{DisableAutomaticPing: true})
 	if err != nil {
 		t.Fatalf("open gorm DB: %v", err)
 	}
