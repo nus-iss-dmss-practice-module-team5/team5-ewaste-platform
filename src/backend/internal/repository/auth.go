@@ -17,6 +17,7 @@ type AuthRepository interface {
 	FindActiveUserByEmail(ctx context.Context, email string) (*model.User, error)
 	FindActiveUserByID(ctx context.Context, userID string) (*model.User, error)
 	CreateLoginSession(ctx context.Context, user *model.User, session *model.Session, loginAt time.Time) error
+	CreateLoginAudit(ctx context.Context, audit *model.LoginAudit) error
 	FindSession(ctx context.Context, sessionID string) (*model.Session, error)
 	RotateSession(ctx context.Context, sessionID, userID, oldHash, newHash string, expiresAt, now time.Time) error
 	RevokeSession(ctx context.Context, sessionID, userID, reason string, revokedAt time.Time) error
@@ -71,6 +72,10 @@ func (r *GormAuthRepository) CreateLoginSession(ctx context.Context, user *model
 		}
 		return tx.Create(session).Error
 	})
+}
+
+func (r *GormAuthRepository) CreateLoginAudit(ctx context.Context, audit *model.LoginAudit) error {
+	return r.db.WithContext(ctx).Create(audit).Error
 }
 
 func (r *GormAuthRepository) FindSession(ctx context.Context, sessionID string) (*model.Session, error) {
