@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [feature/build-deploy-to-aca-bug-fixes]
+    branches: [dev, main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
