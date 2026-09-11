@@ -67,7 +67,7 @@ func (s *AuthService) Refresh(ctx context.Context, rawRefresh string) (dto.Token
 		return dto.TokenResponse{}, ErrInvalidSession
 	}
 	session, err := s.repository.FindSession(ctx, claims.SessionID)
-	if errors.Is(err, repository.ErrNotFound) || (err == nil && (session.UserID != claims.UserID || session.Status != "ACTIVE" || !session.ExpiresAt.After(s.clock()))) {
+	if errors.Is(err, repository.ErrNotFound) || (err == nil && (session == nil || session.UserID != claims.UserID || !session.IsActive(s.clock()))) {
 		return dto.TokenResponse{}, ErrInvalidSession
 	}
 	if err != nil {

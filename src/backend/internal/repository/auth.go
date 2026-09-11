@@ -87,12 +87,12 @@ func (r *GormAuthRepository) FindSession(ctx context.Context, sessionID string) 
 
 func (r *GormAuthRepository) RotateSession(ctx context.Context, sessionID, userID, oldHash, newHash string, expiresAt, now time.Time) error {
 	result := r.db.WithContext(ctx).Model(&model.Session{}).
-		Where("session_id = ? AND user_id = ? AND refresh_token_hash = ? AND status = ? AND expires_at > ?",
-			sessionID, userID, oldHash, "ACTIVE", now).
+		Where("session_id = ? AND user_id = ? AND token_hash = ? AND revoked_at IS NULL AND expires_at > ?",
+			sessionID, userID, oldHash, now).
 		Updates(map[string]any{
-			"refresh_token_hash": newHash,
-			"expires_at":         expiresAt,
-			"last_seen_at":       now,
+			"token_hash":   newHash,
+			"expires_at":   expiresAt,
+			"last_seen_at": now,
 		})
 	if result.Error != nil {
 		return result.Error
@@ -105,9 +105,8 @@ func (r *GormAuthRepository) RotateSession(ctx context.Context, sessionID, userI
 
 func (r *GormAuthRepository) RevokeSession(ctx context.Context, sessionID, userID, reason string, revokedAt time.Time) error {
 	result := r.db.WithContext(ctx).Model(&model.Session{}).
-		Where("session_id = ? AND user_id = ? AND status = ?", sessionID, userID, "ACTIVE").
+		Where("session_id = ? AND user_id = ? AND revoked_at IS NULL", sessionID, userID).
 		Updates(map[string]any{
-			"status":            "REVOKED",
 			"revoked_at":        revokedAt,
 			"revocation_reason": reason,
 		})
