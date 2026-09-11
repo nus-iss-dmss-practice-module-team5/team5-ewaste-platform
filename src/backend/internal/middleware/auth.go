@@ -28,7 +28,7 @@ func RequireAccessTokens(tokens *token.Service, sessions repository.AuthReposito
 			return
 		}
 		session, err := sessions.FindSession(c.Request.Context(), claims.SessionID)
-		if errors.Is(err, repository.ErrNotFound) || (err == nil && (session.UserID != claims.UserID || session.Status != "ACTIVE" || !session.ExpiresAt.After(now()))) {
+		if errors.Is(err, repository.ErrNotFound) || (err == nil && (session == nil || session.UserID != claims.UserID || !session.IsActive(now()))) {
 			abortAuth(c)
 			return
 		}
