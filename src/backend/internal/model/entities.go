@@ -42,10 +42,12 @@ type User struct {
 func (User) TableName() string { return "users" }
 
 type Session struct {
-	SessionID        string     `gorm:"column:session_id;primaryKey;size:36"`
-	UserID           string     `gorm:"column:user_id;size:32"`
-	RefreshTokenHash string     `gorm:"column:refresh_token_hash;size:64"`
-	Status           string     `gorm:"column:status;size:16"`
+	SessionID        string `gorm:"column:session_id;primaryKey;size:36"`
+	UserID           string `gorm:"column:user_id;size:32"`
+	RefreshTokenHash string `gorm:"column:token_hash;size:64"`
+	// Status is retained for in-memory test doubles. Session state in MySQL is
+	// represented by revoked_at, so this field must not be persisted.
+	Status           string     `gorm:"-"`
 	IssuedAt         time.Time  `gorm:"column:issued_at"`
 	ExpiresAt        time.Time  `gorm:"column:expires_at"`
 	LastSeenAt       *time.Time `gorm:"column:last_seen_at"`
@@ -54,3 +56,9 @@ type Session struct {
 }
 
 func (Session) TableName() string { return "sessions" }
+
+// IsActive reports whether a session is usable at the supplied time.
+// Persisted sessions use revoked_at; Status supports existing in-memory callers.
+func (s Session) IsActive(now time.Time) bool {
+	return s.ExpiresAt.After(now) && s.RevokedAt == nil && (s.Status == "" || s.Status == "ACTIVE")
+}
