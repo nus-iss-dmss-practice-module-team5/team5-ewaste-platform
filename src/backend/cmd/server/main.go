@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"flag"
 	"log"
 	"os"
@@ -66,7 +67,11 @@ func main() {
 		appLogger.Fatal("ping mysql")
 	}
 
-	redisClient := redis.NewClient(&redis.Options{Addr: cfg.Redis.Address, Password: cfg.Redis.Password, DB: cfg.Redis.DB})
+	redisOptions := &redis.Options{Addr: cfg.Redis.Address, Password: cfg.Redis.Password, DB: cfg.Redis.DB}
+	if cfg.Redis.TLSEnabled {
+		redisOptions.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+	redisClient := redis.NewClient(redisOptions)
 	pingCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	err = redisClient.Ping(pingCtx).Err()
 	cancel()
