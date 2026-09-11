@@ -59,6 +59,12 @@ output "redis_private_endpoint_ip" {
   description = "Private IP allocated to the environment Redis endpoint."
 }
 
+output "redis_primary_access_key" {
+  value       = azurerm_redis_cache.redis.primary_access_key
+  sensitive   = true
+  description = "Primary access key for Azure Cache for Redis."
+}
+
 output "acr_login_server" {
   value       = data.azurerm_container_registry.shared_acr.login_server
   description = "Login server for the shared Azure Container Registry."

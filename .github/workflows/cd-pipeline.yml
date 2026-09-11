@@ -95,6 +95,7 @@ jobs:
       mysql_admin_username: ${{ steps.tf_outputs.outputs.mysql_admin_username }}
       mysql_admin_password: ${{ steps.tf_outputs.outputs.mysql_admin_password }}
       redis_address: ${{ steps.tf_outputs.outputs.redis_address }}
+      redis_password: ${{ steps.tf_outputs.outputs.redis_password }}
       aca_identity_id: ${{ steps.tf_outputs.outputs.aca_identity_id }}
       key_vault_uri: ${{ steps.tf_outputs.outputs.key_vault_uri }}
     steps:
@@ -187,9 +188,16 @@ jobs:
           fi
           ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
           REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
+          REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
+          if [ -z "$REDIS_PASS" ]; then
+            REDIS_PASS=$(terraform output -raw redis_primary_access_key 2>/dev/null || echo "")
+          fi
 
           if [ -n "$MYSQL_PASS" ]; then
             echo "::add-mask::$MYSQL_PASS"
+          fi
+          if [ -n "$REDIS_PASS" ]; then
+            echo "::add-mask::$REDIS_PASS"
           fi
 
           {
@@ -202,6 +210,7 @@ jobs:
             echo "key_vault_uri=${KV_URI}"
             echo "mysql_admin_password=${MYSQL_PASS}"
             echo "redis_address=${REDIS_ADDR}"
+            echo "redis_password=${REDIS_PASS}"
             echo "aca_identity_id=${ACA_IDENTITY_ID}"
           } >> "$GITHUB_OUTPUT"
 
@@ -338,8 +347,11 @@ jobs:
             ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
             DB_HOST="${{ needs.provision-infrastructure.outputs.mysql_fqdn }}"
             DB_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+            DB_PASS="${DB_PASS:-${{ needs.provision-infrastructure.outputs.mysql_admin_password }}}"
+            DB_USER="${{ needs.provision-infrastructure.outputs.mysql_admin_username }}"
             DB_NAME="${{ needs.provision-infrastructure.outputs.mysql_db }}"
             REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
+            REDIS_PASS="${REDIS_PASS:-${{ needs.provision-infrastructure.outputs.redis_password }}}"
             AUTH_ACCESS_SECRET="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
             AUTH_REFRESH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
             AUTH_REFRESH_HASH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
@@ -354,7 +366,17 @@ jobs:
             DB_USER="${DB_USER:-ewasteadmin}"
             DB_NAME="${DB_NAME:-ewastedb}"
             REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
+
+            if [ -z "$REDIS_PASS" ] || [ "$REDIS_PASS" == "defaultRedisPass123!" ]; then
+              REDIS_NAME="redis-ewaste-${TARGET_ENV}"
+              FETCHED_KEY=$(az redis list-keys --name "$REDIS_NAME" --resource-group "$RG" --query primaryKey -o tsv 2>/dev/null || true)
+              if [ -n "$FETCHED_KEY" ]; then
+                echo "::add-mask::$FETCHED_KEY"
+                REDIS_PASS="$FETCHED_KEY"
+              fi
+            fi
             REDIS_PASS="${REDIS_PASS:-defaultRedisPass123!}"
+
             AUTH_ACCESS_SECRET="${AUTH_ACCESS_SECRET:-default-dev-access-secret-minimum-32-chars-long}"
             AUTH_REFRESH_SECRET="${AUTH_REFRESH_SECRET:-default-dev-refresh-secret-minimum-32-chars-long}"
             AUTH_REFRESH_HASH_SECRET="${AUTH_REFRESH_HASH_SECRET:-default-dev-refresh-hash-secret-32-chars}"
