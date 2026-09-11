@@ -64,9 +64,10 @@ type DatabaseConfig struct {
 }
 
 type RedisConfig struct {
-	Address  string `mapstructure:"address"`
-	Password string `mapstructure:"password"`
-	DB       int    `mapstructure:"db"`
+	Address   string `mapstructure:"address"`
+	Password  string `mapstructure:"password"`
+	DB        int    `mapstructure:"db"`
+	TLSEnabled bool   `mapstructure:"tls_enabled"`
 }
 
 type AuthConfig struct {
@@ -136,6 +137,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("redis.address", "localhost:6379")
 	v.SetDefault("redis.password", "")
 	v.SetDefault("redis.db", 0)
+	v.SetDefault("redis.tls_enabled", false)
 	v.SetDefault("auth.issuer", "ewaste-workflow-api")
 	v.SetDefault("auth.access_ttl", 15*time.Minute)
 	v.SetDefault("auth.refresh_ttl", 24*time.Hour)
@@ -154,18 +156,44 @@ func setDefaults(v *viper.Viper) {
 }
 
 func bindEnvironment(v *viper.Viper) {
-	keys := []struct {
-		key string
-		env []string
-	}{
-		{key: "database.password", env: []string{"MYSQL_PASSWORD"}},
-		{key: "redis.password", env: []string{"REDIS_PASSWORD"}},
-		{key: "auth.access_secret", env: []string{"EWASTE_AUTH_ACCESS_SECRET"}},
-		{key: "auth.refresh_secret", env: []string{"EWASTE_AUTH_REFRESH_SECRET"}},
-		{key: "auth.refresh_hash_secret", env: []string{"EWASTE_AUTH_REFRESH_HASH_SECRET"}},
+	keys := []string{
+		"mode",
+		"server.port",
+		"database.host",
+		"database.port",
+		"database.name",
+		"database.user",
+		"database.password",
+		"redis.address",
+		"redis.password",
+		"redis.db",
+		"redis.tls_enabled",
+		"auth.issuer",
+		"auth.access_secret",
+		"auth.refresh_secret",
+		"auth.access_ttl",
+		"auth.refresh_ttl",
+		"auth.refresh_hash_secret",
+		"rate_limit.requests",
+		"rate_limit.window",
+		"logging.level",
+		"logging.file_path",
+		"logging.max_size_mb",
+		"logging.max_backups",
+		"logging.max_age_days",
+		"logging.compress",
+		"logging.console",
 	}
-	for _, item := range keys {
-		args := append([]string{item.key}, item.env...)
-		_ = v.BindEnv(args...)
+	for _, key := range keys {
+		envName := "EWASTE_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+		if key == "database.password" {
+			_ = v.BindEnv(key, "MYSQL_PASSWORD", envName)
+			continue
+		}
+		if key == "redis.password" {
+			_ = v.BindEnv(key, "REDIS_PASSWORD", envName)
+			continue
+		}
+		_ = v.BindEnv(key, envName)
 	}
 }
