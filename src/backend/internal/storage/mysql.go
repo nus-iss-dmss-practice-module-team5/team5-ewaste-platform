@@ -20,14 +20,16 @@ func OpenMySQL(cfg config.DatabaseConfig) (*gorm.DB, error) {
 
 func buildMySQLDSN(cfg config.DatabaseConfig) string {
 	return (&mysqlDriver.Config{
-		User:      cfg.User,
-		Passwd:    cfg.Password,
-		Net:       "tcp",
-		Addr:      net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
-		DBName:    cfg.Name,
-		Params:    map[string]string{"charset": "utf8mb4"},
-		ParseTime: true,
-		Loc:       time.UTC,
+		User:                 cfg.User,
+		Passwd:               cfg.Password,
+		Net:                  "tcp",
+		Addr:                 net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)),
+		DBName:               cfg.Name,
+		Params:               map[string]string{"charset": "utf8mb4"},
+		ParseTime:            true,
+		Loc:                  time.UTC,
+		AllowNativePasswords: true,
+		TLSConfig:            "preferred",
 	}).FormatDSN()
 }
 
