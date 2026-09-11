@@ -16,6 +16,7 @@ redis:
   # Supply the password through REDIS_PASSWORD.
   password: ""
   db: 0
+  tls_enabled: false
 
 auth:
   issuer: "ewaste-workflow-api"
