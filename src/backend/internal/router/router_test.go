@@ -35,6 +35,10 @@ func (routerTestRepository) CreateLoginSession(context.Context, *model.User, *mo
 	return nil
 }
 
+func (routerTestRepository) CreateLoginAudit(context.Context, *model.LoginAudit) error {
+	return nil
+}
+
 func (routerTestRepository) FindSession(context.Context, string) (*model.Session, error) {
 	return nil, repository.ErrNotFound
 }

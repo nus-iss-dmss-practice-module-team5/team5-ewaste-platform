@@ -23,11 +23,16 @@ func NewAuthController(authService *service.AuthService, logger *zap.Logger) *Au
 
 func (h *AuthController) Login(c *gin.Context) {
 	var request dto.LoginRequest
+	metadata := service.LoginAuditMetadata{
+		CorrelationID: middleware.GetCorrelationID(c),
+		SourceIP:      c.ClientIP(),
+	}
 	if err := c.ShouldBindJSON(&request); err != nil {
+		h.service.AuditInvalidLoginRequest(c.Request.Context(), request.Email, metadata)
 		h.error(c, http.StatusBadRequest, "AUTH_INVALID_REQUEST", "invalid request", err)
 		return
 	}
-	response, err := h.service.Login(c.Request.Context(), request)
+	response, err := h.service.Login(c.Request.Context(), request, metadata)
 	if err != nil {
 		if errors.Is(err, service.ErrInvalidCredentials) {
 			h.error(c, http.StatusUnauthorized, "AUTH_INVALID_CREDENTIALS", "invalid credentials", nil)
