@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: E-Waste Workflow Authentication API
+  version: 1.0.0
+  description: Sprint 1 authentication and service-health contract for workflow-api.
+servers:
+  - url: http://localhost:8080
+    description: Local development and test server
+tags:
+  - name: Health
+  - name: Test
+  - name: Authentication
+paths:
+  /healthz:
+    get:
+      tags: [Health]
+      summary: Check whether the process is alive
+      operationId: livenessCheck
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+              example: {status: ok}
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+  /readyz:
+    get:
+      tags: [Health]
+      summary: Check whether required dependencies are available
+      operationId: readinessCheck
+      responses:
+        '200':
+          description: MySQL and Redis are ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+              example: {status: ready, mysql: ok, redis: ok}
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+        '503':
+          description: MySQL or Redis is unavailable
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusResponse'
+              example: {status: not_ready, mysql: unavailable, redis: ok}
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+  /api/v1/hello:
+    get:
+      tags: [Test]
+      summary: Return the test Hello World response
+      operationId: helloWorld
+      responses:
+        '200':
+          description: Hello World response
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [msg]
+                properties:
+                  msg: {type: string}
+              example: {msg: hello world}
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+  /api/v1/auth/login:
+    post:
+      tags: [Authentication]
+      summary: Authenticate a user and create an active session
+      operationId: login
+      security: []
+      description: Invalid, unknown, and disabled credentials return the same generic error.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: donor1@ewaste.test
+              password: example-password
+      responses:
+        '200':
+          description: Login succeeded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/InvalidCredentials'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Rotate the access and refresh JWT pair
+      operationId: refresh
+      security: []
+      description: The refresh JWT is sent in JSON and is rotated after successful use.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+      responses:
+        '200':
+          description: Token pair rotated successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '429': {$ref: '#/components/responses/RateLimited'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Revoke the current authenticated session
+      operationId: logout
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '204':
+          description: Session revoked successfully
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+components:
+  parameters:
+    CorrelationId:
+      name: X-Correlation-ID
+      in: header
+      required: false
+      description: Client correlation ID; generated by the server when omitted.
+      schema: {type: string, maxLength: 100}
+  headers:
+    CorrelationId:
+      description: Correlation ID for tracing the request.
+      schema: {type: string, maxLength: 100}
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  schemas:
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: {type: string, format: email, maxLength: 254}
+        password: {type: string, format: password, minLength: 1}
+    RefreshRequest:
+      type: object
+      required: [refreshToken]
+      properties:
+        refreshToken: {type: string, minLength: 1}
+    TokenResponse:
+      type: object
+      required: [accessToken, refreshToken, tokenType, expiresIn, refreshExpiresIn]
+      properties:
+        accessToken:
+          type: string
+          description: Short-lived access JWT for protected APIs.
+        refreshToken:
+          type: string
+          description: Longer-lived refresh JWT accepted only by /auth/refresh.
+        tokenType: {type: string, enum: [Bearer]}
+        expiresIn:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Access-token lifetime in seconds.
+        refreshExpiresIn:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Refresh-token lifetime in seconds.
+    ErrorResponse:
+      type: object
+      required: [code, message, correlationId]
+      properties:
+        code:
+          type: string
+          enum: [AUTH_INVALID_REQUEST, AUTH_INVALID_CREDENTIALS, AUTH_INVALID_SESSION, AUTH_RATE_LIMITED, AUTH_SERVICE_UNAVAILABLE]
+        message: {type: string}
+        correlationId: {type: string, maxLength: 100}
+    StatusResponse:
+      type: object
+      required: [status, mysql, redis]
+      properties:
+        status: {type: string, enum: [ok, ready, not_ready]}
+        mysql: {type: string, enum: [ok, unavailable]}
+        redis: {type: string, enum: [ok, unavailable]}
+  responses:
+    BadRequest:
+      description: Missing or malformed request.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          example: {code: AUTH_INVALID_REQUEST, message: invalid request, correlationId: corr-001}
+      headers:
+        X-Correlation-ID: {$ref: '#/components/headers/CorrelationId'}
+    InvalidCredentials:
+      description: Generic authentication failure; user existence is not disclosed.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          example: {code: AUTH_INVALID_CREDENTIALS, message: invalid credentials, correlationId: corr-login-001}
+      headers:
+        X-Correlation-ID: {$ref: '#/components/headers/CorrelationId'}
+    InvalidSession:
+      description: Missing, invalid, expired, revoked, or reused session/token.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          example: {code: AUTH_INVALID_SESSION, message: invalid or expired session, correlationId: corr-session-001}
+      headers:
+        X-Correlation-ID: {$ref: '#/components/headers/CorrelationId'}
+    RateLimited:
+      description: Too many login or refresh requests from the client address.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          example: {code: AUTH_RATE_LIMITED, message: too many requests, correlationId: corr-rate-001}
+      headers:
+        X-Correlation-ID: {$ref: '#/components/headers/CorrelationId'}
+    ServiceUnavailable:
+      description: MySQL, Redis, or another required authentication dependency is unavailable.
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/ErrorResponse'}
+          example: {code: AUTH_SERVICE_UNAVAILABLE, message: service temporarily unavailable, correlationId: corr-service-001}
+      headers:
+        X-Correlation-ID: {$ref: '#/components/headers/CorrelationId'}
