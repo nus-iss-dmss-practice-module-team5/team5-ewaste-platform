@@ -16,7 +16,13 @@ func TestBuildMySQLDSNSeparatesConnectionSettings(t *testing.T) {
 		Host: "mysql", Port: 3306, Name: "ewaste", User: "ewaste_app", Password: "secret",
 	})
 
-	for _, expected := range []string{"ewaste_app:secret@tcp(mysql:3306)/ewaste", "charset=utf8mb4", "parseTime=true"} {
+	for _, expected := range []string{
+		"ewaste_app:secret@tcp(mysql:3306)/ewaste",
+		"charset=utf8mb4",
+		"parseTime=true",
+		"allowNativePasswords=true",
+		"tls=preferred",
+	} {
 		if !contains(dsn, expected) {
 			t.Fatalf("expected DSN to contain %q, got %q", expected, dsn)
 		}
@@ -48,11 +54,15 @@ func TestPingMySQLUsesDatabaseConnection(t *testing.T) {
 	mock.ExpectPing()
 	mock.ExpectClose()
 
-	db, err := gorm.Open(mysql.New(mysql.Config{Conn: sqlDB, SkipInitializeWithVersion: true}), &gorm.Config{DisableAutomaticPing: true})
+	gormDB, err := gorm.Open(mysql.New(mysql.Config{
+		Conn:                      sqlDB,
+		SkipInitializeWithVersion: true,
+	}), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("open mocked GORM database: %v", err)
+		t.Fatalf("open gorm DB: %v", err)
 	}
-	if err := PingMySQL(db, time.Second); err != nil {
-		t.Fatalf("ping MySQL: %v", err)
+
+	if err := PingMySQL(gormDB, time.Second); err != nil {
+		t.Fatalf("ping failed: %v", err)
 	}
 }
