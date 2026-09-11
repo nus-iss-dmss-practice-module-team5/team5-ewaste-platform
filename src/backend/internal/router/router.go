@@ -16,7 +16,7 @@ import (
 func NewAuthRouter(authController *controller.AuthController, tokens *token.Service, repo repository.AuthRepository, limiter ratelimit.Limiter, checker *health.Checker) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CorrelationID())
+	r.Use(gin.Recovery(), middleware.CorrelationID(), middleware.CORS())
 
 	r.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
@@ -52,6 +52,7 @@ func NewAuthRouter(authController *controller.AuthController, tokens *token.Serv
 func NewTestRouter() *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
+	r.Use(middleware.CORS())
 	r.GET("/api/v1/hello", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"msg": "hello world"}) })
 	r.NoRoute(func(c *gin.Context) { c.JSON(http.StatusNotFound, gin.H{"msg": "not found"}) })
 	return r
