@@ -387,7 +387,14 @@ jobs:
 
             echo "Deploying Backend API Container App ($APP_NAME)..."
             if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME already exists. Updating secrets and container image..."
+              echo "Container App $APP_NAME already exists. Ensuring ingress target-port is 8080..."
+              az containerapp ingress enable \
+                --name "$APP_NAME" \
+                --resource-group "$RG" \
+                --type external \
+                --target-port 8080 || true
+
+              echo "Updating secrets and container image..."
               az containerapp secret set \
                 --name "$APP_NAME" \
                 --resource-group "$RG" \
@@ -595,7 +602,14 @@ jobs:
 
             echo "Deploying Frontend UI Container App ($APP_NAME)..."
             if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME already exists. Updating container image and environment..."
+              echo "Container App $APP_NAME already exists. Ensuring ingress target-port is 3000..."
+              az containerapp ingress enable \
+                --name "$APP_NAME" \
+                --resource-group "$RG" \
+                --type external \
+                --target-port 3000 || true
+
+              echo "Updating container image and environment..."
               az containerapp update \
                 --name "$APP_NAME" \
                 --resource-group "$RG" \
