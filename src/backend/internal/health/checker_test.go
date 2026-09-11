@@ -43,6 +43,19 @@ func TestCheckerHonoursContextCancellation(t *testing.T) {
 	}
 }
 
+func TestCheckerDetailedReturnsDependencyError(t *testing.T) {
+	checker := NewCheckerWithPingers(
+		func(context.Context) error { return errors.New("mysql unavailable") },
+		func(context.Context) error { return nil },
+		time.Second,
+	)
+
+	_, err := checker.CheckDetailed(context.Background())
+	if err == nil {
+		t.Fatal("expected dependency error")
+	}
+}
+
 func TestCheckerDetailedReportsEachDependency(t *testing.T) {
 	checker := NewCheckerWithPingers(
 		func(context.Context) error { return errors.New("mysql unavailable") },
@@ -50,10 +63,7 @@ func TestCheckerDetailedReportsEachDependency(t *testing.T) {
 		time.Second,
 	)
 
-	report, err := checker.CheckDetailed(context.Background())
-	if err == nil {
-		t.Fatal("expected dependency error")
-	}
+	report, _ := checker.CheckDetailed(context.Background())
 	if report.Status != "not_ready" || report.MySQL != "unavailable" || report.Redis != "ok" {
 		t.Fatalf("unexpected health report: %+v", report)
 	}
