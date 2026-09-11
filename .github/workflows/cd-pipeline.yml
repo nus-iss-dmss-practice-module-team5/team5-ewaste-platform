@@ -276,7 +276,7 @@ jobs:
   # STAGE 3: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
   # ============================================================================\
   deploy-application:
-    name: Package, Sign & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
+    name: Package & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, database-migration]
     runs-on: [ubuntu-latest]
     environment: ${{ needs.resolve-environment.outputs.environment }}
