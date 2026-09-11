@@ -59,6 +59,6 @@ func (Session) TableName() string { return "sessions" }
 
 // IsActive reports whether a session is usable at the supplied time.
 // Persisted sessions use revoked_at; Status supports existing in-memory callers.
-func (s *Session) IsActive(now time.Time) bool {
-	return s != nil && s.ExpiresAt.After(now) && s.RevokedAt == nil && (s.Status == "" || s.Status == "ACTIVE")
+func (s Session) IsActive(now time.Time) bool {
+	return s.ExpiresAt.After(now) && s.RevokedAt == nil && (s.Status == "" || s.Status == "ACTIVE")
 }

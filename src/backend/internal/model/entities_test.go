@@ -31,8 +31,7 @@ func TestSessionIsActiveUsesRevocationState(t *testing.T) {
 	if !active.IsActive(now) {
 		t.Fatal("expected unrevoked, unexpired session to be active")
 	}
-	revokedAt := now.Add(-time.Second)
-	active.RevokedAt = &revokedAt
+	active.RevokedAt = new(now.Add(-time.Second))
 	if active.IsActive(now) {
 		t.Fatal("expected revoked session to be inactive")
 	}
