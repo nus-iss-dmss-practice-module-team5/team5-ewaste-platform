@@ -16,8 +16,10 @@ import (
 )
 
 type fakeAuthRepository struct {
-	user    *model.User
-	session *model.Session
+	user     *model.User
+	session  *model.Session
+	audits   []*model.LoginAudit
+	auditErr error
 }
 
 func (f *fakeAuthRepository) FindActiveUserByEmail(context.Context, string) (*model.User, error) {
@@ -36,6 +38,14 @@ func (f *fakeAuthRepository) FindActiveUserByID(context.Context, string) (*model
 
 func (f *fakeAuthRepository) CreateLoginSession(_ context.Context, _ *model.User, session *model.Session, _ time.Time) error {
 	f.session = session
+	return nil
+}
+
+func (f *fakeAuthRepository) CreateLoginAudit(_ context.Context, audit *model.LoginAudit) error {
+	if f.auditErr != nil {
+		return f.auditErr
+	}
+	f.audits = append(f.audits, audit)
 	return nil
 }
 
@@ -77,12 +87,21 @@ func TestLoginAndRefreshRotateTheSession(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	service.clock = func() time.Time { return now }
 
-	response, err := service.Login(context.Background(), dto.LoginRequest{Email: " DONOR@EXAMPLE.COM ", Password: "correct-password"})
+	response, err := service.Login(context.Background(), dto.LoginRequest{Email: " DONOR@EXAMPLE.COM ", Password: "correct-password"}, LoginAuditMetadata{
+		CorrelationID: "corr-login-001",
+		SourceIP:      "192.0.2.10",
+	})
 	if err != nil {
 		t.Fatalf("login: %v", err)
 	}
 	if response.TokenType != "Bearer" || response.AccessToken == "" || response.RefreshToken == "" {
 		t.Fatalf("unexpected login response: %+v", response)
+	}
+	if len(repo.audits) != 1 || repo.audits[0].Result != LoginAuditSuccess || repo.audits[0].AttemptedEmail != "donor@example.com" {
+		t.Fatalf("unexpected successful login audit: %+v", repo.audits)
+	}
+	if repo.audits[0].UserID == nil || *repo.audits[0].UserID != "USR-001" || repo.audits[0].CorrelationID != "corr-login-001" {
+		t.Fatalf("successful login audit missing identity: %+v", repo.audits[0])
 	}
 	oldHash := repo.session.RefreshTokenHash
 	rotated, err := service.Refresh(context.Background(), response.RefreshToken)
@@ -101,8 +120,11 @@ func TestLoginUsesGenericInvalidCredentialsError(t *testing.T) {
 	repo := &fakeAuthRepository{user: &model.User{UserID: "USR-001", Email: "user@example.com", PasswordHash: "not-a-valid-bcrypt-hash", Status: "ACTIVE"}}
 	service := NewAuthService(repo, token.NewService("test", "access", "refresh", "hash", time.Minute, time.Hour), zap.NewNop())
 
-	_, err := service.Login(context.Background(), dto.LoginRequest{Email: "user@example.com", Password: "wrong"})
+	_, err := service.Login(context.Background(), dto.LoginRequest{Email: "user@example.com", Password: "wrong"}, LoginAuditMetadata{CorrelationID: "corr-failure-001"})
 	if !errors.Is(err, ErrInvalidCredentials) {
 		t.Fatalf("expected generic invalid credentials error, got %v", err)
+	}
+	if len(repo.audits) != 1 || repo.audits[0].Result != LoginAuditFailure || repo.audits[0].ReasonCode == nil || *repo.audits[0].ReasonCode != "AUTH_INVALID_CREDENTIALS" {
+		t.Fatalf("unexpected invalid-credentials audit: %+v", repo.audits)
 	}
 }

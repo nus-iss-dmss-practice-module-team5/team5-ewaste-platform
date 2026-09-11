@@ -11,12 +11,14 @@ func TestEntityTableNamesMatchLiquibaseSchema(t *testing.T) {
 		"role":         (Role{}).TableName(),
 		"user":         (User{}).TableName(),
 		"session":      (Session{}).TableName(),
+		"login_audit":  (LoginAudit{}).TableName(),
 	}
 	expected := map[string]string{
 		"organisation": "organisations",
 		"role":         "roles",
 		"user":         "users",
 		"session":      "sessions",
+		"login_audit":  "login_audit",
 	}
 	for name, want := range expected {
 		if tests[name] != want {
