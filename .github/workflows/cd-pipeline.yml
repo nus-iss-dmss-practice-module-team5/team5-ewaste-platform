@@ -33,9 +33,9 @@ env:
   IMAGE_NAME_UI: 'workflow-ui'
 
 jobs:
-  # ============================================================================
+  # ============================================================================\
   # STAGE 0: DYNAMIC ENVIRONMENT RESOLUTION (2-Branch Strategy Mapping)
-  # ============================================================================
+  # ============================================================================\
   resolve-environment:
     name: Resolve Target Environment
     runs-on: ubuntu-latest
@@ -78,9 +78,9 @@ jobs:
           echo " Trigger Reason: $DESC"
           echo "========================================================"
 
-  # ============================================================================
+  # ============================================================================\
   # STAGE 1: INFRASTRUCTURE PROVISIONING (Terraform Apply)
-  # ============================================================================
+  # ============================================================================\
   provision-infrastructure:
     name: Terraform Apply (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
@@ -92,7 +92,9 @@ jobs:
       resource_group: ${{ steps.tf_outputs.outputs.resource_group }}
       mysql_fqdn: ${{ steps.tf_outputs.outputs.mysql_fqdn }}
       mysql_db: ${{ steps.tf_outputs.outputs.mysql_db }}
+      mysql_admin_username: ${{ steps.tf_outputs.outputs.mysql_admin_username }}
       mysql_admin_password: ${{ steps.tf_outputs.outputs.mysql_admin_password }}
+      redis_address: ${{ steps.tf_outputs.outputs.redis_address }}
       aca_identity_id: ${{ steps.tf_outputs.outputs.aca_identity_id }}
       key_vault_uri: ${{ steps.tf_outputs.outputs.key_vault_uri }}
     steps:
@@ -177,12 +179,14 @@ jobs:
           ACR_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || echo "acrewasteplatform.azurecr.io")
           MYSQL_FQDN=$(terraform output -raw mysql_fqdn 2>/dev/null || echo "mysql-ewaste-${TARGET_ENV}.mysql.database.azure.com")
           MYSQL_DB=$(terraform output -raw mysql_database_name 2>/dev/null || echo "ewastedb")
+          MYSQL_USER=$(terraform output -raw mysql_admin_username 2>/dev/null || echo "ewasteadmin")
           KV_URI=$(terraform output -raw key_vault_uri 2>/dev/null || echo "")
           MYSQL_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
           if [ -z "$MYSQL_PASS" ]; then
             MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "")
           fi
           ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
+          REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
 
           if [ -n "$MYSQL_PASS" ]; then
             echo "::add-mask::$MYSQL_PASS"
@@ -194,14 +198,16 @@ jobs:
             echo "resource_group=rg-ewaste-${TARGET_ENV}"
             echo "mysql_fqdn=${MYSQL_FQDN}"
             echo "mysql_db=${MYSQL_DB}"
+            echo "mysql_admin_username=${MYSQL_USER}"
             echo "key_vault_uri=${KV_URI}"
             echo "mysql_admin_password=${MYSQL_PASS}"
+            echo "redis_address=${REDIS_ADDR}"
             echo "aca_identity_id=${ACA_IDENTITY_ID}"
           } >> "$GITHUB_OUTPUT"
 
-  # ============================================================================
+  # ============================================================================\
   # STAGE 2: DATABASE MIGRATIONS (Direct Liquibase Runner)
-  # ============================================================================
+  # ============================================================================\
   database-migration:
     name: Liquibase Migration (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure]
@@ -257,9 +263,9 @@ jobs:
 
           echo "Database migrations and seed records completed successfully."
 
-  # ============================================================================
+  # ============================================================================\
   # STAGE 3: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
-  # ============================================================================
+  # ============================================================================\
   deploy-application:
     name: Package, Sign & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, database-migration]
@@ -332,7 +338,26 @@ jobs:
             ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
             DB_HOST="${{ needs.provision-infrastructure.outputs.mysql_fqdn }}"
             DB_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+            DB_NAME="${{ needs.provision-infrastructure.outputs.mysql_db }}"
+            REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
+            AUTH_ACCESS_SECRET="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
+            AUTH_REFRESH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
+            AUTH_REFRESH_HASH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
             APP_NAME="aca-ewaste-${TARGET_ENV}-api"
+
+            if [ "$TARGET_ENV" == "dev" ]; then
+              APP_MODE="development"
+            else
+              APP_MODE="production"
+            fi
+
+            DB_USER="${DB_USER:-ewasteadmin}"
+            DB_NAME="${DB_NAME:-ewastedb}"
+            REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
+            REDIS_PASS="${REDIS_PASS:-defaultRedisPass123!}"
+            AUTH_ACCESS_SECRET="${AUTH_ACCESS_SECRET:-default-dev-access-secret-minimum-32-chars-long}"
+            AUTH_REFRESH_SECRET="${AUTH_REFRESH_SECRET:-default-dev-refresh-secret-minimum-32-chars-long}"
+            AUTH_REFRESH_HASH_SECRET="${AUTH_REFRESH_HASH_SECRET:-default-dev-refresh-hash-secret-32-chars}"
 
             if [ -z "$IDENTITY" ]; then
               IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
@@ -340,11 +365,48 @@ jobs:
 
             echo "Deploying Backend API Container App ($APP_NAME)..."
             if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME already exists. Updating container image..."
+              echo "Container App $APP_NAME already exists. Updating secrets and container image..."
+              az containerapp secret set \
+                --name "$APP_NAME" \
+                --resource-group "$RG" \
+                --secrets db-password="$DB_PASS" \
+                          redis-password="$REDIS_PASS" \
+                          access-secret="$AUTH_ACCESS_SECRET" \
+                          refresh-secret="$AUTH_REFRESH_SECRET" \
+                          refresh-hash-secret="$AUTH_REFRESH_HASH_SECRET" || true
+
               az containerapp update \
                 --name "$APP_NAME" \
                 --resource-group "$RG" \
-                --image "${{ env.API_IMMUTABLE_DIGEST }}"
+                --image "${{ env.API_IMMUTABLE_DIGEST }}" \
+                --set-env-vars EWASTE_MODE="$APP_MODE" \
+                               EWASTE_SERVER_PORT=":8080" \
+                               EWASTE_DATABASE_HOST="$DB_HOST" \
+                               EWASTE_DATABASE_PORT="3306" \
+                               EWASTE_DATABASE_NAME="ewastedb" \
+                               EWASTE_DATABASE_USER="ewasteadmin" \
+                               MYSQL_PASSWORD=secretref:db-password \
+                               EWASTE_DATABASE_PASSWORD=secretref:db-password \
+                               EWASTE_REDIS_ADDRESS="$REDIS_ADDR" \
+                               REDIS_PASSWORD=secretref:redis-password \
+                               EWASTE_REDIS_PASSWORD=secretref:redis-password \
+                               EWASTE_REDIS_DB="0" \
+                               EWASTE_REDIS_TLS_ENABLED="true" \
+                               EWASTE_AUTH_ISSUER="ewaste-workflow-api" \
+                               EWASTE_AUTH_ACCESS_SECRET=secretref:access-secret \
+                               EWASTE_AUTH_REFRESH_SECRET=secretref:refresh-secret \
+                               EWASTE_AUTH_REFRESH_HASH_SECRET=secretref:refresh-hash-secret \
+                               EWASTE_AUTH_ACCESS_TTL="15m" \
+                               EWASTE_AUTH_REFRESH_TTL="24h" \
+                               EWASTE_RATE_LIMIT_REQUESTS="10" \
+                               EWASTE_RATE_LIMIT_WINDOW="1m" \
+                               EWASTE_LOGGING_LEVEL="info" \
+                               EWASTE_LOGGING_FILE_PATH="logs/workflow-api.log" \
+                               EWASTE_LOGGING_MAX_SIZE_MB="10" \
+                               EWASTE_LOGGING_MAX_BACKUPS="5" \
+                               EWASTE_LOGGING_MAX_AGE_DAYS="30" \
+                               EWASTE_LOGGING_COMPRESS="true" \
+                               EWASTE_LOGGING_CONSOLE="true"
             else
               echo "Container App $APP_NAME does not exist. Creating new container app..."
               if [ -n "$IDENTITY" ]; then
@@ -363,10 +425,38 @@ jobs:
                   --registry-server "$ACR_SERVER" \
                   --registry-identity "$IDENTITY" \
                   --secrets db-password="$DB_PASS" \
-                  --env-vars APP_ENV="$TARGET_ENV" \
-                             DB_HOST="$DB_HOST" \
-                             DB_USER="ewasteadmin" \
-                             DB_PASSWORD=
+                            redis-password="$REDIS_PASS" \
+                            access-secret="$AUTH_ACCESS_SECRET" \
+                            refresh-secret="$AUTH_REFRESH_SECRET" \
+                            refresh-hash-secret="$AUTH_REFRESH_HASH_SECRET" \
+                  --env-vars EWASTE_MODE="$APP_MODE" \
+                             EWASTE_SERVER_PORT=":8080" \
+                             EWASTE_DATABASE_HOST="$DB_HOST" \
+                             EWASTE_DATABASE_PORT="3306" \
+                             EWASTE_DATABASE_NAME="ewastedb" \
+                             EWASTE_DATABASE_USER="ewasteadmin" \
+                             MYSQL_PASSWORD=secretref:db-password \
+                             EWASTE_DATABASE_PASSWORD=secretref:db-password \
+                             EWASTE_REDIS_ADDRESS="$REDIS_ADDR" \
+                             REDIS_PASSWORD=secretref:redis-password \
+                             EWASTE_REDIS_PASSWORD=secretref:redis-password \
+                             EWASTE_REDIS_DB="0" \
+                             EWASTE_REDIS_TLS_ENABLED="true" \
+                             EWASTE_AUTH_ISSUER="ewaste-workflow-api" \
+                             EWASTE_AUTH_ACCESS_SECRET=secretref:access-secret \
+                             EWASTE_AUTH_REFRESH_SECRET=secretref:refresh-secret \
+                             EWASTE_AUTH_REFRESH_HASH_SECRET=secretref:refresh-hash-secret \
+                             EWASTE_AUTH_ACCESS_TTL="15m" \
+                             EWASTE_AUTH_REFRESH_TTL="24h" \
+                             EWASTE_RATE_LIMIT_REQUESTS="10" \
+                             EWASTE_RATE_LIMIT_WINDOW="1m" \
+                             EWASTE_LOGGING_LEVEL="info" \
+                             EWASTE_LOGGING_FILE_PATH="logs/workflow-api.log" \
+                             EWASTE_LOGGING_MAX_SIZE_MB="10" \
+                             EWASTE_LOGGING_MAX_BACKUPS="5" \
+                             EWASTE_LOGGING_MAX_AGE_DAYS="30" \
+                             EWASTE_LOGGING_COMPRESS="true" \
+                             EWASTE_LOGGING_CONSOLE="true"
               else
                 az containerapp create \
                   --name "$APP_NAME" \
@@ -381,10 +471,38 @@ jobs:
                   --memory 1.0Gi \
                   --registry-server "$ACR_SERVER" \
                   --secrets db-password="$DB_PASS" \
-                  --env-vars APP_ENV="$TARGET_ENV" \
-                             DB_HOST="$DB_HOST" \
-                             DB_USER="ewasteadmin" \
-                             DB_PASSWORD=
+                            redis-password="$REDIS_PASS" \
+                            access-secret="$AUTH_ACCESS_SECRET" \
+                            refresh-secret="$AUTH_REFRESH_SECRET" \
+                            refresh-hash-secret="$AUTH_REFRESH_HASH_SECRET" \
+                  --env-vars EWASTE_MODE="$APP_MODE" \
+                             EWASTE_SERVER_PORT=":8080" \
+                             EWASTE_DATABASE_HOST="$DB_HOST" \
+                             EWASTE_DATABASE_PORT="3306" \
+                             EWASTE_DATABASE_NAME="ewastedb" \
+                             EWASTE_DATABASE_USER="ewasteadmin" \
+                             MYSQL_PASSWORD=secretref:db-password \
+                             EWASTE_DATABASE_PASSWORD=secretref:db-password \
+                             EWASTE_REDIS_ADDRESS="$REDIS_ADDR" \
+                             REDIS_PASSWORD=secretref:redis-password \
+                             EWASTE_REDIS_PASSWORD=secretref:redis-password \
+                             EWASTE_REDIS_DB="0" \
+                             EWASTE_REDIS_TLS_ENABLED="true" \
+                             EWASTE_AUTH_ISSUER="ewaste-workflow-api" \
+                             EWASTE_AUTH_ACCESS_SECRET=secretref:access-secret \
+                             EWASTE_AUTH_REFRESH_SECRET=secretref:refresh-secret \
+                             EWASTE_AUTH_REFRESH_HASH_SECRET=secretref:refresh-hash-secret \
+                             EWASTE_AUTH_ACCESS_TTL="15m" \
+                             EWASTE_AUTH_REFRESH_TTL="24h" \
+                             EWASTE_RATE_LIMIT_REQUESTS="10" \
+                             EWASTE_RATE_LIMIT_WINDOW="1m" \
+                             EWASTE_LOGGING_LEVEL="info" \
+                             EWASTE_LOGGING_FILE_PATH="logs/workflow-api.log" \
+                             EWASTE_LOGGING_MAX_SIZE_MB="10" \
+                             EWASTE_LOGGING_MAX_BACKUPS="5" \
+                             EWASTE_LOGGING_MAX_AGE_DAYS="30" \
+                             EWASTE_LOGGING_COMPRESS="true" \
+                             EWASTE_LOGGING_CONSOLE="true"
               fi
             fi
 
@@ -398,9 +516,15 @@ jobs:
       - name: Build & Publish Frontend UI Container
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
           echo "Building UI image: $IMAGE_TAG"
-          docker build -t "$IMAGE_TAG" --build-arg NEXT_PUBLIC_API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}" -f src/frontend/Dockerfile src/frontend/
+          docker build -t "$IMAGE_TAG" \
+            --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
+            --build-arg NEXT_PUBLIC_API_BASE_URL="$API_URL" \
+            --build-arg API_PROXY_TARGET="$API_URL" \
+            --build-arg NEXT_PUBLIC_USE_MOCK_AUTH="false" \
+            -f src/frontend/Dockerfile src/frontend/
           echo "Pushing UI image to ACR..."
           docker push "$IMAGE_TAG"
           echo "UI_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
@@ -449,12 +573,18 @@ jobs:
 
             echo "Deploying Frontend UI Container App ($APP_NAME)..."
             if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME already exists. Updating container image..."
+              echo "Container App $APP_NAME already exists. Updating container image and environment..."
               az containerapp update \
                 --name "$APP_NAME" \
                 --resource-group "$RG" \
                 --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
-                --set-env-vars APP_ENV="$TARGET_ENV" NEXT_PUBLIC_API_URL="$API_URL"
+                --set-env-vars APP_ENV="$TARGET_ENV" \
+                               NEXT_PUBLIC_API_URL="$API_URL" \
+                               NEXT_PUBLIC_API_BASE_URL="$API_URL" \
+                               API_PROXY_TARGET="$API_URL" \
+                               NEXT_PUBLIC_USE_MOCK_AUTH="false" \
+                               NODE_ENV="production" \
+                               PORT="3000"
             else
               echo "Container App $APP_NAME does not exist. Creating new container app..."
               if [ -n "$IDENTITY" ]; then
@@ -473,7 +603,12 @@ jobs:
                   --registry-server "$ACR_SERVER" \
                   --registry-identity "$IDENTITY" \
                   --env-vars APP_ENV="$TARGET_ENV" \
-                             NEXT_PUBLIC_API_URL="$API_URL"
+                             NEXT_PUBLIC_API_URL="$API_URL" \
+                             NEXT_PUBLIC_API_BASE_URL="$API_URL" \
+                             API_PROXY_TARGET="$API_URL" \
+                             NEXT_PUBLIC_USE_MOCK_AUTH="false" \
+                             NODE_ENV="production" \
+                             PORT="3000"
               else
                 az containerapp create \
                   --name "$APP_NAME" \
@@ -488,7 +623,12 @@ jobs:
                   --memory 1.0Gi \
                   --registry-server "$ACR_SERVER" \
                   --env-vars APP_ENV="$TARGET_ENV" \
-                             NEXT_PUBLIC_API_URL="$API_URL"
+                             NEXT_PUBLIC_API_URL="$API_URL" \
+                             NEXT_PUBLIC_API_BASE_URL="$API_URL" \
+                             API_PROXY_TARGET="$API_URL" \
+                             NEXT_PUBLIC_USE_MOCK_AUTH="false" \
+                             NODE_ENV="production" \
+                             PORT="3000"
               fi
             fi
 
@@ -530,9 +670,9 @@ jobs:
             done
           fi
 
-  # ============================================================================
+  # ============================================================================\
   # STAGE 4: DYNAMIC APPLICATION SECURITY TESTING (OWASP ZAP)
-  # ============================================================================
+  # ============================================================================\
   dast-security-scan:
     name: OWASP ZAP DAST Scan (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, deploy-application]
@@ -561,9 +701,9 @@ jobs:
             report_json.json
           retention-days: 30
 
-  # ============================================================================
+  # ============================================================================\
   # STAGE 5: POST-DEPLOYMENT SMOKE & AUDIT VERIFICATION
-  # ============================================================================
+  # ============================================================================\
   smoke-and-audit-verification:
     name: Smoke & Audit Verification (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, deploy-application, dast-security-scan]
