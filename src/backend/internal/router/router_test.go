@@ -16,9 +16,14 @@ import (
 func TestNewTestRouterHelloEndpoint(t *testing.T) {
 	r := NewTestRouter()
 	res := httptest.NewRecorder()
-	r.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/v1/hello", nil))
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/hello", nil)
+	req.Header.Set("Origin", "https://aca-ewaste-dev-ui.kindflower-300f4866.malaysiawest.azurecontainerapps.io")
+	r.ServeHTTP(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
+	}
+	if got := res.Header().Get("Access-Control-Allow-Origin"); got != req.Header.Get("Origin") {
+		t.Fatalf("expected CORS allow-origin %q, got %q", req.Header.Get("Origin"), got)
 	}
 }
 
