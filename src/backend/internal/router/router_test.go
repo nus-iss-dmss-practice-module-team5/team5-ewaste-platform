@@ -9,9 +9,58 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+
+	"workflow-api/internal/controller"
 	"workflow-api/internal/docs"
 	"workflow-api/internal/health"
+	"workflow-api/internal/model"
+	"workflow-api/internal/repository"
+	"workflow-api/internal/service"
+	"workflow-api/internal/token"
 )
+
+type routerTestRepository struct{}
+
+func (routerTestRepository) FindActiveUserByEmail(context.Context, string) (*model.User, error) {
+	return nil, repository.ErrNotFound
+}
+
+func (routerTestRepository) FindActiveUserByID(context.Context, string) (*model.User, error) {
+	return nil, repository.ErrNotFound
+}
+
+func (routerTestRepository) CreateLoginSession(context.Context, *model.User, *model.Session, time.Time) error {
+	return nil
+}
+
+func (routerTestRepository) FindSession(context.Context, string) (*model.Session, error) {
+	return nil, repository.ErrNotFound
+}
+
+func (routerTestRepository) RotateSession(context.Context, string, string, string, string, time.Time, time.Time) error {
+	return nil
+}
+
+func (routerTestRepository) RevokeSession(context.Context, string, string, string, time.Time) error {
+	return nil
+}
+
+type routerTestLimiter struct{}
+
+func (routerTestLimiter) Allow(context.Context, string) (bool, error) {
+	return true, nil
+}
+
+func newRouterTest(t *testing.T, checker *health.Checker) *gin.Engine {
+	t.Helper()
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authService := service.NewAuthService(repo, tokens, zap.NewNop())
+	authController := controller.NewAuthController(authService, zap.NewNop())
+	return NewAuthRouter(authController, tokens, repo, routerTestLimiter{}, checker)
+}
 
 func TestNewTestRouterHelloEndpoint(t *testing.T) {
 	r := NewTestRouter()
@@ -42,7 +91,7 @@ func TestAuthRouterHealthEndpoints(t *testing.T) {
 		func(context.Context) error { return nil },
 		time.Second,
 	)
-	r := NewAuthRouter(nil, nil, nil, nil, checker)
+	r := newRouterTest(t, checker)
 
 	liveness := httptest.NewRecorder()
 	r.ServeHTTP(liveness, httptest.NewRequest(http.MethodGet, "/healthz", nil))
@@ -70,7 +119,7 @@ func TestAuthRouterReadinessReturns503WhenDependencyFails(t *testing.T) {
 		func(context.Context) error { return nil },
 		time.Second,
 	)
-	r := NewAuthRouter(nil, nil, nil, nil, checker)
+	r := newRouterTest(t, checker)
 
 	res := httptest.NewRecorder()
 	r.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/readyz", nil))
