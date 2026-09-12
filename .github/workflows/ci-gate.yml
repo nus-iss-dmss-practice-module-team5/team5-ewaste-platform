@@ -147,7 +147,8 @@ jobs:
             --config p/typescript \
             --config p/javascript \
             --sarif \
-            --output semgrep.sarif
+            --output semgrep.sarif \
+            --error
 
       - name: Retain Semgrep Report
         if: always() && hashFiles('semgrep.sarif') != ''
