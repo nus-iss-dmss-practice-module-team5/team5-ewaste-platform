@@ -14,7 +14,7 @@ on:
       confirmation:
         description: 'Type "DESTROY_CONFIRM" to authorize destruction'
         required: true
-        default: ''
+        default: 'DESTROY_CONFIRM'
 
 permissions:
   contents: read
@@ -28,11 +28,11 @@ jobs:
   terraform-destroy:
     name: Execute Resource Destruction (${{ inputs.target_env }})
     runs-on: ubuntu-latest
-    environment: ${{ inputs.target_env }}
+    environment: dev
     steps:
       - name: Validate Target Environment and Confirmation
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
+          TARGET_ENV="dev"
           CONFIRM="${{ inputs.confirmation }}"
 
           echo "=========================================================="
@@ -60,20 +60,20 @@ jobs:
       - name: Authenticate to Microsoft Azure
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS || secrets.LAK_AZURE_CREDENTIALS }}
+          creds: ${{ secrets.LAK_AZURE_CREDENTIALS }}
 
       - name: Set ARM Credentials for Terraform
         run: |
-          CREDS='${{ secrets.AZURE_CREDENTIALS || secrets.LAK_AZURE_CREDENTIALS }}'
+          CREDS='${{ secrets.LAK_AZURE_CREDENTIALS }}'
           CLIENT_SECRET=$(echo "$CREDS" | jq -r '.clientSecret // empty')
           CLIENT_ID=$(echo "$CREDS" | jq -r '.clientId // empty')
           TENANT_ID=$(echo "$CREDS" | jq -r '.tenantId // empty')
           SUB_ID=$(echo "$CREDS" | jq -r '.subscriptionId // empty')
 
-          CLIENT_SECRET="${CLIENT_SECRET:-${{ secrets.AZURE_CLIENT_SECRET }}}"
-          CLIENT_ID="${CLIENT_ID:-${{ secrets.AZURE_CLIENT_ID }}}"
-          TENANT_ID="${TENANT_ID:-${{ secrets.AZURE_TENANT_ID }}}"
-          SUB_ID="${SUB_ID:-${{ secrets.AZURE_SUBSCRIPTION_ID }}}"
+          CLIENT_SECRET="${CLIENT_SECRET:-${{ secrets.LAK_CLIENT_SECRET }}}"
+          CLIENT_ID="${CLIENT_ID:-${{ secrets.LAK_CLIENT_ID }}}"
+          TENANT_ID="${TENANT_ID:-${{ secrets.LAK_TENANT_ID }}}"
+          SUB_ID="${SUB_ID:-${{ secrets.LAK_SUBSCRIPTION_ID }}}"
 
           if [ -n "$CLIENT_SECRET" ]; then
             echo "::add-mask::$CLIENT_SECRET"
@@ -89,11 +89,12 @@ jobs:
             echo "ARM_SUBSCRIPTION_ID=$SUB_ID" >> $GITHUB_ENV
           fi
 
-          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
+          echo "ARM_ACCESS_KEY=${{ secrets.LAK_TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
 
       - name: Teardown Deployed Container Apps
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
+#          TARGET_ENV="${{ inputs.target_env }}"
+          TARGET_ENV="dev"
           RG="rg-ewaste-${TARGET_ENV}"
 
           echo "=========================================================="
@@ -121,17 +122,18 @@ jobs:
 
       - name: Execute Terraform Destroy
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
+#          TARGET_ENV="${{ inputs.target_env }}"
+          TARGET_ENV="dev"
           cd terraform/environments
 
           echo "=========================================================="
           echo " Initializing Terraform Backend for $TARGET_ENV"
           echo "=========================================================="
           terraform init \
-            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="storage_account_name=${{ secrets.LAK_TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=${TARGET_ENV}.tfstate" \
-            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
+            -backend-config="access_key=${{ secrets.LAK_TF_STATE_SA_ACCESS_KEY }}"
 
           TF_VARS_FILE="environments/${TARGET_ENV}.tfvars"
           if [ ! -f "$TF_VARS_FILE" ]; then
@@ -139,7 +141,7 @@ jobs:
             TF_VARS_FILE="environments/dev.tfvars"
           fi
 
-          TENANT="${ARM_TENANT_ID:-${{ secrets.AZURE_TENANT_ID }}}"
+          TENANT="${ARM_TENANT_ID:-${{ secrets.LAK_TENANT_ID }}}"
           if [ -z "$TENANT" ]; then
             TENANT="00000000-0000-0000-0000-000000000000"
           fi
@@ -160,7 +162,8 @@ jobs:
 
       - name: Purge Soft-Deleted Azure Key Vault (Post-Cleanup)
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
+#          TARGET_ENV="${{ inputs.target_env }}"
+          TARGET_ENV="dev"
           KV_NAME="kv-ewaste-${TARGET_ENV}"
 
           echo "Checking if soft-deleted Key Vault $KV_NAME requires purge..."
@@ -169,7 +172,8 @@ jobs:
 
       - name: Teardown Summary
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
+#          TARGET_ENV="${{ inputs.target_env }}"
+          TARGET_ENV="dev"
           echo "=========================================================="
           echo " Infrastructure destruction completed for: $TARGET_ENV"
           echo " Environment-specific resources (VNet, DB, Redis, KV, ACA CAE) removed."
