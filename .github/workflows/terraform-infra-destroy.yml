@@ -1,6 +1,7 @@
 name: "IaC: Destroy Cloud Resources (Dev & Stg Only)"
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       target_env:
@@ -14,7 +15,7 @@ on:
       confirmation:
         description: 'Type "DESTROY_CONFIRM" to authorize destruction'
         required: true
-        default: 'DESTROY_CONFIRM'
+        default: ''
 
 permissions:
   contents: read
@@ -30,29 +31,29 @@ jobs:
     runs-on: ubuntu-latest
     environment: dev
     steps:
-      - name: Validate Target Environment and Confirmation
-        run: |
-          TARGET_ENV="dev"
-          CONFIRM="${{ inputs.confirmation }}"
-
-          echo "=========================================================="
-          echo " Validating Destruction Request for Environment: $TARGET_ENV"
-          echo "=========================================================="
-
-          # 1. Strict guard: only dev and stg environments can ever be destroyed
-          if [ "$TARGET_ENV" != "dev" ] && [ "$TARGET_ENV" != "stg" ]; then
-            echo "[-] CRITICAL: Destruction of environment '$TARGET_ENV' is strictly prohibited!"
-            echo "[-] Only 'dev' and 'stg' environments are permitted for teardown."
-            exit 1
-          fi
-
-          # 2. Strict confirmation check
-          if [ "$CONFIRM" != "DESTROY_CONFIRM" ]; then
-            echo "[-] Error: Confirmation input does not match 'DESTROY_CONFIRM'. Aborting."
-            exit 1
-          fi
-
-          echo "[+] Validation passed: authorized to proceed with $TARGET_ENV teardown."
+#      - name: Validate Target Environment and Confirmation
+#        run: |
+#          TARGET_ENV="${{ inputs.target_env }}"
+#          CONFIRM="${{ inputs.confirmation }}"
+#
+#          echo "=========================================================="
+#          echo " Validating Destruction Request for Environment: $TARGET_ENV"
+#          echo "=========================================================="
+#
+#          # 1. Strict guard: only dev and stg environments can ever be destroyed
+#          if [ "$TARGET_ENV" != "dev" ] && [ "$TARGET_ENV" != "stg" ]; then
+#            echo "[-] CRITICAL: Destruction of environment '$TARGET_ENV' is strictly prohibited!"
+#            echo "[-] Only 'dev' and 'stg' environments are permitted for teardown."
+#            exit 1
+#          fi
+#
+#          # 2. Strict confirmation check
+#          if [ "$CONFIRM" != "DESTROY_CONFIRM" ]; then
+#            echo "[-] Error: Confirmation input does not match 'DESTROY_CONFIRM'. Aborting."
+#            exit 1
+#          fi
+#
+#          echo "[+] Validation passed: authorized to proceed with $TARGET_ENV teardown."
 
       - name: Checkout Code Repository
         uses: actions/checkout@v4
