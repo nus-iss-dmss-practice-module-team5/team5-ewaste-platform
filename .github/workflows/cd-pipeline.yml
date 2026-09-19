@@ -174,7 +174,7 @@ jobs:
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           cd terraform/environments
 
-          ACR_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || echo "acrewasteplatform.azurecr.io")
+          ACR_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || echo "acrewasteplatform_lak.azurecr.io")
           MYSQL_FQDN=$(terraform output -raw mysql_fqdn 2>/dev/null || echo "mysql-ewaste-${TARGET_ENV}.mysql.database.azure.com")
           MYSQL_DB=$(terraform output -raw mysql_database_name 2>/dev/null || echo "ewastedb")
           MYSQL_USER=$(terraform output -raw mysql_admin_username 2>/dev/null || echo "ewasteadmin")
