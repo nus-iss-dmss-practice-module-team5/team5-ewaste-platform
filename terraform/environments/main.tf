@@ -225,7 +225,7 @@ resource "azurerm_role_assignment" "acr_pull" {
 resource "azurerm_mysql_flexible_server" "db" {
   # checkov:skip=CKV_AZURE_42:Auto-grow disabled in Sprint 1 baseline for student cost control.
   # checkov:skip=CKV_AZURE_98:Geo-redundant backup disabled for single-region academic MVP.
-  name                   = "mysql-${local.name_prefix}"
+  name                   = "mysql-lak-${local.name_prefix}"
   resource_group_name    = azurerm_resource_group.env_rg.name
   location               = azurerm_resource_group.env_rg.location
   administrator_login    = var.db_admin_username
@@ -269,7 +269,7 @@ resource "azurerm_mysql_flexible_database" "ewastedb" {
 }
 
 resource "azurerm_redis_cache" "redis" {
-  name                          = "redis-${local.name_prefix}"
+  name                          = "redis-lak-${local.name_prefix}"
   location                      = azurerm_resource_group.env_rg.location
   resource_group_name           = azurerm_resource_group.env_rg.name
   capacity                      = 0
