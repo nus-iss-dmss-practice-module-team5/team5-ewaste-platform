@@ -1,0 +1,177 @@
+name: "IaC: Destroy Cloud Resources (Dev & Stg Only)"
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Environment to Destroy (Only dev and stg are permitted)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - stg
+      confirmation:
+        description: 'Type "DESTROY_CONFIRM" to authorize destruction'
+        required: true
+        default: ''
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: terraform-destroy-${{ inputs.target_env }}
+  cancel-in-progress: false
+
+jobs:
+  terraform-destroy:
+    name: Execute Resource Destruction (${{ inputs.target_env }})
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.target_env }}
+    steps:
+      - name: Validate Target Environment and Confirmation
+        run: |
+          TARGET_ENV="${{ inputs.target_env }}"
+          CONFIRM="${{ inputs.confirmation }}"
+
+          echo "=========================================================="
+          echo " Validating Destruction Request for Environment: $TARGET_ENV"
+          echo "=========================================================="
+
+          # 1. Strict guard: only dev and stg environments can ever be destroyed
+          if [ "$TARGET_ENV" != "dev" ] && [ "$TARGET_ENV" != "stg" ]; then
+            echo "[-] CRITICAL: Destruction of environment '$TARGET_ENV' is strictly prohibited!"
+            echo "[-] Only 'dev' and 'stg' environments are permitted for teardown."
+            exit 1
+          fi
+
+          # 2. Strict confirmation check
+          if [ "$CONFIRM" != "DESTROY_CONFIRM" ]; then
+            echo "[-] Error: Confirmation input does not match 'DESTROY_CONFIRM'. Aborting."
+            exit 1
+          fi
+
+          echo "[+] Validation passed: authorized to proceed with $TARGET_ENV teardown."
+
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Microsoft Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS || secrets.LAK_AZURE_CREDENTIALS }}
+
+      - name: Set ARM Credentials for Terraform
+        run: |
+          CREDS='${{ secrets.AZURE_CREDENTIALS || secrets.LAK_AZURE_CREDENTIALS }}'
+          CLIENT_SECRET=$(echo "$CREDS" | jq -r '.clientSecret // empty')
+          CLIENT_ID=$(echo "$CREDS" | jq -r '.clientId // empty')
+          TENANT_ID=$(echo "$CREDS" | jq -r '.tenantId // empty')
+          SUB_ID=$(echo "$CREDS" | jq -r '.subscriptionId // empty')
+
+          CLIENT_SECRET="${CLIENT_SECRET:-${{ secrets.AZURE_CLIENT_SECRET }}}"
+          CLIENT_ID="${CLIENT_ID:-${{ secrets.AZURE_CLIENT_ID }}}"
+          TENANT_ID="${TENANT_ID:-${{ secrets.AZURE_TENANT_ID }}}"
+          SUB_ID="${SUB_ID:-${{ secrets.AZURE_SUBSCRIPTION_ID }}}"
+
+          if [ -n "$CLIENT_SECRET" ]; then
+            echo "::add-mask::$CLIENT_SECRET"
+            echo "ARM_CLIENT_SECRET=$CLIENT_SECRET" >> $GITHUB_ENV
+          fi
+          if [ -n "$CLIENT_ID" ]; then
+            echo "ARM_CLIENT_ID=$CLIENT_ID" >> $GITHUB_ENV
+          fi
+          if [ -n "$TENANT_ID" ]; then
+            echo "ARM_TENANT_ID=$TENANT_ID" >> $GITHUB_ENV
+          fi
+          if [ -n "$SUB_ID" ]; then
+            echo "ARM_SUBSCRIPTION_ID=$SUB_ID" >> $GITHUB_ENV
+          fi
+
+          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
+
+      - name: Teardown Deployed Container Apps
+        run: |
+          TARGET_ENV="${{ inputs.target_env }}"
+          RG="rg-ewaste-${TARGET_ENV}"
+
+          echo "=========================================================="
+          echo " Pre-destroy: Cleaning up Container Apps in $RG"
+          echo "=========================================================="
+
+          # Azure Container Apps Environment cannot be deleted while containing apps.
+          # Since API and UI container apps are deployed via Azure CLI in CD,
+          # explicitly delete them first to prevent Terraform deletion deadlocks.
+          if az containerapp show --name "aca-ewaste-${TARGET_ENV}-api" --resource-group "$RG" >/dev/null 2>&1; then
+            echo "Deleting container app: aca-ewaste-${TARGET_ENV}-api..."
+            az containerapp delete --name "aca-ewaste-${TARGET_ENV}-api" --resource-group "$RG" --yes || true
+          fi
+
+          if az containerapp show --name "aca-ewaste-${TARGET_ENV}-ui" --resource-group "$RG" >/dev/null 2>&1; then
+            echo "Deleting container app: aca-ewaste-${TARGET_ENV}-ui..."
+            az containerapp delete --name "aca-ewaste-${TARGET_ENV}-ui" --resource-group "$RG" --yes || true
+          fi
+
+      - name: Setup Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.0
+          terraform_wrapper: false
+
+      - name: Execute Terraform Destroy
+        run: |
+          TARGET_ENV="${{ inputs.target_env }}"
+          cd terraform/environments
+
+          echo "=========================================================="
+          echo " Initializing Terraform Backend for $TARGET_ENV"
+          echo "=========================================================="
+          terraform init \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=${TARGET_ENV}.tfstate" \
+            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
+
+          TF_VARS_FILE="environments/${TARGET_ENV}.tfvars"
+          if [ ! -f "$TF_VARS_FILE" ]; then
+            echo "[-] Warning: $TF_VARS_FILE not found, falling back to environments/dev.tfvars"
+            TF_VARS_FILE="environments/dev.tfvars"
+          fi
+
+          TENANT="${ARM_TENANT_ID:-${{ secrets.AZURE_TENANT_ID }}}"
+          if [ -z "$TENANT" ]; then
+            TENANT="00000000-0000-0000-0000-000000000000"
+          fi
+
+          MYSQL_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+          if [ -z "$MYSQL_PASS" ]; then
+            MYSQL_PASS="DummyDestroyPassword123!"
+          fi
+
+          echo "=========================================================="
+          echo " Executing Terraform Destroy for Environment: $TARGET_ENV"
+          echo "=========================================================="
+          terraform destroy -auto-approve \
+            -var-file="$TF_VARS_FILE" \
+            -var="environment=${TARGET_ENV}" \
+            -var="tenant_id=${TENANT}" \
+            -var="db_admin_password=${MYSQL_PASS}"
+
+      - name: Purge Soft-Deleted Azure Key Vault (Post-Cleanup)
+        run: |
+          TARGET_ENV="${{ inputs.target_env }}"
+          KV_NAME="kv-ewaste-${TARGET_ENV}"
+
+          echo "Checking if soft-deleted Key Vault $KV_NAME requires purge..."
+          # Purge any soft-deleted vault so recreation won't collide on name
+          az keyvault purge --name "$KV_NAME" >/dev/null 2>&1 || true
+
+      - name: Teardown Summary
+        run: |
+          TARGET_ENV="${{ inputs.target_env }}"
+          echo "=========================================================="
+          echo " Infrastructure destruction completed for: $TARGET_ENV"
+          echo " Environment-specific resources (VNet, DB, Redis, KV, ACA CAE) removed."
+          echo " Persistent shared infrastructure (ACR, Logs) remains intact."
+          echo "=========================================================="
