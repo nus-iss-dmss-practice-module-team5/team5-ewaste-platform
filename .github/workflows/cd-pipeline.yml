@@ -2,16 +2,8 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
-    paths:
-      - 'src/**'
-      - '.github/workflows/cd-pipeline.yml'
-  pull_request:
-    branches: [main]
-    types: [opened, synchronize, reopened]
-    paths:
-      - 'src/**'
-      - '.github/workflows/cd-pipeline.yml'
+    branches: [feature/terraform-teardown-workflow]
+
   workflow_dispatch:
     inputs:
       target_env:
@@ -84,18 +76,26 @@ jobs:
           echo " Trigger Reason: $DESC"
           echo "========================================================"
 
-  # ============================================================================
-  # STAGE 1: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
-  # (Note: Infrastructure is managed in terraform.yml, DB in database-migration.yml)
-  # ============================================================================
-  deploy-application:
-    name: Package & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
+  # ============================================================================\
+  # STAGE 1: INFRASTRUCTURE PROVISIONING (Terraform Apply)
+  # ============================================================================\
+  provision-infrastructure:
+    name: Terraform Apply (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
-    runs-on: [ubuntu-latest]
+    runs-on: ubuntu-latest
     environment: ${{ needs.resolve-environment.outputs.environment }}
     outputs:
-      aca_api_fqdn: ${{ steps.api_deploy.outputs.aca_api_fqdn }}
-      aca_ui_fqdn: ${{ steps.ui_deploy.outputs.aca_ui_fqdn }}
+      acr_server: ${{ steps.tf_outputs.outputs.acr_server }}
+      aca_env_name: ${{ steps.tf_outputs.outputs.aca_env_name }}
+      resource_group: ${{ steps.tf_outputs.outputs.resource_group }}
+      mysql_fqdn: ${{ steps.tf_outputs.outputs.mysql_fqdn }}
+      mysql_db: ${{ steps.tf_outputs.outputs.mysql_db }}
+      mysql_admin_username: ${{ steps.tf_outputs.outputs.mysql_admin_username }}
+      mysql_admin_password: ${{ steps.tf_outputs.outputs.mysql_admin_password }}
+      redis_address: ${{ steps.tf_outputs.outputs.redis_address }}
+      redis_password: ${{ steps.tf_outputs.outputs.redis_password }}
+      aca_identity_id: ${{ steps.tf_outputs.outputs.aca_identity_id }}
+      key_vault_uri: ${{ steps.tf_outputs.outputs.key_vault_uri }}
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
@@ -103,479 +103,111 @@ jobs:
       - name: Authenticate to Microsoft Azure
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+          creds: ${{ secrets.LAK_AZURE_CREDENTIALS }}
 
-      - name: Install Sigstore Cosign
-        uses: sigstore/cosign-installer@v3.5.0
+      - name: Register Azure Resource Providers
+        run: |
+          echo "Registering Azure Container Apps and Monitor resource providers..."
+          az provider register --namespace Microsoft.App --wait
+          az provider register --namespace Microsoft.OperationalInsights --wait
+          az provider register --namespace Microsoft.ContainerService --wait
 
-      - name: Resolve Environment Configuration
-        id: env_cfg
+      - name: Set ARM Credentials for Terraform
+        run: |
+          CLIENT_SECRET=$(echo '${{ secrets.LAK_AZURE_CREDENTIALS }}' | jq -r .clientSecret)
+          echo "::add-mask::$CLIENT_SECRET"
+          echo "ARM_CLIENT_SECRET=$CLIENT_SECRET" >> $GITHUB_ENV
+          echo "ARM_CLIENT_ID=${{ secrets.LAK_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=${{ secrets.LAK_TENANT_ID }}" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=${{ secrets.LAK_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
+          echo "ARM_ACCESS_KEY=${{ secrets.LAK_TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
+
+      - name: Setup Terraform CLI
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.8.0
+          terraform_wrapper: false
+
+      # ------------------------------------------------------------------------
+      # 1.1. SHARED INFRASTRUCTURE (ACR & Log Analytics Workspace)
+      # ------------------------------------------------------------------------
+      - name: Apply Shared Infrastructure
+        run: |
+          cd terraform/shared
+          terraform init \
+            -backend-config="storage_account_name=${{ secrets.LAK_TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=shared.tfstate" \
+            -backend-config="access_key=${{ secrets.LAK_TF_STATE_SA_ACCESS_KEY }}"
+
+          terraform apply -auto-approve
+
+      # ------------------------------------------------------------------------
+      # 1.2. ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, ACA Environment)
+      # ------------------------------------------------------------------------
+      - name: Apply Target Environment Infrastructure
         run: |
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-          ACR_NAME="${{ secrets.AZURE_ACR_NAME }}"
-          ACR_NAME="${ACR_NAME:-acrewasteplatform}"
-          ACR_SERVER="${ACR_NAME}.azurecr.io"
-          RG="rg-ewaste-${TARGET_ENV}"
-          CAE="cae-ewaste-${TARGET_ENV}"
-          DB_HOST="mysql-ewaste-lak-${TARGET_ENV}.mysql.database.azure.com"
-          DB_NAME="ewastedb"
-          DB_USER="ewasteadmin"
-          REDIS_ADDR="redis-ewaste-lak-${TARGET_ENV}.redis.cache.windows.net:6380"
+          cd terraform/environments
+          terraform init \
+            -backend-config="storage_account_name=${{ secrets.LAK_TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate" \
+            -backend-config="key=$TARGET_ENV.tfstate" \
+            -backend-config="access_key=${{ secrets.LAK_TF_STATE_SA_ACCESS_KEY }}"
 
-          echo "acr_name=$ACR_NAME" >> "$GITHUB_OUTPUT"
-          echo "acr_server=$ACR_SERVER" >> "$GITHUB_OUTPUT"
-          echo "resource_group=$RG" >> "$GITHUB_OUTPUT"
-          echo "cae_name=$CAE" >> "$GITHUB_OUTPUT"
-          echo "db_host=$DB_HOST" >> "$GITHUB_OUTPUT"
-          echo "db_name=$DB_NAME" >> "$GITHUB_OUTPUT"
-          echo "db_user=$DB_USER" >> "$GITHUB_OUTPUT"
-          echo "redis_addr=$REDIS_ADDR" >> "$GITHUB_OUTPUT"
-
-      - name: Log in to Azure Container Registry
-        run: |
-          az acr login --name "${{ steps.env_cfg.outputs.acr_name }}"
-
-      # ------------------------------------------------------------------------
-      # 1.1 BACKEND API CONTAINER
-      # ------------------------------------------------------------------------
-      - name: Build & Publish Backend API Container
-        run: |
-          ACR_SERVER="${{ steps.env_cfg.outputs.acr_server }}"
-          IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
-          echo "Building API image: $IMAGE_TAG"
-          docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
-          echo "Pushing API image to ACR..."
-          docker push "$IMAGE_TAG"
-          echo "API_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
-
-          API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
-          echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
-
-      - name: Deploy API Container to Azure Container Apps
-        id: api_deploy
-        uses: azure/cli@v2
-        with:
-          inlineScript: |
-            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-            RG="${{ steps.env_cfg.outputs.resource_group }}"
-            CAE="${{ steps.env_cfg.outputs.cae_name }}"
-            ACR_SERVER="${{ steps.env_cfg.outputs.acr_server }}"
-            DB_HOST="${{ steps.env_cfg.outputs.db_host }}"
-            DB_NAME="${{ steps.env_cfg.outputs.db_name }}"
-            DB_USER="${{ steps.env_cfg.outputs.db_user }}"
-            DB_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
-            REDIS_ADDR="${{ steps.env_cfg.outputs.redis_addr }}"
-            REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
-            AUTH_ACCESS_SECRET="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
-            AUTH_REFRESH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
-            AUTH_REFRESH_HASH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
-            APP_NAME="aca-ewaste-${TARGET_ENV}-api"
-
-            if [ "$TARGET_ENV" == "dev" ]; then
-              APP_MODE="development"
-            else
-              APP_MODE="production"
-            fi
-
-            if [ -z "$REDIS_PASS" ] || [ "$REDIS_PASS" == "defaultRedisPass123!" ]; then
-              REDIS_NAME="redis-ewaste-lak-${TARGET_ENV}"
-              FETCHED_KEY=$(az redis list-keys --name "$REDIS_NAME" --resource-group "$RG" --query primaryKey -o tsv 2>/dev/null || true)
-              if [ -n "$FETCHED_KEY" ]; then
-                echo "::add-mask::$FETCHED_KEY"
-                REDIS_PASS="$FETCHED_KEY"
-              fi
-            fi
-            REDIS_PASS="${REDIS_PASS:-defaultRedisPass123!}"
-
-            AUTH_ACCESS_SECRET="${AUTH_ACCESS_SECRET:-default-dev-access-secret-minimum-32-chars-long}"
-            AUTH_REFRESH_SECRET="${AUTH_REFRESH_SECRET:-default-dev-refresh-secret-minimum-32-chars-long}"
-            AUTH_REFRESH_HASH_SECRET="${AUTH_REFRESH_HASH_SECRET:-default-dev-refresh-hash-secret-32-chars}"
-
-            IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
-
-            echo "Deploying Backend API Container App ($APP_NAME)..."
-            if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME already exists. Ensuring ingress target-port is 8080..."
-              az containerapp ingress enable \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --type external \
-                --target-port 8080 || true
-
-              echo "Updating secrets and container image..."
-              az containerapp secret set \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --secrets db-password="$DB_PASS" \
-                          redis-password="$REDIS_PASS" \
-                          access-secret="$AUTH_ACCESS_SECRET" \
-                          refresh-secret="$AUTH_REFRESH_SECRET" \
-                          refresh-hash-secret="$AUTH_REFRESH_HASH_SECRET" || true
-
-              az containerapp update \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --image "${{ env.API_IMMUTABLE_DIGEST }}" \
-                --set-env-vars EWASTE_MODE="$APP_MODE" \
-                               EWASTE_SERVER_PORT=":8080" \
-                               EWASTE_DATABASE_HOST="$DB_HOST" \
-                               EWASTE_DATABASE_PORT="3306" \
-                               EWASTE_DATABASE_NAME="$DB_NAME" \
-                               EWASTE_DATABASE_USER="$DB_USER" \
-                               MYSQL_PASSWORD=secretref:db-password \
-                               EWASTE_DATABASE_PASSWORD=secretref:db-password \
-                               EWASTE_REDIS_ADDRESS="$REDIS_ADDR" \
-                               REDIS_PASSWORD=secretref:redis-password \
-                               EWASTE_REDIS_PASSWORD=secretref:redis-password \
-                               EWASTE_REDIS_DB="0" \
-                               EWASTE_REDIS_TLS_ENABLED="true" \
-                               EWASTE_AUTH_ISSUER="ewaste-workflow-api" \
-                               EWASTE_AUTH_ACCESS_SECRET=secretref:access-secret \
-                               EWASTE_AUTH_REFRESH_SECRET=secretref:refresh-secret \
-                               EWASTE_AUTH_REFRESH_HASH_SECRET=secretref:refresh-hash-secret \
-                               EWASTE_AUTH_ACCESS_TTL="15m" \
-                               EWASTE_AUTH_REFRESH_TTL="24h" \
-                               EWASTE_RATE_LIMIT_REQUESTS="10" \
-                               EWASTE_RATE_LIMIT_WINDOW="1m" \
-                               EWASTE_LOGGING_LEVEL="info" \
-                               EWASTE_LOGGING_FILE_PATH="logs/workflow-api.log" \
-                               EWASTE_LOGGING_MAX_SIZE_MB="10" \
-                               EWASTE_LOGGING_MAX_BACKUPS="5" \
-                               EWASTE_LOGGING_MAX_AGE_DAYS="30" \
-                               EWASTE_LOGGING_COMPRESS="true" \
-                               EWASTE_LOGGING_CONSOLE="true"
-            else
-              echo "Container App $APP_NAME does not exist. Creating new container app..."
-              if [ -n "$IDENTITY" ]; then
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.API_IMMUTABLE_DIGEST }}" \
-                  --target-port 8080 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --user-assigned "$IDENTITY" \
-                  --registry-server "$ACR_SERVER" \
-                  --registry-identity "$IDENTITY" \
-                  --secrets db-password="$DB_PASS" \
-                            redis-password="$REDIS_PASS" \
-                            access-secret="$AUTH_ACCESS_SECRET" \
-                            refresh-secret="$AUTH_REFRESH_SECRET" \
-                            refresh-hash-secret="$AUTH_REFRESH_HASH_SECRET" \
-                  --env-vars EWASTE_MODE="$APP_MODE" \
-                             EWASTE_SERVER_PORT=":8080" \
-                             EWASTE_DATABASE_HOST="$DB_HOST" \
-                             EWASTE_DATABASE_PORT="3306" \
-                             EWASTE_DATABASE_NAME="$DB_NAME" \
-                             EWASTE_DATABASE_USER="$DB_USER" \
-                             MYSQL_PASSWORD=secretref:db-password \
-                             EWASTE_DATABASE_PASSWORD=secretref:db-password \
-                             EWASTE_REDIS_ADDRESS="$REDIS_ADDR" \
-                             REDIS_PASSWORD=secretref:redis-password \
-                             EWASTE_REDIS_PASSWORD=secretref:redis-password \
-                             EWASTE_REDIS_DB="0" \
-                             EWASTE_REDIS_TLS_ENABLED="true" \
-                             EWASTE_AUTH_ISSUER="ewaste-workflow-api" \
-                             EWASTE_AUTH_ACCESS_SECRET=secretref:access-secret \
-                             EWASTE_AUTH_REFRESH_SECRET=secretref:refresh-secret \
-                             EWASTE_AUTH_REFRESH_HASH_SECRET=secretref:refresh-hash-secret \
-                             EWASTE_AUTH_ACCESS_TTL="15m" \
-                             EWASTE_AUTH_REFRESH_TTL="24h" \
-                             EWASTE_RATE_LIMIT_REQUESTS="10" \
-                             EWASTE_RATE_LIMIT_WINDOW="1m" \
-                             EWASTE_LOGGING_LEVEL="info" \
-                             EWASTE_LOGGING_FILE_PATH="logs/workflow-api.log" \
-                             EWASTE_LOGGING_MAX_SIZE_MB="10" \
-                             EWASTE_LOGGING_MAX_BACKUPS="5" \
-                             EWASTE_LOGGING_MAX_AGE_DAYS="30" \
-                             EWASTE_LOGGING_COMPRESS="true" \
-                             EWASTE_LOGGING_CONSOLE="true"
-              else
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.API_IMMUTABLE_DIGEST }}" \
-                  --target-port 8080 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --registry-server "$ACR_SERVER" \
-                  --secrets db-password="$DB_PASS" \
-                            redis-password="$REDIS_PASS" \
-                            access-secret="$AUTH_ACCESS_SECRET" \
-                            refresh-secret="$AUTH_REFRESH_SECRET" \
-                            refresh-hash-secret="$AUTH_REFRESH_HASH_SECRET" \
-                  --env-vars EWASTE_MODE="$APP_MODE" \
-                             EWASTE_SERVER_PORT=":8080" \
-                             EWASTE_DATABASE_HOST="$DB_HOST" \
-                             EWASTE_DATABASE_PORT="3306" \
-                             EWASTE_DATABASE_NAME="$DB_NAME" \
-                             EWASTE_DATABASE_USER="$DB_USER" \
-                             MYSQL_PASSWORD=secretref:db-password \
-                             EWASTE_DATABASE_PASSWORD=secretref:db-password \
-                             EWASTE_REDIS_ADDRESS="$REDIS_ADDR" \
-                             REDIS_PASSWORD=secretref:redis-password \
-                             EWASTE_REDIS_PASSWORD=secretref:redis-password \
-                             EWASTE_REDIS_DB="0" \
-                             EWASTE_REDIS_TLS_ENABLED="true" \
-                             EWASTE_AUTH_ISSUER="ewaste-workflow-api" \
-                             EWASTE_AUTH_ACCESS_SECRET=secretref:access-secret \
-                             EWASTE_AUTH_REFRESH_SECRET=secretref:refresh-secret \
-                             EWASTE_AUTH_REFRESH_HASH_SECRET=secretref:refresh-hash-secret \
-                             EWASTE_AUTH_ACCESS_TTL="15m" \
-                             EWASTE_AUTH_REFRESH_TTL="24h" \
-                             EWASTE_RATE_LIMIT_REQUESTS="10" \
-                             EWASTE_RATE_LIMIT_WINDOW="1m" \
-                             EWASTE_LOGGING_LEVEL="info" \
-                             EWASTE_LOGGING_FILE_PATH="logs/workflow-api.log" \
-                             EWASTE_LOGGING_MAX_SIZE_MB="10" \
-                             EWASTE_LOGGING_MAX_BACKUPS="5" \
-                             EWASTE_LOGGING_MAX_AGE_DAYS="30" \
-                             EWASTE_LOGGING_COMPRESS="true" \
-                             EWASTE_LOGGING_CONSOLE="true"
-              fi
-            fi
-
-            API_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
-            echo "aca_api_fqdn=$API_FQDN" >> "$GITHUB_OUTPUT"
-            echo "API FQDN: https://$API_FQDN"
-
-      # ------------------------------------------------------------------------
-      # 1.2 FRONTEND UI CONTAINER
-      # ------------------------------------------------------------------------
-      - name: Build & Publish Frontend UI Container
-        run: |
-          ACR_SERVER="${{ steps.env_cfg.outputs.acr_server }}"
-          API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
-          IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
-          echo "Building UI image: $IMAGE_TAG"
-          docker build -t "$IMAGE_TAG" \
-            --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
-            --build-arg NEXT_PUBLIC_API_BASE_URL="$API_URL" \
-            --build-arg API_PROXY_TARGET="$API_URL" \
-            --build-arg NEXT_PUBLIC_USE_MOCK_AUTH="false" \
-            -f src/frontend/Dockerfile src/frontend/
-          echo "Pushing UI image to ACR..."
-          docker push "$IMAGE_TAG"
-          echo "UI_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
-
-          UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
-          echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
-
-      - name: Deploy UI Container to Azure Container Apps
-        id: ui_deploy
-        uses: azure/cli@v2
-        with:
-          inlineScript: |
-            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-            RG="${{ steps.env_cfg.outputs.resource_group }}"
-            CAE="${{ steps.env_cfg.outputs.cae_name }}"
-            ACR_SERVER="${{ steps.env_cfg.outputs.acr_server }}"
-            API_FQDN="${{ steps.api_deploy.outputs.aca_api_fqdn }}"
-            if [ -z "$API_FQDN" ]; then
-              API_FQDN=$(az containerapp show --name "aca-ewaste-${TARGET_ENV}-api" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
-            fi
-            API_URL="https://${API_FQDN}"
-            APP_NAME="aca-ewaste-${TARGET_ENV}-ui"
-
-            IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
-
-            echo "Deploying Frontend UI Container App ($APP_NAME)..."
-            if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME already exists. Ensuring ingress target-port is 3000..."
-              az containerapp ingress enable \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --type external \
-                --target-port 3000 || true
-
-              echo "Updating container image and environment..."
-              az containerapp update \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
-                --set-env-vars APP_ENV="$TARGET_ENV" \
-                               NEXT_PUBLIC_API_URL="$API_URL" \
-                               NEXT_PUBLIC_API_BASE_URL="$API_URL" \
-                               API_PROXY_TARGET="$API_URL" \
-                               NEXT_PUBLIC_USE_MOCK_AUTH="false" \
-                               NODE_ENV="production" \
-                               PORT="3000"
-            else
-              echo "Container App $APP_NAME does not exist. Creating new container app..."
-              if [ -n "$IDENTITY" ]; then
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
-                  --target-port 3000 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --user-assigned "$IDENTITY" \
-                  --registry-server "$ACR_SERVER" \
-                  --registry-identity "$IDENTITY" \
-                  --env-vars APP_ENV="$TARGET_ENV" \
-                             NEXT_PUBLIC_API_URL="$API_URL" \
-                             NEXT_PUBLIC_API_BASE_URL="$API_URL" \
-                             API_PROXY_TARGET="$API_URL" \
-                             NEXT_PUBLIC_USE_MOCK_AUTH="false" \
-                             NODE_ENV="production" \
-                             PORT="3000"
-              else
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
-                  --target-port 3000 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --registry-server "$ACR_SERVER" \
-                  --env-vars APP_ENV="$TARGET_ENV" \
-                             NEXT_PUBLIC_API_URL="$API_URL" \
-                             NEXT_PUBLIC_API_BASE_URL="$API_URL" \
-                             API_PROXY_TARGET="$API_URL" \
-                             NEXT_PUBLIC_USE_MOCK_AUTH="false" \
-                             NODE_ENV="production" \
-                             PORT="3000"
-              fi
-            fi
-
-            UI_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
-            echo "aca_ui_fqdn=$UI_FQDN" >> "$GITHUB_OUTPUT"
-            echo "UI FQDN: https://$UI_FQDN"
-
-      # ------------------------------------------------------------------------
-      # 1.3 LIVE CONTAINER READINESS PROBES (API & UI)
-      # ------------------------------------------------------------------------
-      - name: Verify Live ACA Health Readiness Probes (API & UI)
-        run: |
-          API_FQDN="${{ steps.api_deploy.outputs.aca_api_fqdn }}"
-          UI_FQDN="${{ steps.ui_deploy.outputs.aca_ui_fqdn }}"
-
-          if [ -n "$API_FQDN" ]; then
-            echo "Verifying API ingress accessibility at: https://$API_FQDN"
-            for i in {1..12}; do
-              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$API_FQDN" || true)
-              echo "API Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
-              if [ "$STATUS_CODE" != "000" ] && [ "$STATUS_CODE" -lt 500 ]; then
-                echo "API verified successfully (HTTP $STATUS_CODE)."
-                break
-              fi
-              sleep 10
-            done
+          TF_VARS_FILE="environments/$TARGET_ENV.tfvars"
+          if [ ! -f "$TF_VARS_FILE" ]; then
+            TF_VARS_FILE="environments/dev.tfvars"
           fi
 
-          if [ -n "$UI_FQDN" ]; then
-            echo "Verifying UI ingress accessibility at: https://$UI_FQDN"
-            for i in {1..12}; do
-              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$UI_FQDN" || true)
-              echo "UI Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
-              if [ "$STATUS_CODE" != "000" ] && [ "$STATUS_CODE" -lt 500 ]; then
-                echo "UI verified successfully (HTTP $STATUS_CODE)."
-                break
-              fi
-              sleep 10
-            done
+          terraform apply -auto-approve \
+            -var-file="$TF_VARS_FILE" \
+            -var="environment=$TARGET_ENV" \
+            -var="tenant_id=${{ secrets.LAK_TENANT_ID }}" \
+            -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+
+      # ------------------------------------------------------------------------
+      # 1.3. EXPORT OUTPUTS FOR SUBSEQUENT STAGES
+      # ------------------------------------------------------------------------
+      - name: Export Deployment Outputs
+        id: tf_outputs
+        run: |
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          cd terraform/environments
+
+          ACR_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || echo "acrewasteplatform.azurecr.io")
+          MYSQL_FQDN=$(terraform output -raw mysql_fqdn 2>/dev/null || echo "mysql-ewaste-${TARGET_ENV}.mysql.database.azure.com")
+          MYSQL_DB=$(terraform output -raw mysql_database_name 2>/dev/null || echo "ewastedb")
+          MYSQL_USER=$(terraform output -raw mysql_admin_username 2>/dev/null || echo "ewasteadmin")
+          KV_URI=$(terraform output -raw key_vault_uri 2>/dev/null || echo "")
+          MYSQL_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+          if [ -z "$MYSQL_PASS" ]; then
+            MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "")
+          fi
+          ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
+          REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
+          REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
+          if [ -z "$REDIS_PASS" ]; then
+            REDIS_PASS=$(terraform output -raw redis_primary_access_key 2>/dev/null || echo "")
           fi
 
-  # ============================================================================
-  # STAGE 2: DYNAMIC APPLICATION SECURITY TESTING (OWASP ZAP)
-  # ============================================================================
-  dast-security-scan:
-    name: OWASP ZAP DAST Scan (${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment, deploy-application]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code Repository
-        uses: actions/checkout@v4
-
-      - name: Execute OWASP ZAP Baseline Scan Against Deployed Service
-        if: needs.deploy-application.outputs.aca_api_fqdn != ''
-        uses: zaproxy/action-baseline@v0.14.0
-        with:
-          target: "https://${{ needs.deploy-application.outputs.aca_api_fqdn }}"
-          cmd_options: '-a'
-          allow_issue_writing: false
-          fail_action: false
-
-      - name: Retain OWASP ZAP DAST Report
-        uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: zap-dast-${{ needs.resolve-environment.outputs.environment }}-${{ github.sha }}
-          path: |
-            report_html.html
-            report_md.md
-            report_json.json
-          retention-days: 30
-
-  # ============================================================================
-  # STAGE 3: POST-DEPLOYMENT SMOKE & AUDIT VERIFICATION
-  # ============================================================================
-  smoke-and-audit-verification:
-    name: Smoke & Audit Verification (${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment, deploy-application, dast-security-scan]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code Repository
-        uses: actions/checkout@v4
-
-      - name: Execute Seeded-User Login API Smoke Test
-        run: |
-          API_FQDN="${{ needs.deploy-application.outputs.aca_api_fqdn }}"
-          if [ -n "$API_FQDN" ]; then
-            API_URL="https://${API_FQDN}/api/v1/auth/login"
-            CORRELATION_ID="smoke-api-${{ needs.resolve-environment.outputs.environment }}-$(date +%s)"
-            echo "Executing API authentication test with correlation ID: $CORRELATION_ID"
-
-            RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_URL" \
-              -H "Content-Type: application/json" \
-              -H "X-Correlation-ID: $CORRELATION_ID" \
-              -d '{"username":"admin@ewaste.local","password":"Password123!"}' || true)
-
-            HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
-            HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
-
-            echo "API HTTP Response Status: $HTTP_STATUS"
-            echo "API HTTP Response Body: $HTTP_BODY"
-          else
-            echo "API smoke test skipped: FQDN not yet assigned."
+          if [ -n "$MYSQL_PASS" ]; then
+            echo "::add-mask::$MYSQL_PASS"
+          fi
+          if [ -n "$REDIS_PASS" ]; then
+            echo "::add-mask::$REDIS_PASS"
           fi
 
-      - name: Execute Frontend UI Endpoint Smoke Test
-        run: |
-          UI_FQDN="${{ needs.deploy-application.outputs.aca_ui_fqdn }}"
-          if [ -n "$UI_FQDN" ]; then
-            UI_URL="https://${UI_FQDN}/"
-            echo "Verifying Frontend UI accessibility at: $UI_URL"
-            UI_STATUS=$(curl -s -o /dev/null -w "%{http_code}" "$UI_URL" || true)
-            echo "UI HTTP Response Status: $UI_STATUS"
-          else
-            echo "UI smoke test skipped: FQDN not yet assigned."
-          fi
-
-      - name: Confirm Deployment & Archival State
-        run: |
-          echo "======================================================================"
-          echo "  DEPLOYMENT & AUDIT SUITE COMPLETED SUCCESSFULLY"
-          echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
-          echo "  - Deployment Scope: ${{ needs.resolve-environment.outputs.deployment_desc }}"
-          echo "  - Application Release: API & UI Containers Deployed to ACA"
-          echo "  - Runtime Health: ACA Ingress Probes Verified (Port 8080 API & Port 3000 UI)"
-          echo "  - DAST Scan: OWASP ZAP Report Retained for Academic Review"
-          echo "======================================================================"
+          {
+            echo "acr_server=${ACR_SERVER}"
+            echo "aca_env_name=cae-ewaste-${TARGET_ENV}"
+            echo "resource_group=rg-ewaste-${TARGET_ENV}"
+            echo "mysql_fqdn=${MYSQL_FQDN}"
+            echo "mysql_db=${MYSQL_DB}"
+            echo "mysql_admin_username=${MYSQL_USER}"
+            echo "key_vault_uri=${KV_URI}"
+            echo "mysql_admin_password=${MYSQL_PASS}"
+            echo "redis_address=${REDIS_ADDR}"
+            echo "redis_password=${REDIS_PASS}"
+            echo "aca_identity_id=${ACA_IDENTITY_ID}"
+          } >> "$GITHUB_OUTPUT"
