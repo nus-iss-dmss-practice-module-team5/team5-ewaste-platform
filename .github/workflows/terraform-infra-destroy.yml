@@ -1,6 +1,7 @@
 name: "IaC: Destroy Cloud Resources (Dev & Stg Only)"
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       target_env:
