@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev]
+    branches: [feature/terraform-teardown-workflow]
 
   workflow_dispatch:
     inputs:
