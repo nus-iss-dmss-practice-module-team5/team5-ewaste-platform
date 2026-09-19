@@ -162,7 +162,7 @@ jobs:
       - name: Purge Soft-Deleted Azure Key Vault (Post-Cleanup)
         run: |
           TARGET_ENV="dev"
-          KV_NAME="kv-ewaste-${TARGET_ENV}"
+          KV_NAME="kv-ewaste-lak-${TARGET_ENV}"
 
           echo "Checking if soft-deleted Key Vault $KV_NAME requires purge..."
           # Purge any soft-deleted vault so recreation won't collide on name
