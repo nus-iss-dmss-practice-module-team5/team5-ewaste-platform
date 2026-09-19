@@ -162,7 +162,7 @@ resource "azurerm_private_endpoint" "acr" {
 
 resource "azurerm_key_vault" "kv" {
   # checkov:skip=CKV_AZURE_110:Sprint 1 baseline permits clean environment teardown/recreation.
-  name                          = "kv-${local.name_prefix}"
+  name                          = "kv-lak-${local.name_prefix}"
   location                      = azurerm_resource_group.env_rg.location
   resource_group_name           = azurerm_resource_group.env_rg.name
   tenant_id                     = var.tenant_id
