@@ -93,7 +93,6 @@ jobs:
 
       - name: Teardown Deployed Container Apps
         run: |
-#          TARGET_ENV="${{ inputs.target_env }}"
           TARGET_ENV="dev"
           RG="rg-ewaste-${TARGET_ENV}"
 
@@ -122,7 +121,6 @@ jobs:
 
       - name: Execute Terraform Destroy
         run: |
-#          TARGET_ENV="${{ inputs.target_env }}"
           TARGET_ENV="dev"
           cd terraform/environments
 
@@ -162,7 +160,6 @@ jobs:
 
       - name: Purge Soft-Deleted Azure Key Vault (Post-Cleanup)
         run: |
-#          TARGET_ENV="${{ inputs.target_env }}"
           TARGET_ENV="dev"
           KV_NAME="kv-ewaste-${TARGET_ENV}"
 
@@ -172,7 +169,6 @@ jobs:
 
       - name: Teardown Summary
         run: |
-#          TARGET_ENV="${{ inputs.target_env }}"
           TARGET_ENV="dev"
           echo "=========================================================="
           echo " Infrastructure destruction completed for: $TARGET_ENV"
