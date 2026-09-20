@@ -55,7 +55,7 @@ concurrency:
 
 jobs:
   # ============================================================================
-  # STAGE 0: ENVIRONMENT RESOLUTION
+  # STAGE 0: ENVIRONMENT RESOLUTION, DB EXISTENCE CHECK
   # ============================================================================
   resolve-environment:
     name: Resolve Target Environment
@@ -86,6 +86,27 @@ jobs:
             echo "is_production=false" >> $GITHUB_OUTPUT
           fi
           echo "Target Environment: $TARGET"
+
+  check-db-existence:
+    name: Check if MySQL DB Exists
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify MySQL Server Existence & State
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+            SERVER_NAME="mysql-ewaste-${TARGET_ENV}"
+            RG="rg-ewaste-${TARGET_ENV}"
+
+            echo "Checking status of Azure MySQL Server: $SERVER_NAME in $RG..."
+            STATUS=$(az mysql flexible-server show --name "$SERVER_NAME" --resource-group "$RG" --query userVisibleState -o tsv 2>/dev/null || echo "NotFound")
+
+            if [ "$STATUS" != "Ready" ]; then
+              echo "::error::MySQL Flexible Server '$SERVER_NAME' is not ready (State: $STATUS). Please provision infrastructure using terraform-infra-create.yml first!"
+              exit 1
+            fi
+            echo "MySQL server $SERVER_NAME is online and Ready."
 
   # ============================================================================
   # STAGE 1: LIQUIBASE DATABASE MIGRATION

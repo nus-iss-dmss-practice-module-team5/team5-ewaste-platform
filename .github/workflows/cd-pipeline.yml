@@ -95,68 +95,11 @@ jobs:
           echo "========================================================"
 
   # ============================================================================
-  # STAGE 1: DATABASE MIGRATIONS (Direct Liquibase Runner)
-  # ============================================================================
-  database-migration:
-    name: Liquibase Migration (${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: ${{ needs.resolve-environment.outputs.environment }}
-    steps:
-      - name: Checkout Code Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Install Liquibase
-        run: |
-          sudo mkdir -p /opt/liquibase
-          wget -qO- https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz | sudo tar -xz -C /opt/liquibase
-          sudo ln -sf /opt/liquibase/liquibase /usr/local/bin/liquibase
-          sudo chmod +x /usr/local/bin/liquibase
-          # MySQL Connector driver
-          wget -qO /tmp/mysql-connector-j-8.3.0.jar https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar
-          sudo cp /tmp/mysql-connector-j-8.3.0.jar /opt/liquibase/lib/
-
-      - name: Execute Liquibase Migrations
-        env:
-          MYSQL_HOST: ${{ needs.resolve-environment.outputs.mysql_fqdn }}
-          MYSQL_DB: ${{ needs.resolve-environment.outputs.mysql_db }}
-          MYSQL_USER: ${{ needs.resolve-environment.outputs.mysql_admin_username }}
-          MYSQL_PASS: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
-          TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
-        run: |
-          DB_USER="${MYSQL_USER:-ewasteadmin}"
-          DB_NAME="${MYSQL_DB:-ewastedb}"
-
-          echo "Applying migrations to ${MYSQL_HOST}/${DB_NAME} as ${DB_USER}..."
-
-          CONTEXT_PARAM=""
-          if [ "$TARGET_ENV" != "prod" ]; then
-            CONTEXT_PARAM="--contexts=seed"
-          fi
-
-          liquibase \
-            --changelog-file=database/changelog-master.yaml \
-            --url="jdbc:mysql://${MYSQL_HOST}:3306/${DB_NAME}?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true" \
-            --username="${DB_USER}" \
-            --password="${MYSQL_PASS}" \
-            $CONTEXT_PARAM \
-            update
-
-          echo "Database migrations and seed records completed successfully."
-
-  # ============================================================================
-  # STAGE 2: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
+  # STAGE 1: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
   # ============================================================================
   deploy-application:
     name: Package & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment, database-migration]
+    needs: [resolve-environment]
     runs-on: [ubuntu-latest]
     environment: ${{ needs.resolve-environment.outputs.environment }}
     outputs:
@@ -181,7 +124,7 @@ jobs:
           az acr login --name "$ACR_NAME"
 
       # ------------------------------------------------------------------------
-      # 2.1 BACKEND API CONTAINER
+      # 1.1 BACKEND API CONTAINER
       # ------------------------------------------------------------------------
       - name: Build & Publish Backend API Container
         run: |
@@ -414,7 +357,7 @@ jobs:
             echo "API FQDN: https://$API_FQDN"
 
       # ------------------------------------------------------------------------
-      # 2.2 FRONTEND UI CONTAINER (Build via SP, Sign & Deploy)
+      # 1.2 FRONTEND UI CONTAINER (Build via SP, Sign & Deploy)
       # ------------------------------------------------------------------------
       - name: Build & Publish Frontend UI Container
         run: |
@@ -545,7 +488,7 @@ jobs:
             echo "UI FQDN: https://$UI_FQDN"
 
       # ------------------------------------------------------------------------
-      # 2.3 LIVE CONTAINER READINESS PROBES (API & UI)
+      # 1.3 LIVE CONTAINER READINESS PROBES (API & UI)
       # ------------------------------------------------------------------------
       - name: Verify Live ACA Health Readiness Probes (API & UI)
         run: |
@@ -579,7 +522,7 @@ jobs:
           fi
 
   # ============================================================================
-  # STAGE 3: DYNAMIC APPLICATION SECURITY TESTING (OWASP ZAP)
+  # STAGE 2: DYNAMIC APPLICATION SECURITY TESTING (OWASP ZAP)
   # ============================================================================
   dast-security-scan:
     name: OWASP ZAP DAST Scan (${{ needs.resolve-environment.outputs.environment }})
@@ -610,7 +553,7 @@ jobs:
           retention-days: 30
 
   # ============================================================================
-  # STAGE 4: POST-DEPLOYMENT SMOKE & AUDIT VERIFICATION
+  # STAGE 3: POST-DEPLOYMENT SMOKE & AUDIT VERIFICATION
   # ============================================================================
   smoke-and-audit-verification:
     name: Smoke & Audit Verification (${{ needs.resolve-environment.outputs.environment }})
