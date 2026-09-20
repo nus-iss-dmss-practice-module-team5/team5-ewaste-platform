@@ -85,7 +85,7 @@ jobs:
           echo "mysql_fqdn=mysql-ewaste-${TARGET}.mysql.database.azure.com" >> $GITHUB_OUTPUT
           echo "mysql_db=ewastedb" >> $GITHUB_OUTPUT
           echo "mysql_admin_username=ewasteadmin" >> $GITHUB_OUTPUT
-          echo "redis_address=redis-ewaste-${TARGET}.redis.cache.windows.net:6380" >> $GITHUB_OUTPUT
+          echo "redis_address=redis-lak-ewaste-${TARGET}.redis.cache.windows.net:6380" >> $GITHUB_OUTPUT
 
           echo "========================================================"
           echo " Target Environment: $TARGET"
@@ -241,7 +241,7 @@ jobs:
 
             DB_USER="${DB_USER:-ewasteadmin}"
             DB_NAME="${DB_NAME:-ewastedb}"
-            REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
+            REDIS_ADDR="redis-lak-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
 
             if [ -z "$REDIS_PASS" ] || [ "$REDIS_PASS" == "defaultRedisPass123!" ]; then
               REDIS_NAME="redis-ewaste-${TARGET_ENV}"
