@@ -28,7 +28,7 @@ variable "shared_rg_name" {
 
 variable "shared_acr_name" {
   type        = string
-  default     = "acrewasteplatform"
+  default     = "acrewasteplatformlak"
   description = "Name of the shared Azure Container Registry."
 }
 
