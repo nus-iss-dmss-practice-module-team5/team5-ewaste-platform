@@ -31,18 +31,6 @@ on:
           - update
           - status
           - validate
-  workflow_call:
-    inputs:
-      target_env:
-        description: 'Target Azure Runtime Environment'
-        required: false
-        default: 'dev'
-        type: string
-      command:
-        description: 'Liquibase command to run'
-        required: false
-        default: 'update'
-        type: string
 
 permissions:
   contents: read
