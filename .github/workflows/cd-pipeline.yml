@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [decouple-terraform-liquibase-from-cd-pipeline]
+    branches: [dev, main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
