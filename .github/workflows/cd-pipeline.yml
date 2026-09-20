@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/standardize-container-image-tagging]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
