@@ -1,0 +1,158 @@
+name: Database - Liquibase Migration
+
+on:
+  push:
+    branches: [decouple-terraform-liquibase-from-cd-pipeline]
+    paths:
+      - 'database/**'
+      - '.github/workflows/database-migration.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'database/**'
+      - '.github/workflows/database-migration.yml'
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: 'Target Azure Runtime Environment (dev, stg, prod)'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - stg
+          - prod
+      command:
+        description: 'Liquibase command to run'
+        required: true
+        default: 'update'
+        type: choice
+        options:
+          - update
+          - status
+          - validate
+  workflow_call:
+    inputs:
+      target_env:
+        description: 'Target Azure Runtime Environment'
+        required: false
+        default: 'dev'
+        type: string
+      command:
+        description: 'Liquibase command to run'
+        required: false
+        default: 'update'
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+  actions: read
+
+concurrency:
+  group: liquibase-migration-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # ============================================================================
+  # STAGE 0: ENVIRONMENT RESOLUTION
+  # ============================================================================
+  resolve-environment:
+    name: Resolve Target Environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.env_resolver.outputs.environment }}
+      is_production: ${{ steps.env_resolver.outputs.is_production }}
+    steps:
+      - name: Determine Target Environment from Git Context
+        id: env_resolver
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            TARGET="${{ inputs.target_env }}"
+          elif [ "${{ github.event_name }}" == "workflow_call" ]; then
+            TARGET="${{ inputs.target_env }}"
+          elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+            TARGET="prod"
+          elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/dev" ]; then
+            TARGET="dev"
+          else
+            TARGET="dev"
+          fi
+
+          echo "environment=$TARGET" >> $GITHUB_OUTPUT
+          if [ "$TARGET" == "prod" ]; then
+            echo "is_production=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_production=false" >> $GITHUB_OUTPUT
+          fi
+          echo "Target Environment: $TARGET"
+
+  # ============================================================================
+  # STAGE 1: LIQUIBASE DATABASE MIGRATION
+  # ============================================================================
+  database-migration:
+    name: Liquibase Migration (${{ needs.resolve-environment.outputs.environment }})
+    needs: [resolve-environment]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: ${{ needs.resolve-environment.outputs.environment }}
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Microsoft Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Java Runtime
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      # Official Liquibase Setup Action
+      - name: Setup Liquibase CLI
+        id: setup_liquibase
+        uses: liquibase/setup-liquibase@v3
+        with:
+          version: '4.29.2'
+          edition: 'community'
+
+      - name: Download MySQL JDBC Driver
+        run: |
+          mkdir -p /tmp/jdbc
+          wget -qO /tmp/jdbc/mysql-connector-j-8.3.0.jar https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar
+          # Copy to Liquibase lib directory so it is picked up automatically
+          cp /tmp/jdbc/mysql-connector-j-8.3.0.jar "${{ steps.setup_liquibase.outputs.liquibase-path }}/lib/"
+
+      - name: Verify Liquibase Installation
+        run: liquibase --version
+
+      - name: Execute Liquibase Database Migration
+        env:
+          TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
+          MYSQL_HOST: "mysql-ewaste-${{ needs.resolve-environment.outputs.environment }}.mysql.database.azure.com"
+          MYSQL_DB: "ewastedb"
+          MYSQL_USER: "ewasteadmin"
+          MYSQL_PASS: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
+          COMMAND: ${{ inputs.command || 'update' }}
+        run: |
+          echo "=========================================================="
+          echo " Executing Liquibase: $COMMAND on $MYSQL_HOST / $MYSQL_DB"
+          echo "=========================================================="
+
+          CONTEXT_PARAM=""
+          if [ "$TARGET_ENV" != "prod" ]; then
+            CONTEXT_PARAM="--contexts=seed"
+          fi
+
+          liquibase \
+            --changelog-file=database/changelog-master.yaml \
+            --url="jdbc:mysql://${MYSQL_HOST}:3306/${MYSQL_DB}?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true" \
+            --username="${MYSQL_USER}" \
+            --password="${MYSQL_PASS}" \
+            $CONTEXT_PARAM \
+            $COMMAND
+
+          echo "Liquibase $COMMAND executed successfully."
