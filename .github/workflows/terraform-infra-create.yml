@@ -113,7 +113,7 @@ jobs:
       - name: Authenticate to Microsoft Azure
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.LAK_AZURE_CREDENTIALS }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Register Azure Resource Providers
         run: |
@@ -124,13 +124,13 @@ jobs:
 
       - name: Set ARM Credentials for Terraform
         run: |
-          CLIENT_SECRET=$(echo '${{ secrets.LAK_AZURE_CREDENTIALS }}' | jq -r .clientSecret)
+          CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
           echo "::add-mask::$CLIENT_SECRET"
           echo "ARM_CLIENT_SECRET=$CLIENT_SECRET" >> $GITHUB_ENV
-          echo "ARM_CLIENT_ID=${{ secrets.LAK_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=${{ secrets.LAK_TENANT_ID }}" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.LAK_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_ACCESS_KEY=${{ secrets.LAK_TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
+          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
+          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
 
       - name: Setup Terraform CLI
         uses: hashicorp/setup-terraform@v3
@@ -145,10 +145,10 @@ jobs:
         run: |
           cd terraform/shared
           terraform init \
-            -backend-config="storage_account_name=${{ secrets.LAK_TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=shared.tfstate" \
-            -backend-config="access_key=${{ secrets.LAK_TF_STATE_SA_ACCESS_KEY }}"
+            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
 
           if [ "${{ inputs.action }}" == "plan" ]; then
             terraform plan
@@ -164,10 +164,10 @@ jobs:
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           cd terraform/environments
           terraform init \
-            -backend-config="storage_account_name=${{ secrets.LAK_TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=$TARGET_ENV.tfstate" \
-            -backend-config="access_key=${{ secrets.LAK_TF_STATE_SA_ACCESS_KEY }}"
+            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
 
           TF_VARS_FILE="environments/$TARGET_ENV.tfvars"
           if [ ! -f "$TF_VARS_FILE" ]; then
@@ -178,13 +178,13 @@ jobs:
             terraform plan \
               -var-file="$TF_VARS_FILE" \
               -var="environment=$TARGET_ENV" \
-              -var="tenant_id=${{ secrets.LAK_TENANT_ID }}" \
+              -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
               -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
           else
             terraform apply -auto-approve \
               -var-file="$TF_VARS_FILE" \
               -var="environment=$TARGET_ENV" \
-              -var="tenant_id=${{ secrets.LAK_TENANT_ID }}" \
+              -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
               -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
           fi
 
@@ -207,7 +207,7 @@ jobs:
             MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "")
           fi
           ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
-          REDIS_ADDR="redis-lak-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
+          REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
           REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
           if [ -z "$REDIS_PASS" ]; then
             REDIS_PASS=$(terraform output -raw redis_primary_access_key 2>/dev/null || echo "")

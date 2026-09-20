@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [decouple-terraform-liquibase-from-cd-pipeline]
+    branches: [dev, main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -43,6 +43,7 @@ jobs:
       environment: ${{ steps.env_resolver.outputs.environment }}
       is_production: ${{ steps.env_resolver.outputs.is_production }}
       deployment_desc: ${{ steps.env_resolver.outputs.deployment_desc }}
+      acr_server: ${{ steps.env_resolver.outputs.acr_server }}
       resource_group: ${{ steps.env_resolver.outputs.resource_group }}
       aca_env_name: ${{ steps.env_resolver.outputs.aca_env_name }}
       mysql_fqdn: ${{ steps.env_resolver.outputs.mysql_fqdn }}
@@ -80,16 +81,18 @@ jobs:
           fi
 
           # Deterministic Infrastructure Topology Bindings
+          echo "acr_server=acrewasteplatform.azurecr.io" >> $GITHUB_OUTPUT
           echo "resource_group=rg-ewaste-${TARGET}" >> $GITHUB_OUTPUT
           echo "aca_env_name=cae-ewaste-${TARGET}" >> $GITHUB_OUTPUT
-          echo "mysql_fqdn=mysql-lak-ewaste-${TARGET}.mysql.database.azure.com" >> $GITHUB_OUTPUT
+          echo "mysql_fqdn=mysql-ewaste-${TARGET}.mysql.database.azure.com" >> $GITHUB_OUTPUT
           echo "mysql_db=ewastedb" >> $GITHUB_OUTPUT
           echo "mysql_admin_username=ewasteadmin" >> $GITHUB_OUTPUT
-          echo "redis_address=redis-lak-ewaste-${TARGET}.redis.cache.windows.net:6380" >> $GITHUB_OUTPUT
+          echo "redis_address=redis-ewaste-${TARGET}.redis.cache.windows.net:6380" >> $GITHUB_OUTPUT
 
           echo "========================================================"
           echo " Target Environment: $TARGET"
           echo " Trigger Reason: $DESC"
+          echo " ACR Server: acrewasteplatform.azurecr.io"
           echo " Resource Group: rg-ewaste-${TARGET}"
           echo " ACA Environment: cae-ewaste-${TARGET}"
           echo "========================================================"
@@ -169,14 +172,14 @@ jobs:
       - name: Authenticate to Microsoft Azure
         uses: azure/login@v2
         with:
-          creds: ${{ secrets.LAK_AZURE_CREDENTIALS }}
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
       - name: Log in to Azure Container Registry
         run: |
-          ACR_SERVER="${{ secrets.LAK_ACR_NAME }}"
+          ACR_SERVER="${{ needs.resolve-environment.outputs.acr_server }}"
           ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
           az acr login --name "$ACR_NAME"
 
@@ -185,12 +188,21 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Build & Publish Backend API Container
         run: |
-          ACR_SERVER="${{ secrets.LAK_ACR_NAME }}"
-          IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
-          echo "Building API image: $IMAGE_TAG"
-          docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
-          echo "Pushing API image to ACR..."
-          docker push "$IMAGE_TAG"
+          ACR_SERVER="${{ needs.resolve-environment.outputs.acr_server }}"
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+
+          if [ -n "${{ inputs.rollback_tag }}" ]; then
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ inputs.rollback_tag }}"
+            echo "Rolling back to existing API image: $IMAGE_TAG"
+            docker pull "$IMAGE_TAG" || true
+          else
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${TARGET_ENV}-${SHORT_SHA}"
+            echo "Building API image: $IMAGE_TAG"
+            docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
+            echo "Pushing API image to ACR..."
+            docker push "$IMAGE_TAG"
+          fi
           echo "API_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
           API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
@@ -222,12 +234,12 @@ jobs:
             TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
             RG="${{ needs.resolve-environment.outputs.resource_group }}"
             CAE="${{ needs.resolve-environment.outputs.aca_env_name }}"
-            ACR_SERVER="${{ secrets.LAK_ACR_NAME }}"
+            ACR_SERVER="${{ needs.resolve-environment.outputs.acr_server }}"
             DB_HOST="${{ needs.resolve-environment.outputs.mysql_fqdn }}"
             DB_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
             DB_USER="${{ needs.resolve-environment.outputs.mysql_admin_username }}"
             DB_NAME="${{ needs.resolve-environment.outputs.mysql_db }}"
-            REDIS_PASS="${{ secrets.LAK_REDIS_PASSWORD }}"
+            REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
             AUTH_ACCESS_SECRET="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
             AUTH_REFRESH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
             AUTH_REFRESH_HASH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
@@ -241,7 +253,7 @@ jobs:
 
             DB_USER="${DB_USER:-ewasteadmin}"
             DB_NAME="${DB_NAME:-ewastedb}"
-            REDIS_ADDR="redis-lak-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
+            REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
 
             if [ -z "$REDIS_PASS" ] || [ "$REDIS_PASS" == "defaultRedisPass123!" ]; then
               REDIS_NAME="redis-ewaste-${TARGET_ENV}"
@@ -418,7 +430,8 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Build & Publish Frontend UI Container
         run: |
-          ACR_SERVER="${{ secrets.LAK_ACR_NAME }}"
+          ACR_SERVER="${{ needs.resolve-environment.outputs.acr_server }}"
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
           echo "Building UI image: $IMAGE_TAG"
