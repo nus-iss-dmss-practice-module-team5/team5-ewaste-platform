@@ -2,7 +2,7 @@ name: "IaC - Create Cloud Resources (Dev, Stg, Prod)"
 
 on:
   push:
-    branches: [dev, main]
+    branches: [decouple-terraform-liquibase-from-cd-pipeline]
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform-infra-create.yml'
