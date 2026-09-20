@@ -2,7 +2,7 @@ name: Database - Liquibase Migration
 
 on:
   push:
-    branches: [decouple-terraform-liquibase-from-cd-pipeline]
+    branches: [dev, main]
     paths:
       - 'database/**'
       - '.github/workflows/database-migration.yml'
