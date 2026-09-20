@@ -26,16 +26,16 @@ repos:
     hooks:
       - id: go-fmt
         name: go-fmt
-        entry: go fmt ./...
+        entry: python -c "import subprocess, sys; sys.exit(subprocess.run(['go', 'fmt', './...'], cwd='src/backend').returncode)"
         language: system
-        types: [ go ]
+        files: ^src/backend/
         pass_filenames: false
 
       - id: go-vet
         name: go-vet
-        entry: go vet ./...
+        entry: python -c "import subprocess, sys; sys.exit(subprocess.run(['go', 'vet', './...'], cwd='src/backend').returncode)"
         language: system
-        types: [ go ]
+        files: ^src/backend/
         pass_filenames: false
 
 

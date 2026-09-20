@@ -64,9 +64,9 @@ type DatabaseConfig struct {
 }
 
 type RedisConfig struct {
-	Address   string `mapstructure:"address"`
-	Password  string `mapstructure:"password"`
-	DB        int    `mapstructure:"db"`
+	Address    string `mapstructure:"address"`
+	Password   string `mapstructure:"password"`
+	DB         int    `mapstructure:"db"`
 	TLSEnabled bool   `mapstructure:"tls_enabled"`
 }
 
