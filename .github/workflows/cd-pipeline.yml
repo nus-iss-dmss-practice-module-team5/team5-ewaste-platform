@@ -227,7 +227,7 @@ jobs:
             DB_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
             DB_USER="${{ needs.resolve-environment.outputs.mysql_admin_username }}"
             DB_NAME="${{ needs.resolve-environment.outputs.mysql_db }}"
-            REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
+            REDIS_PASS="${{ secrets.LAK_REDIS_PASSWORD }}"
             AUTH_ACCESS_SECRET="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
             AUTH_REFRESH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
             AUTH_REFRESH_HASH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
