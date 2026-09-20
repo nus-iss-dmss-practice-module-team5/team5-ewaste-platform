@@ -34,7 +34,7 @@ resource "azurerm_resource_group" "shared" {
 # Centralized Azure Container Registry.
 # Premium is required for Private Link. Public access and admin credentials are disabled.
 resource "azurerm_container_registry" "acr" {
-  name                          = "acrewasteplatform"
+  name                          = "acrewasteplatformlak"
   resource_group_name           = azurerm_resource_group.shared.name
   location                      = "japaneast"
   sku                           = "Premium"
