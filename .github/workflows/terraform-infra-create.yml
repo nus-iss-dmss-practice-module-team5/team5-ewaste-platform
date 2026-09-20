@@ -207,7 +207,7 @@ jobs:
             MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "")
           fi
           ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
-          REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
+          REDIS_ADDR="redis-lak-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
           REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
           if [ -z "$REDIS_PASS" ]; then
             REDIS_PASS=$(terraform output -raw redis_primary_access_key 2>/dev/null || echo "")
