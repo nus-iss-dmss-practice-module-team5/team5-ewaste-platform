@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
+    branches: [decouple-terraform-liquibase-from-cd-pipeline]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -81,7 +81,7 @@ jobs:
           fi
 
           # Deterministic Infrastructure Topology Bindings
-          echo "acr_server=${{ secrets.AZURE_ACR_NAME }}" >> $GITHUB_OUTPUT
+          echo "acr_server=${{ secrets.LAK_ACR_NAME }}" >> $GITHUB_OUTPUT
           echo "resource_group=rg-ewaste-${TARGET}" >> $GITHUB_OUTPUT
           echo "aca_env_name=cae-ewaste-${TARGET}" >> $GITHUB_OUTPUT
           echo "mysql_fqdn=mysql-ewaste-${TARGET}.mysql.database.azure.com" >> $GITHUB_OUTPUT
