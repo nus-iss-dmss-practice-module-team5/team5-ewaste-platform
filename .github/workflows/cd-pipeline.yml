@@ -17,6 +17,10 @@ on:
           - dev
           - stg
           - prod
+      rollback_tag:
+        description: 'Optional: Image tag to rollback to (e.g. dev-a1b2c3d). Leave empty for standard build.'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -78,9 +82,9 @@ jobs:
           echo " Trigger Reason: $DESC"
           echo "========================================================"
 
-  # ============================================================================\
+  # ============================================================================
   # STAGE 1: INFRASTRUCTURE PROVISIONING (Terraform Apply)
-  # ============================================================================\
+  # ============================================================================
   provision-infrastructure:
     name: Terraform Apply (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
@@ -214,9 +218,9 @@ jobs:
             echo "aca_identity_id=${ACA_IDENTITY_ID}"
           } >> "$GITHUB_OUTPUT"
 
-  # ============================================================================\
+  # ============================================================================
   # STAGE 2: DATABASE MIGRATIONS (Direct Liquibase Runner)
-  # ============================================================================\
+  # ============================================================================
   database-migration:
     name: Liquibase Migration (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure]
@@ -272,9 +276,9 @@ jobs:
 
           echo "Database migrations and seed records completed successfully."
 
-  # ============================================================================\
+  # ============================================================================
   # STAGE 3: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
-  # ============================================================================\
+  # ============================================================================
   deploy-application:
     name: Package & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, database-migration]
@@ -307,11 +311,20 @@ jobs:
       - name: Build & Publish Backend API Container
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
-          IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ github.sha }}"
-          echo "Building API image: $IMAGE_TAG"
-          docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
-          echo "Pushing API image to ACR..."
-          docker push "$IMAGE_TAG"
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+
+          if [ -n "${{ inputs.rollback_tag }}" ]; then
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ inputs.rollback_tag }}"
+            echo "Rolling back to existing API image: $IMAGE_TAG"
+            docker pull "$IMAGE_TAG" || true
+          else
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${TARGET_ENV}-${SHORT_SHA}"
+            echo "Building API image: $IMAGE_TAG"
+            docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
+            echo "Pushing API image to ACR..."
+            docker push "$IMAGE_TAG"
+          fi
           echo "API_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
           API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
@@ -545,17 +558,26 @@ jobs:
       - name: Build & Publish Frontend UI Container
         run: |
           ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
-          IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
-          echo "Building UI image: $IMAGE_TAG"
-          docker build -t "$IMAGE_TAG" \
-            --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
-            --build-arg NEXT_PUBLIC_API_BASE_URL="$API_URL" \
-            --build-arg API_PROXY_TARGET="$API_URL" \
-            --build-arg NEXT_PUBLIC_USE_MOCK_AUTH="false" \
-            -f src/frontend/Dockerfile src/frontend/
-          echo "Pushing UI image to ACR..."
-          docker push "$IMAGE_TAG"
+
+          if [ -n "${{ inputs.rollback_tag }}" ]; then
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ inputs.rollback_tag }}"
+            echo "Rolling back to existing UI image: $IMAGE_TAG"
+            docker pull "$IMAGE_TAG" || true
+          else
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${TARGET_ENV}-${SHORT_SHA}"
+            echo "Building UI image: $IMAGE_TAG"
+            docker build -t "$IMAGE_TAG" \
+              --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
+              --build-arg NEXT_PUBLIC_API_BASE_URL="$API_URL" \
+              --build-arg API_PROXY_TARGET="$API_URL" \
+              --build-arg NEXT_PUBLIC_USE_MOCK_AUTH="false" \
+              -f src/frontend/Dockerfile src/frontend/
+            echo "Pushing UI image to ACR..."
+            docker push "$IMAGE_TAG"
+          fi
           echo "UI_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
           UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
@@ -706,9 +728,39 @@ jobs:
             done
           fi
 
-  # ============================================================================\
+      # ------------------------------------------------------------------------
+      # 3.4 PRUNE OLD ACR IMAGES (Retain Last 3 for Rollback Safety)
+      # ------------------------------------------------------------------------
+      - name: Prune Stale Container Images in ACR (Keep Last 3)
+        if: ${{ inputs.rollback_tag == '' }}
+        run: |
+          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
+
+          for REPO in "${{ env.IMAGE_NAME_API }}" "${{ env.IMAGE_NAME_UI }}"; do
+            echo "Checking image tags for repository: $REPO"
+
+            # Fetch tags sorted by creation time (newest first), skip top 3, and delete the rest
+            TAGS_TO_DELETE=$(az acr repository show-tags \
+              --name "$ACR_NAME" \
+              --repository "$REPO" \
+              --orderby time_desc \
+              --output tsv | tail -n +4)
+
+            if [ -n "$TAGS_TO_DELETE" ]; then
+              echo "Pruning older tags in $REPO:"
+              echo "$TAGS_TO_DELETE"
+              for TAG in $TAGS_TO_DELETE; do
+                az acr repository delete --name "$ACR_NAME" --image "${REPO}:${TAG}" --yes
+              done
+            else
+              echo "Repository $REPO has 3 or fewer tags. Nothing to prune."
+            fi
+          done
+
+  # ============================================================================
   # STAGE 4: DYNAMIC APPLICATION SECURITY TESTING (OWASP ZAP)
-  # ============================================================================\
+  # ============================================================================
   dast-security-scan:
     name: OWASP ZAP DAST Scan (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, deploy-application]
@@ -737,9 +789,9 @@ jobs:
             report_json.json
           retention-days: 30
 
-  # ============================================================================\
+  # ============================================================================
   # STAGE 5: POST-DEPLOYMENT SMOKE & AUDIT VERIFICATION
-  # ============================================================================\
+  # ============================================================================
   smoke-and-audit-verification:
     name: Smoke & Audit Verification (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment, provision-infrastructure, deploy-application, dast-security-scan]
