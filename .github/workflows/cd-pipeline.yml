@@ -418,7 +418,7 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Build & Publish Frontend UI Container
         run: |
-          ACR_SERVER="${{ needs.resolve-environment.outputs.acr_server }}"
+          ACR_SERVER="${{ secrets.LAK_ACR_NAME }}"
           API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
           IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ github.sha }}"
           echo "Building UI image: $IMAGE_TAG"
