@@ -1,4 +1,4 @@
-name: "IaC: Destroy Cloud Resources (Dev & Stg Only)"
+name: "IaC - Destroy Cloud Resources (Dev & Stg Only)"
 
 on:
   workflow_dispatch:
