@@ -100,10 +100,10 @@ jobs:
           echo "========================================================"
 
   # ============================================================================
-  # STAGE 1: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
+  # STAGE 1: MULTI-CONTAINER RELEASE (API, UI & ANALYTICS) & ACA DEPLOYMENT
   # ============================================================================
   deploy-application:
-    name: Package & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
+    name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
     runs-on: [ubuntu-latest]
     environment: ${{ needs.resolve-environment.outputs.environment }}
@@ -511,7 +511,7 @@ jobs:
             echo "UI FQDN: https://$UI_FQDN"
 
       # ------------------------------------------------------------------------
-      # 1.3 PYTHON WORKER CONTAINER
+      # 1.3 ANALYTICS WORKER CONTAINER
       # ------------------------------------------------------------------------
       - name: Build and Push Analytics Worker Image to ACR
         run: |
@@ -537,6 +537,7 @@ jobs:
             TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
             RG="${{ needs.resolve-environment.outputs.resource_group }}"
             CAE="${{ needs.resolve-environment.outputs.aca_env_name }}"
+            ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
             APP_NAME="aca-ewaste-${TARGET_ENV}-analytics"
             IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
 
@@ -556,7 +557,21 @@ jobs:
             echo "Deploying Analytics Container App ($APP_NAME) with Bootstrap: $BOOTSTRAP_SERVERS..."
 
             if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME exists. Ensuring ingress target-port is 8000..."
+              echo "Container App $APP_NAME exists. Ensuring registry credentials and ingress..."
+
+              if [ -n "$IDENTITY" ]; then
+                az containerapp identity assign \
+                  --name "$APP_NAME" \
+                  --resource-group "$RG" \
+                  --user-assigned "$IDENTITY" || true
+
+                az containerapp registry set \
+                  --name "$APP_NAME" \
+                  --resource-group "$RG" \
+                  --server "$ACR_SERVER" \
+                  --identity "$IDENTITY" || true
+              fi
+
               az containerapp ingress enable \
                 --name "$APP_NAME" \
                 --resource-group "$RG" \
@@ -581,7 +596,7 @@ jobs:
                                KAFKA_CONSUMER_GROUP="matching-worker" \
                                LOG_LEVEL="INFO"
             else
-              echo "Creating Container App $APP_NAME from scratch..."
+              echo "Creating Container App $APP_NAME from scratch with ACR authentication..."
               CREATE_CMD="az containerapp create \
                 --name $APP_NAME \
                 --resource-group $RG \
@@ -591,6 +606,7 @@ jobs:
                 --ingress external \
                 --cpu 0.5 --memory 1.0Gi \
                 --min-replicas 1 --max-replicas 2 \
+                --registry-server $ACR_SERVER \
                 --env-vars KAFKA_BOOTSTRAP_SERVERS=$BOOTSTRAP_SERVERS \
                            KAFKA_TOPIC_BATCH_EVENTS=ewaste.batch.events \
                            KAFKA_TOPIC_DLQ=ewaste.batch.events.matching.dlq.v1 \
@@ -598,7 +614,7 @@ jobs:
                            LOG_LEVEL=INFO"
 
               if [ -n "$IDENTITY" ]; then
-                CREATE_CMD="$CREATE_CMD --user-assigned $IDENTITY"
+                CREATE_CMD="$CREATE_CMD --user-assigned $IDENTITY --registry-identity $IDENTITY"
               fi
 
               if [ -n "$EVH_CONN_STR" ]; then
@@ -669,7 +685,7 @@ jobs:
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
 
-          for REPO in "${{ env.IMAGE_NAME_API }}" "${{ env.IMAGE_NAME_UI }}"; do
+          for REPO in "${{ env.IMAGE_NAME_API }}" "${{ env.IMAGE_NAME_UI }}" "${{ env.IMAGE_NAME_ANALYTICS }}"; do
             echo "Checking image tags for repository: $REPO"
 
             # Fetch tags sorted by creation time (newest first), skip top 3, and delete the rest
@@ -732,6 +748,9 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------------------------
+      # 3.1 BACKEND API AUTHENTICATION SMOKE TEST
+      # ------------------------------------------------------------------------
       - name: Execute Seeded-User Login API Smoke Test
         run: |
           API_FQDN="${{ needs.deploy-application.outputs.aca_api_fqdn }}"
@@ -754,6 +773,9 @@ jobs:
             echo "API smoke test skipped: FQDN not yet assigned."
           fi
 
+      # ------------------------------------------------------------------------
+      # 3.2 FRONTEND UI ACCESSIBILITY SMOKE TEST
+      # ------------------------------------------------------------------------
       - name: Execute Frontend UI Endpoint Smoke Test
         run: |
           UI_FQDN="${{ needs.deploy-application.outputs.aca_ui_fqdn }}"
@@ -766,6 +788,9 @@ jobs:
             echo "UI smoke test skipped: FQDN not yet assigned."
           fi
 
+      # ------------------------------------------------------------------------
+      # 3.3 ANALYTICS WORKER & EVENT HUBS INTEGRATION SMOKE TEST
+      # ------------------------------------------------------------------------
       - name: Verify Live Kafka Event Publish and Consumer Loop
         run: |
           ANALYTICS_FQDN="${{ needs.deploy-application.outputs.aca_analytics_fqdn }}"
@@ -809,6 +834,9 @@ jobs:
             exit 1
           fi
 
+      # ------------------------------------------------------------------------
+      # 3.4 DEPLOYMENT SUMMARY & ARCHIVAL BANNER
+      # ------------------------------------------------------------------------
       - name: Confirm Deployment & Archival State
         run: |
           echo "======================================================================"
