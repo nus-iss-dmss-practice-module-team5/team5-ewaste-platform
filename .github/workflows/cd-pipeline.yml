@@ -557,7 +557,7 @@ jobs:
             echo "Deploying Analytics Container App ($APP_NAME) with Bootstrap: $BOOTSTRAP_SERVERS..."
 
             if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME exists. Ensuring registry credentials and ingress..."
+              echo "Container App $APP_NAME exists. Updating image and environment..."
 
               if [ -n "$IDENTITY" ]; then
                 az containerapp identity assign \
@@ -596,32 +596,50 @@ jobs:
                                KAFKA_CONSUMER_GROUP="matching-worker" \
                                LOG_LEVEL="INFO"
             else
-              echo "Creating Container App $APP_NAME from scratch with ACR authentication..."
-              CREATE_CMD="az containerapp create \
-                --name $APP_NAME \
-                --resource-group $RG \
-                --environment $CAE \
-                --image ${{ env.ANALYTICS_IMMUTABLE_DIGEST }} \
-                --target-port 8000 \
-                --ingress external \
-                --cpu 0.5 --memory 1.0Gi \
-                --min-replicas 1 --max-replicas 2 \
-                --registry-server $ACR_SERVER \
-                --env-vars KAFKA_BOOTSTRAP_SERVERS=$BOOTSTRAP_SERVERS \
-                           KAFKA_TOPIC_BATCH_EVENTS=ewaste.batch.events \
-                           KAFKA_TOPIC_DLQ=ewaste.batch.events.matching.dlq.v1 \
-                           KAFKA_CONSUMER_GROUP=matching-worker \
-                           LOG_LEVEL=INFO"
-
+              echo "Container App $APP_NAME does not exist. Creating new container app with ACR identity..."
               if [ -n "$IDENTITY" ]; then
-                CREATE_CMD="$CREATE_CMD --user-assigned $IDENTITY --registry-identity $IDENTITY"
+                az containerapp create \
+                  --name "$APP_NAME" \
+                  --resource-group "$RG" \
+                  --environment "$CAE" \
+                  --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
+                  --target-port 8000 \
+                  --ingress external \
+                  --min-replicas 1 \
+                  --max-replicas 2 \
+                  --cpu 0.5 \
+                  --memory 1.0Gi \
+                  --user-assigned "$IDENTITY" \
+                  --registry-server "$ACR_SERVER" \
+                  --registry-identity "$IDENTITY" \
+                  --secrets kafka-conn="$EVH_CONN_STR" \
+                  --env-vars KAFKA_BOOTSTRAP_SERVERS="$BOOTSTRAP_SERVERS" \
+                             KAFKA_CONNECTION_STRING=secretref:kafka-conn \
+                             KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
+                             KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
+                             KAFKA_CONSUMER_GROUP="matching-worker" \
+                             LOG_LEVEL="INFO"
+              else
+                az containerapp create \
+                  --name "$APP_NAME" \
+                  --resource-group "$RG" \
+                  --environment "$CAE" \
+                  --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
+                  --target-port 8000 \
+                  --ingress external \
+                  --min-replicas 1 \
+                  --max-replicas 2 \
+                  --cpu 0.5 \
+                  --memory 1.0Gi \
+                  --registry-server "$ACR_SERVER" \
+                  --secrets kafka-conn="$EVH_CONN_STR" \
+                  --env-vars KAFKA_BOOTSTRAP_SERVERS="$BOOTSTRAP_SERVERS" \
+                             KAFKA_CONNECTION_STRING=secretref:kafka-conn \
+                             KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
+                             KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
+                             KAFKA_CONSUMER_GROUP="matching-worker" \
+                             LOG_LEVEL="INFO"
               fi
-
-              if [ -n "$EVH_CONN_STR" ]; then
-                CREATE_CMD="$CREATE_CMD --secrets kafka-conn=$EVH_CONN_STR --env-vars KAFKA_CONNECTION_STRING=secretref:kafka-conn"
-              fi
-
-              eval $CREATE_CMD
             fi
 
             ANALYTICS_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
