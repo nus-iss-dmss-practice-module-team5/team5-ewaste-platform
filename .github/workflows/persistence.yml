@@ -1,18 +1,16 @@
-name: Database Persistence (All Schemas)
+name: Database SQL Persistence (All Schemas)
 
 on:
   pull_request:
     branches: [dev, main]
     paths:
       - 'database/**'
-      - 'src/backend/**'
       - 'scripts/test-persistence.sh'
       - '.github/workflows/persistence.yml'
   push:
     branches: [dev, main]
     paths:
       - 'database/**'
-      - 'src/backend/**'
       - 'scripts/test-persistence.sh'
       - '.github/workflows/persistence.yml'
   workflow_dispatch:
@@ -23,10 +21,10 @@ permissions:
 jobs:
   persistence:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Verify all schema and repository persistence
+      - name: Verify all schema and SQL persistence
         run: ./scripts/test-persistence.sh
       - name: Upload combined persistence evidence
         if: always()
