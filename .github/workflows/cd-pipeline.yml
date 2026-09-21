@@ -832,19 +832,23 @@ jobs:
 
             echo "Publish Response: $PUB_RESP"
 
-            # Step 3: Wait for Kafka / Event Hubs delivery to consumer group 'matching-worker'
-            echo -e "\n3. Waiting 5 seconds for Event Hubs consumer loop..."
-            sleep 5
+            # Step 3: Poll /api/v1/events with retry loop (allowing consumer group to rebalance & consume)
+            echo -e "\n3. Polling /api/v1/events for batch_id: $TEST_BATCH_ID..."
+            CONSUMED=false
+            for attempt in {1..10}; do
+              echo "Polling attempt $attempt/10..."
+              EVENTS_RESP=$(curl -s -f "https://${ANALYTICS_FQDN}/api/v1/events" || true)
+              if echo "$EVENTS_RESP" | grep -q "$TEST_BATCH_ID"; then
+                echo "SUCCESS: Event '$TEST_BATCH_ID' was consumed and verified from Event Hubs!"
+                CONSUMED=true
+                break
+              fi
+              sleep 3
+            done
 
-            # Step 4: Verify that the consumer received the exact event
-            echo "4. Checking /api/v1/events for batch_id: $TEST_BATCH_ID..."
-            EVENTS_RESP=$(curl -s -f "https://${ANALYTICS_FQDN}/api/v1/events")
-
-            if echo "$EVENTS_RESP" | grep -q "$TEST_BATCH_ID"; then
-              echo "SUCCESS: Event with batch_id '$TEST_BATCH_ID' was successfully consumed from Event Hubs!"
-            else
-              echo "::error::Consumer did not receive event '$TEST_BATCH_ID' within timeout."
-              echo "Current events buffer: $EVENTS_RESP"
+            if [ "$CONSUMED" = false ]; then
+              echo "::error::Consumer did not record event '$TEST_BATCH_ID' within 30 seconds."
+              echo "Last /api/v1/events output: $EVENTS_RESP"
               exit 1
             fi
           else
