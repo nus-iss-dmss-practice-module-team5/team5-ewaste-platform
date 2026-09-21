@@ -547,6 +547,12 @@ jobs:
               EVH_NAME="evh-ewaste-${TARGET_ENV}"
             fi
 
+            if [ "$TARGET_ENV" == "dev" ]; then
+              ENABLE_TESTS="true"
+            else
+              ENABLE_TESTS="false"
+            fi
+
             BOOTSTRAP_SERVERS="${EVH_NAME}.servicebus.windows.net:9093"
             EVH_CONN_STR=$(az eventhubs namespace authorization-rule keys list \
               --resource-group "$RG" \
@@ -594,6 +600,7 @@ jobs:
                                KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
                                KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
                                KAFKA_CONSUMER_GROUP="matching-worker" \
+                               ENABLE_TEST_ENDPOINTS="$ENABLE_TESTS" \
                                LOG_LEVEL="INFO"
             else
               echo "Container App $APP_NAME does not exist. Creating new container app with ACR identity..."
@@ -618,6 +625,7 @@ jobs:
                              KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
                              KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
                              KAFKA_CONSUMER_GROUP="matching-worker" \
+                             ENABLE_TEST_ENDPOINTS="$ENABLE_TESTS" \
                              LOG_LEVEL="INFO"
               else
                 az containerapp create \
@@ -638,6 +646,7 @@ jobs:
                              KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
                              KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
                              KAFKA_CONSUMER_GROUP="matching-worker" \
+                             ENABLE_TEST_ENDPOINTS="$ENABLE_TESTS" \
                              LOG_LEVEL="INFO"
               fi
             fi
@@ -812,44 +821,57 @@ jobs:
       - name: Verify Live Kafka Event Publish and Consumer Loop
         run: |
           ANALYTICS_FQDN="${{ needs.deploy-application.outputs.aca_analytics_fqdn }}"
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+
           if [ -n "$ANALYTICS_FQDN" ]; then
             echo "=========================================================="
-            echo " Testing Event Hubs Ingress/Egress via Analytics ACA"
+            echo " Testing Event Hubs Connectivity via Analytics ACA"
             echo " Endpoint: https://${ANALYTICS_FQDN}"
+            echo " Environment: ${TARGET_ENV}"
             echo "=========================================================="
 
-            # Step 1: Healthcheck
+            # Step 1: Healthcheck & Broker Verification (Zero Dummy Events)
             echo "1. Probing /healthz..."
-            curl -s -f "https://${ANALYTICS_FQDN}/healthz" || (echo "Healthcheck failed" && exit 1)
+            HEALTH_RESP=$(curl -s -f "https://${ANALYTICS_FQDN}/healthz" || (echo "Healthcheck failed" && exit 1))
+            echo "Health Response: $HEALTH_RESP"
 
-            # Step 2: Generate unique test batch ID
-            TEST_BATCH_ID="test-batch-$(date +%s)"
-            echo -e "\n2. Publishing test event with batch_id: $TEST_BATCH_ID..."
+            # Step 2: In DEV, run the live pub/sub verification loop
+            if [ "$TARGET_ENV" == "dev" ]; then
+              TEST_BATCH_ID="test-batch-$(date +%s)"
+              echo -e "\n2. Publishing test event with batch_id: $TEST_BATCH_ID..."
 
-            PUB_RESP=$(curl -s -f -X POST "https://${ANALYTICS_FQDN}/api/v1/publish-test" \
-              -H "Content-Type: application/json" \
-              -d "{\"batch_id\": \"$TEST_BATCH_ID\", \"category\": \"ICT_EQUIPMENT\", \"quantity\": 5, \"zone\": \"NORTH\"}")
+              PUB_RESP=$(curl -s -f -X POST "https://${ANALYTICS_FQDN}/api/v1/publish-test" \
+                -H "Content-Type: application/json" \
+                -d "{\"batch_id\": \"$TEST_BATCH_ID\", \"category\": \"ICT_EQUIPMENT\", \"quantity\": 5, \"zone\": \"NORTH\"}")
 
-            echo "Publish Response: $PUB_RESP"
+              echo "Publish Response: $PUB_RESP"
 
-            # Step 3: Poll /api/v1/events with retry loop (allowing consumer group to rebalance & consume)
-            echo -e "\n3. Polling /api/v1/events for batch_id: $TEST_BATCH_ID..."
-            CONSUMED=false
-            for attempt in {1..10}; do
-              echo "Polling attempt $attempt/10..."
-              EVENTS_RESP=$(curl -s -f "https://${ANALYTICS_FQDN}/api/v1/events" || true)
-              if echo "$EVENTS_RESP" | grep -q "$TEST_BATCH_ID"; then
-                echo "SUCCESS: Event '$TEST_BATCH_ID' was consumed and verified from Event Hubs!"
-                CONSUMED=true
-                break
+              echo -e "\n3. Polling /api/v1/events for batch_id: $TEST_BATCH_ID..."
+              CONSUMED=false
+              for attempt in {1..10}; do
+                echo "Polling attempt $attempt/10..."
+                EVENTS_RESP=$(curl -s -f "https://${ANALYTICS_FQDN}/api/v1/events" || true)
+                if echo "$EVENTS_RESP" | grep -q "$TEST_BATCH_ID"; then
+                  echo "SUCCESS: Event '$TEST_BATCH_ID' was consumed and verified from Event Hubs!"
+                  CONSUMED=true
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$CONSUMED" = false ]; then
+                echo "::error::Consumer did not record event '$TEST_BATCH_ID' within 30 seconds."
+                echo "Last /api/v1/events output: $EVENTS_RESP"
+                exit 1
               fi
-              sleep 3
-            done
-
-            if [ "$CONSUMED" = false ]; then
-              echo "::error::Consumer did not record event '$TEST_BATCH_ID' within 30 seconds."
-              echo "Last /api/v1/events output: $EVENTS_RESP"
-              exit 1
+            else
+              echo "Production/Staging deployment detected: test endpoints are disabled to preserve stream purity."
+              if echo "$HEALTH_RESP" | grep -q '"event_hubs_connected":true'; then
+                echo "SUCCESS: Analytics broker handshake verified for $TARGET_ENV."
+              else
+                echo "::error::Event Hubs broker connection not healthy."
+                exit 1
+              fi
             fi
           else
             echo "Analytics smoke test skipped: FQDN not yet assigned."

@@ -25,6 +25,7 @@ KAFKA_CONNECTION_STRING = os.getenv("KAFKA_CONNECTION_STRING", "")
 KAFKA_TOPIC_BATCH_EVENTS = os.getenv("KAFKA_TOPIC_BATCH_EVENTS", "ewaste.batch.events")
 KAFKA_TOPIC_DLQ = os.getenv("KAFKA_TOPIC_DLQ", "ewaste.batch.events.matching.dlq.v1")
 CONSUMER_GROUP = os.getenv("KAFKA_CONSUMER_GROUP", "matching-worker")
+ENABLE_TEST_ENDPOINTS = os.getenv("ENABLE_TEST_ENDPOINTS", "false").lower() == "true"
 
 # In-memory circular buffer to inspect recently consumed events via API (last 50)
 recent_received_events: deque = deque(maxlen=50)
@@ -103,10 +104,12 @@ def kafka_consumer_loop():
                     "value": message.value,
                     "consumed_at": time.time(),
                 }
-                recent_received_events.appendleft(event_data)
+                if ENABLE_TEST_ENDPOINTS:
+                    recent_received_events.appendleft(event_data)
+
                 logger.info(
                     f"Consuming Event: key={message.key} "
-                    f"event_type={message.value.get('event_type')} "
+                    f"event_type={message.value.get('event_type') if isinstance(message.value, dict) else 'unknown'} "
                     f"offset={message.offset}"
                 )
 
@@ -143,90 +146,111 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="Matching Worker & EventHub Test API",
+    title="Matching Worker & Analytics Service",
     version="1.0.0",
-    description="Simulates Go relay event publishing and Python matching event consumption.",
+    description="Python matching algorithm and event processor for E-Waste Platform.",
     lifespan=lifespan,
 )
 
 
-class PublishTestRequest(BaseModel):
-    batch_id: Optional[str] = None
-    event_type: str = "RequestSubmitted"
-    category: str = "ICT_EQUIPMENT"
-    quantity: int = 10
-    zone: str = "NORTH"
-
-
 @app.get("/healthz")
 def health_check():
-    """Liveness & Readiness probe for Azure Container Apps."""
+    """Liveness & Readiness probe that verifies live Event Hubs broker connectivity."""
+    kafka_connected = False
+    accessible_partitions = 0
+
+    if producer:
+        try:
+            # Pings broker metadata without publishing any message
+            partitions = producer.partitions_for(KAFKA_TOPIC_BATCH_EVENTS)
+            if partitions is not None:
+                kafka_connected = True
+                accessible_partitions = len(partitions)
+        except Exception as e:
+            logger.warning(f"Event Hubs health check probe failed: {e}")
+
+    is_healthy = kafka_connected and (consumer_thread.is_alive() if consumer_thread else False)
+
     return {
-        "status": "healthy",
-        "bootstrap_servers": KAFKA_BOOTSTRAP_SERVERS,
-        "consumer_active": consumer_thread.is_alive() if consumer_thread else False,
+        "status": "healthy" if is_healthy else "degraded",
+        "event_hubs_connected": kafka_connected,
+        "topic": KAFKA_TOPIC_BATCH_EVENTS,
+        "partitions_detected": accessible_partitions,
+        "consumer_thread_alive": consumer_thread.is_alive() if consumer_thread else False,
+        "test_endpoints_enabled": ENABLE_TEST_ENDPOINTS,
     }
 
 
-@app.get("/api/v1/events")
-def list_consumed_events():
-    """Returns the recent events consumed by the worker from Event Hubs."""
-    return {
-        "count": len(recent_received_events),
-        "events": list(recent_received_events),
-    }
+# ==============================================================================
+# STRATEGY 3: FEATURE-FLAGGED TEST ENDPOINTS (ONLY ACTIVE WHEN ENABLE_TEST_ENDPOINTS=true)
+# ==============================================================================
+if ENABLE_TEST_ENDPOINTS:
+    logger.info("Enabling ephemeral test endpoints (/api/v1/publish-test, /api/v1/events)...")
 
+    class PublishTestRequest(BaseModel):
+        batch_id: Optional[str] = None
+        event_type: str = "RequestSubmitted"
+        category: str = "ICT_EQUIPMENT"
+        quantity: int = 10
+        zone: str = "NORTH"
 
-@app.post("/api/v1/publish-test")
-def publish_test_event(req: PublishTestRequest):
-    """Produces a dummy EWCSB-107 compliant event to ewaste.batch.events."""
-    if not producer:
-        raise HTTPException(status_code=503, detail="Kafka producer is not connected.")
-
-    batch_id = req.batch_id or str(uuid.uuid4())
-    event_id = str(uuid.uuid4())
-    command_id = str(uuid.uuid4())
-
-    envelope = {
-        "event_id": event_id,
-        "event_type": req.event_type,
-        "schema_version": 1,
-        "command_id": command_id,
-        "batch_id": batch_id,
-        "batch_version": 1,
-        "claim_epoch": "1",
-        "sequence_in_command": 1,
-        "occurred_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "correlation_id": f"test-trace-{uuid.uuid4().hex[:8]}",
-        "data": {
-            "organization_id": "DON-001",
-            "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "category": req.category,
-            "quantity": req.quantity,
-            "estimated_weight_kg": "50.00",
-            "condition_rating": "REPAIRABLE",
-            "is_data_bearing": True,
-            "zone": req.zone,
-            "collection_deadline": "2026-10-01T00:00:00Z",
-        },
-    }
-
-    try:
-        # Key must be UTF-8 string of batch_id as specified in Task EWCSB-107
-        future = producer.send(
-            topic=KAFKA_TOPIC_BATCH_EVENTS,
-            key=batch_id,
-            value=envelope,
-        )
-        record_metadata = future.get(timeout=10)
+    @app.get("/api/v1/events")
+    def list_consumed_events():
+        """Returns the recent events consumed by the worker from Event Hubs."""
         return {
-            "status": "published",
-            "topic": record_metadata.topic,
-            "partition": record_metadata.partition,
-            "offset": record_metadata.offset,
-            "batch_id": batch_id,
-            "event_id": event_id,
+            "count": len(recent_received_events),
+            "events": list(recent_received_events),
         }
-    except Exception as exc:
-        logger.error(f"Failed to publish message: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc))
+
+    @app.post("/api/v1/publish-test")
+    def publish_test_event(req: PublishTestRequest):
+        """Produces a dummy EWCSB-107 compliant event to ewaste.batch.events."""
+        if not producer:
+            raise HTTPException(status_code=503, detail="Kafka producer is not connected.")
+
+        batch_id = req.batch_id or str(uuid.uuid4())
+        event_id = str(uuid.uuid4())
+        command_id = str(uuid.uuid4())
+
+        envelope = {
+            "event_id": event_id,
+            "event_type": req.event_type,
+            "schema_version": 1,
+            "command_id": command_id,
+            "batch_id": batch_id,
+            "batch_version": 1,
+            "claim_epoch": "1",
+            "sequence_in_command": 1,
+            "occurred_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "correlation_id": f"test-trace-{uuid.uuid4().hex[:8]}",
+            "data": {
+                "organization_id": "DON-001",
+                "submitted_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "category": req.category,
+                "quantity": req.quantity,
+                "estimated_weight_kg": "50.00",
+                "condition_rating": "REPAIRABLE",
+                "is_data_bearing": True,
+                "zone": req.zone,
+                "collection_deadline": "2026-10-01T00:00:00Z",
+            },
+        }
+
+        try:
+            future = producer.send(
+                topic=KAFKA_TOPIC_BATCH_EVENTS,
+                key=batch_id,
+                value=envelope,
+            )
+            record_metadata = future.get(timeout=10)
+            return {
+                "status": "published",
+                "topic": record_metadata.topic,
+                "partition": record_metadata.partition,
+                "offset": record_metadata.offset,
+                "batch_id": batch_id,
+                "event_id": event_id,
+            }
+        except Exception as exc:
+            logger.error(f"Failed to publish message: {exc}")
+            raise HTTPException(status_code=500, detail=str(exc))
