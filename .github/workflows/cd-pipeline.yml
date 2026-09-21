@@ -548,7 +548,7 @@ jobs:
       - name: Prune Stale Container Images in ACR (Keep Last 3)
         if: ${{ inputs.rollback_tag == '' }}
         run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
 
           for REPO in "${{ env.IMAGE_NAME_API }}" "${{ env.IMAGE_NAME_UI }}"; do
