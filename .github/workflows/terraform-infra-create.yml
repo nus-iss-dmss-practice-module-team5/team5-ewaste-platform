@@ -2,7 +2,7 @@ name: "IaC - Create Cloud Resources (Dev, Stg, Prod)"
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/add-kafka-resource-terraform]
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform-infra-create.yml'
