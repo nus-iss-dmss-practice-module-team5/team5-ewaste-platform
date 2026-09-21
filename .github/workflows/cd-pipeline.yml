@@ -47,6 +47,12 @@ jobs:
       environment: ${{ steps.env_resolver.outputs.environment }}
       is_production: ${{ steps.env_resolver.outputs.is_production }}
       deployment_desc: ${{ steps.env_resolver.outputs.deployment_desc }}
+      resource_group: ${{ steps.env_resolver.outputs.resource_group }}
+      aca_env_name: ${{ steps.env_resolver.outputs.aca_env_name }}
+      mysql_fqdn: ${{ steps.env_resolver.outputs.mysql_fqdn }}
+      mysql_db: ${{ steps.env_resolver.outputs.mysql_db }}
+      mysql_admin_username: ${{ steps.env_resolver.outputs.mysql_admin_username }}
+      redis_address: ${{ steps.env_resolver.outputs.redis_address }}
     steps:
       - name: Determine Target Environment from Git Context
         id: env_resolver
@@ -77,211 +83,27 @@ jobs:
             echo "is_production=false" >> $GITHUB_OUTPUT
           fi
 
+          # Deterministic Infrastructure Topology Bindings
+          echo "resource_group=rg-ewaste-${TARGET}" >> $GITHUB_OUTPUT
+          echo "aca_env_name=cae-ewaste-${TARGET}" >> $GITHUB_OUTPUT
+          echo "mysql_fqdn=mysql-ewaste-${TARGET}.mysql.database.azure.com" >> $GITHUB_OUTPUT
+          echo "mysql_db=ewastedb" >> $GITHUB_OUTPUT
+          echo "mysql_admin_username=ewasteadmin" >> $GITHUB_OUTPUT
+          echo "redis_address=redis-ewaste-${TARGET}.redis.cache.windows.net:6380" >> $GITHUB_OUTPUT
+
           echo "========================================================"
           echo " Target Environment: $TARGET"
           echo " Trigger Reason: $DESC"
+          echo " Resource Group: rg-ewaste-${TARGET}"
+          echo " ACA Environment: cae-ewaste-${TARGET}"
           echo "========================================================"
 
   # ============================================================================
-  # STAGE 1: INFRASTRUCTURE PROVISIONING (Terraform Apply)
-  # ============================================================================
-  provision-infrastructure:
-    name: Terraform Apply (${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment]
-    runs-on: ubuntu-latest
-    environment: ${{ needs.resolve-environment.outputs.environment }}
-    outputs:
-      acr_server: ${{ steps.tf_outputs.outputs.acr_server }}
-      aca_env_name: ${{ steps.tf_outputs.outputs.aca_env_name }}
-      resource_group: ${{ steps.tf_outputs.outputs.resource_group }}
-      mysql_fqdn: ${{ steps.tf_outputs.outputs.mysql_fqdn }}
-      mysql_db: ${{ steps.tf_outputs.outputs.mysql_db }}
-      mysql_admin_username: ${{ steps.tf_outputs.outputs.mysql_admin_username }}
-      mysql_admin_password: ${{ steps.tf_outputs.outputs.mysql_admin_password }}
-      redis_address: ${{ steps.tf_outputs.outputs.redis_address }}
-      redis_password: ${{ steps.tf_outputs.outputs.redis_password }}
-      aca_identity_id: ${{ steps.tf_outputs.outputs.aca_identity_id }}
-      key_vault_uri: ${{ steps.tf_outputs.outputs.key_vault_uri }}
-    steps:
-      - name: Checkout Code Repository
-        uses: actions/checkout@v4
-
-      - name: Authenticate to Microsoft Azure
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
-
-      - name: Register Azure Resource Providers
-        run: |
-          echo "Registering Azure Container Apps and Monitor resource providers..."
-          az provider register --namespace Microsoft.App --wait
-          az provider register --namespace Microsoft.OperationalInsights --wait
-          az provider register --namespace Microsoft.ContainerService --wait
-
-      - name: Set ARM Credentials for Terraform
-        run: |
-          CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
-          echo "::add-mask::$CLIENT_SECRET"
-          echo "ARM_CLIENT_SECRET=$CLIENT_SECRET" >> $GITHUB_ENV
-          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
-
-      - name: Setup Terraform CLI
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: 1.8.0
-          terraform_wrapper: false
-
-      # ------------------------------------------------------------------------
-      # 1.1. SHARED INFRASTRUCTURE (ACR & Log Analytics Workspace)
-      # ------------------------------------------------------------------------
-      - name: Apply Shared Infrastructure
-        run: |
-          cd terraform/shared
-          terraform init \
-            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
-            -backend-config="container_name=tfstate" \
-            -backend-config="key=shared.tfstate" \
-            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
-
-          terraform apply -auto-approve
-
-      # ------------------------------------------------------------------------
-      # 1.2. ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, ACA Environment)
-      # ------------------------------------------------------------------------
-      - name: Apply Target Environment Infrastructure
-        run: |
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-          cd terraform/environments
-          terraform init \
-            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
-            -backend-config="container_name=tfstate" \
-            -backend-config="key=$TARGET_ENV.tfstate" \
-            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
-
-          TF_VARS_FILE="environments/$TARGET_ENV.tfvars"
-          if [ ! -f "$TF_VARS_FILE" ]; then
-            TF_VARS_FILE="environments/dev.tfvars"
-          fi
-
-          terraform apply -auto-approve \
-            -var-file="$TF_VARS_FILE" \
-            -var="environment=$TARGET_ENV" \
-            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-            -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
-
-      # ------------------------------------------------------------------------
-      # 1.3. EXPORT OUTPUTS FOR SUBSEQUENT STAGES
-      # ------------------------------------------------------------------------
-      - name: Export Deployment Outputs
-        id: tf_outputs
-        run: |
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-          cd terraform/environments
-
-          ACR_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || echo "acrewasteplatform.azurecr.io")
-          MYSQL_FQDN=$(terraform output -raw mysql_fqdn 2>/dev/null || echo "mysql-ewaste-${TARGET_ENV}.mysql.database.azure.com")
-          MYSQL_DB=$(terraform output -raw mysql_database_name 2>/dev/null || echo "ewastedb")
-          MYSQL_USER=$(terraform output -raw mysql_admin_username 2>/dev/null || echo "ewasteadmin")
-          KV_URI=$(terraform output -raw key_vault_uri 2>/dev/null || echo "")
-          MYSQL_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
-          if [ -z "$MYSQL_PASS" ]; then
-            MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "")
-          fi
-          ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
-          REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
-          REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
-          if [ -z "$REDIS_PASS" ]; then
-            REDIS_PASS=$(terraform output -raw redis_primary_access_key 2>/dev/null || echo "")
-          fi
-
-          if [ -n "$MYSQL_PASS" ]; then
-            echo "::add-mask::$MYSQL_PASS"
-          fi
-          if [ -n "$REDIS_PASS" ]; then
-            echo "::add-mask::$REDIS_PASS"
-          fi
-
-          {
-            echo "acr_server=${ACR_SERVER}"
-            echo "aca_env_name=cae-ewaste-${TARGET_ENV}"
-            echo "resource_group=rg-ewaste-${TARGET_ENV}"
-            echo "mysql_fqdn=${MYSQL_FQDN}"
-            echo "mysql_db=${MYSQL_DB}"
-            echo "mysql_admin_username=${MYSQL_USER}"
-            echo "key_vault_uri=${KV_URI}"
-            echo "mysql_admin_password=${MYSQL_PASS}"
-            echo "redis_address=${REDIS_ADDR}"
-            echo "redis_password=${REDIS_PASS}"
-            echo "aca_identity_id=${ACA_IDENTITY_ID}"
-          } >> "$GITHUB_OUTPUT"
-
-  # ============================================================================
-  # STAGE 2: DATABASE MIGRATIONS (Direct Liquibase Runner)
-  # ============================================================================
-  database-migration:
-    name: Liquibase Migration (${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment, provision-infrastructure]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    environment: ${{ needs.resolve-environment.outputs.environment }}
-    steps:
-      - name: Checkout Code Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Install Liquibase
-        run: |
-          sudo mkdir -p /opt/liquibase
-          wget -qO- https://github.com/liquibase/liquibase/releases/download/v4.29.2/liquibase-4.29.2.tar.gz | sudo tar -xz -C /opt/liquibase
-          sudo ln -sf /opt/liquibase/liquibase /usr/local/bin/liquibase
-          sudo chmod +x /usr/local/bin/liquibase
-          # MySQL Connector driver
-          wget -qO /tmp/mysql-connector-j-8.3.0.jar https://repo1.maven.org/maven2/com/mysql/mysql-connector-j/8.3.0/mysql-connector-j-8.3.0.jar
-          sudo cp /tmp/mysql-connector-j-8.3.0.jar /opt/liquibase/lib/
-
-      - name: Execute Liquibase Migrations
-        env:
-          MYSQL_HOST: ${{ needs.provision-infrastructure.outputs.mysql_fqdn }}
-          MYSQL_DB: ${{ needs.provision-infrastructure.outputs.mysql_db }}
-          MYSQL_USER: ${{ needs.provision-infrastructure.outputs.mysql_admin_username }}
-          MYSQL_PASS: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
-          TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
-        run: |
-          # Fallback to default admin user if output was empty
-          DB_USER="${MYSQL_USER:-ewasteadmin}"
-          DB_NAME="${MYSQL_DB:-ewastedb}"
-
-          echo "Applying migrations to ${MYSQL_HOST}/${DB_NAME} as ${DB_USER}..."
-
-          CONTEXT_PARAM=""
-          if [ "$TARGET_ENV" != "prod" ]; then
-            CONTEXT_PARAM="--contexts=seed"
-          fi
-
-          liquibase \
-            --changelog-file=database/changelog-master.yaml \
-            --url="jdbc:mysql://${MYSQL_HOST}:3306/${DB_NAME}?useSSL=true&requireSSL=true&allowPublicKeyRetrieval=true" \
-            --username="${DB_USER}" \
-            --password="${MYSQL_PASS}" \
-            $CONTEXT_PARAM \
-            update
-
-          echo "Database migrations and seed records completed successfully."
-
-  # ============================================================================
-  # STAGE 3: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
+  # STAGE 1: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
   # ============================================================================
   deploy-application:
     name: Package & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment, provision-infrastructure, database-migration]
+    needs: [resolve-environment]
     runs-on: [ubuntu-latest]
     environment: ${{ needs.resolve-environment.outputs.environment }}
     outputs:
@@ -301,16 +123,16 @@ jobs:
 
       - name: Log in to Azure Container Registry
         run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
           az acr login --name "$ACR_NAME"
 
       # ------------------------------------------------------------------------
-      # 3.1 BACKEND API CONTAINER
+      # 1.1 BACKEND API CONTAINER
       # ------------------------------------------------------------------------
       - name: Build & Publish Backend API Container
         run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
 
           if [ -n "${{ inputs.rollback_tag }}" ]; then
@@ -354,17 +176,14 @@ jobs:
         with:
           inlineScript: |
             TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-            RG="${{ needs.provision-infrastructure.outputs.resource_group }}"
-            CAE="${{ needs.provision-infrastructure.outputs.aca_env_name }}"
-            IDENTITY="${{ needs.provision-infrastructure.outputs.aca_identity_id }}"
-            ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
-            DB_HOST="${{ needs.provision-infrastructure.outputs.mysql_fqdn }}"
+            RG="${{ needs.resolve-environment.outputs.resource_group }}"
+            CAE="${{ needs.resolve-environment.outputs.aca_env_name }}"
+            ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
+            DB_HOST="${{ needs.resolve-environment.outputs.mysql_fqdn }}"
             DB_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
-            DB_PASS="${DB_PASS:-${{ needs.provision-infrastructure.outputs.mysql_admin_password }}}"
-            DB_USER="${{ needs.provision-infrastructure.outputs.mysql_admin_username }}"
-            DB_NAME="${{ needs.provision-infrastructure.outputs.mysql_db }}"
+            DB_USER="${{ needs.resolve-environment.outputs.mysql_admin_username }}"
+            DB_NAME="${{ needs.resolve-environment.outputs.mysql_db }}"
             REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
-            REDIS_PASS="${REDIS_PASS:-${{ needs.provision-infrastructure.outputs.redis_password }}}"
             AUTH_ACCESS_SECRET="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
             AUTH_REFRESH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
             AUTH_REFRESH_HASH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
@@ -394,9 +213,7 @@ jobs:
             AUTH_REFRESH_SECRET="${AUTH_REFRESH_SECRET:-default-dev-refresh-secret-minimum-32-chars-long}"
             AUTH_REFRESH_HASH_SECRET="${AUTH_REFRESH_HASH_SECRET:-default-dev-refresh-hash-secret-32-chars}"
 
-            if [ -z "$IDENTITY" ]; then
-              IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
-            fi
+            IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
 
             echo "Deploying Backend API Container App ($APP_NAME)..."
             if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
@@ -553,11 +370,11 @@ jobs:
             echo "API FQDN: https://$API_FQDN"
 
       # ------------------------------------------------------------------------
-      # 3.2 FRONTEND UI CONTAINER (Build via SP, Sign & Deploy)
+      # 1.2 FRONTEND UI CONTAINER (Build via SP, Sign & Deploy)
       # ------------------------------------------------------------------------
       - name: Build & Publish Frontend UI Container
         run: |
-          ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
 
@@ -607,10 +424,9 @@ jobs:
         with:
           inlineScript: |
             TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-            RG="${{ needs.provision-infrastructure.outputs.resource_group }}"
-            CAE="${{ needs.provision-infrastructure.outputs.aca_env_name }}"
-            IDENTITY="${{ needs.provision-infrastructure.outputs.aca_identity_id }}"
-            ACR_SERVER="${{ needs.provision-infrastructure.outputs.acr_server }}"
+            RG="${{ needs.resolve-environment.outputs.resource_group }}"
+            CAE="${{ needs.resolve-environment.outputs.aca_env_name }}"
+            ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
             API_FQDN="${{ steps.api_deploy.outputs.aca_api_fqdn }}"
             if [ -z "$API_FQDN" ]; then
               API_FQDN=$(az containerapp show --name "aca-ewaste-${TARGET_ENV}-api" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
@@ -618,9 +434,7 @@ jobs:
             API_URL="https://${API_FQDN}"
             APP_NAME="aca-ewaste-${TARGET_ENV}-ui"
 
-            if [ -z "$IDENTITY" ]; then
-              IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
-            fi
+            IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
 
             echo "Deploying Frontend UI Container App ($APP_NAME)..."
             if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
@@ -695,7 +509,7 @@ jobs:
             echo "UI FQDN: https://$UI_FQDN"
 
       # ------------------------------------------------------------------------
-      # 3.3 LIVE CONTAINER READINESS PROBES (API & UI)
+      # 1.3 LIVE CONTAINER READINESS PROBES (API & UI)
       # ------------------------------------------------------------------------
       - name: Verify Live ACA Health Readiness Probes (API & UI)
         run: |
@@ -729,7 +543,7 @@ jobs:
           fi
 
       # ------------------------------------------------------------------------
-      # 3.4 PRUNE OLD ACR IMAGES (Retain Last 3 for Rollback Safety)
+      # 1.4 PRUNE OLD ACR IMAGES (Retain Last 3 for Rollback Safety)
       # ------------------------------------------------------------------------
       - name: Prune Stale Container Images in ACR (Keep Last 3)
         if: ${{ inputs.rollback_tag == '' }}
@@ -759,11 +573,11 @@ jobs:
           done
 
   # ============================================================================
-  # STAGE 4: DYNAMIC APPLICATION SECURITY TESTING (OWASP ZAP)
+  # STAGE 2: DYNAMIC APPLICATION SECURITY TESTING (OWASP ZAP)
   # ============================================================================
   dast-security-scan:
     name: OWASP ZAP DAST Scan (${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment, provision-infrastructure, deploy-application]
+    needs: [resolve-environment, deploy-application]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code Repository
@@ -790,11 +604,11 @@ jobs:
           retention-days: 30
 
   # ============================================================================
-  # STAGE 5: POST-DEPLOYMENT SMOKE & AUDIT VERIFICATION
+  # STAGE 3: POST-DEPLOYMENT SMOKE & AUDIT VERIFICATION
   # ============================================================================
   smoke-and-audit-verification:
     name: Smoke & Audit Verification (${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment, provision-infrastructure, deploy-application, dast-security-scan]
+    needs: [resolve-environment, deploy-application, dast-security-scan]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code Repository
@@ -840,9 +654,8 @@ jobs:
           echo "  DEPLOYMENT & AUDIT SUITE COMPLETED SUCCESSFULLY"
           echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
           echo "  - Deployment Scope: ${{ needs.resolve-environment.outputs.deployment_desc }}"
-          echo "  - Infrastructure Status: Terraform Up-to-Date (API & UI Provisioned)"
           echo "  - Database Status: Liquibase Migrations Applied"
-          echo "  - Image Signing: Cosign Signatures Attached to ACR Digests (API & UI)"
+          echo "  - Container Release: Multi-Container Verified & Deployed (API & UI)"
           echo "  - Runtime Health: ACA Ingress Probes Verified (Port 8080 API & Port 3000 UI)"
           echo "  - DAST Scan: OWASP ZAP Report Retained for Academic Review"
           echo "======================================================================"
