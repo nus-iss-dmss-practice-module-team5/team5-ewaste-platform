@@ -310,7 +310,7 @@ resource "azurerm_eventhub_namespace" "kafka" {
   # checkov:skip=CKV_AZURE_168:Zone redundancy disabled for student single-region cost control.
   # checkov:skip=CKV_AZURE_167:TLS 1.2 minimum version enforced below.
   # checkov:skip=CKV_AZURE_166:Customer Managed Keys (CMK) disabled for academic MVP cost control.
-  name                          = "evh-lak-${local.name_prefix}"
+  name                          = "evh-${local.name_prefix}"
   location                      = azurerm_resource_group.env_rg.location
   resource_group_name           = azurerm_resource_group.env_rg.name
   sku                           = "Standard"
