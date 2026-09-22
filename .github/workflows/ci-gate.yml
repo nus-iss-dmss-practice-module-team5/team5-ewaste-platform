@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
   push:
-    branches: [dev, main, security-testing-v2, feature/EWCSB-107-security-hardening]
+    branches: [dev, main, feature/EWCSB-137-security-hardening]
 
 permissions:
   contents: read
@@ -29,14 +29,14 @@ jobs:
   # PHASE 1: CODE QUALITY & SECURITY SCANNING
   # ============================================================================
 
-  # # 1.1 PRE-COMMIT / FORMAT CHECKS
-  # pre-commit-checks:
-  #   name: Pre-Commit Quality & Format Checks
-  #   runs-on: ubuntu-latest
+  # 1.1 PRE-COMMIT / FORMAT CHECKS
+  pre-commit-checks:
+    name: Pre-Commit Quality & Format Checks
+    runs-on: ubuntu-latest
 
-  #   steps:
-  #     - name: Checkout Code Repository
-  #       uses: actions/checkout@v4
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
 
       - name: Setup Go Runtime
         uses: actions/setup-go@v5
@@ -45,10 +45,10 @@ jobs:
           cache: true
           cache-dependency-path: src/backend/go.sum
 
-  #     - name: Setup Node.js Runtime
-  #       uses: actions/setup-node@v4
-  #       with:
-  #         node-version: ${{ env.NODE_VERSION }}
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
 
       - name: Setup Python Runtime
         uses: actions/setup-python@v5
