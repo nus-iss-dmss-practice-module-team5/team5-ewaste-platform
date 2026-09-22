@@ -185,24 +185,48 @@ jobs:
           AUTH_REFRESH="${AUTH_REFRESH:-default-dev-refresh-secret-minimum-32-chars-long}"
           AUTH_HASH="${AUTH_HASH:-default-dev-refresh-hash-secret-32-chars}"
 
+          TF_VAR_ARGS=(
+            -var-file="$TF_VARS_FILE"
+            -var="environment=$TARGET_ENV"
+            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}"
+            -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+            -var="auth_access_secret=$AUTH_ACCESS"
+            -var="auth_refresh_secret=$AUTH_REFRESH"
+            -var="auth_refresh_hash_secret=$AUTH_HASH"
+          )
+
+          # ----------------------------------------------------------------
+          # Idempotent import: adopt Container Apps that exist in Azure but
+          # are missing from Terraform state (one-time migration from the
+          # old CLI-based CD provisioning model).
+          # ----------------------------------------------------------------
+          RG="rg-ewaste-${TARGET_ENV}"
+          for APP_SUFFIX in api ui analytics; do
+            RESOURCE_ADDR="azurerm_container_app.${APP_SUFFIX}"
+            APP_NAME="aca-ewaste-${TARGET_ENV}-${APP_SUFFIX}"
+
+            if terraform state show "$RESOURCE_ADDR" &>/dev/null; then
+              echo "[import] $RESOURCE_ADDR already in state — skipping."
+              continue
+            fi
+
+            APP_ID=$(az containerapp show \
+              --name "$APP_NAME" \
+              --resource-group "$RG" \
+              --query id -o tsv 2>/dev/null || true)
+
+            if [ -n "$APP_ID" ]; then
+              echo "[import] Importing $APP_NAME into $RESOURCE_ADDR..."
+              terraform import "${TF_VAR_ARGS[@]}" "$RESOURCE_ADDR" "$APP_ID"
+            else
+              echo "[import] $APP_NAME does not exist in Azure — nothing to import."
+            fi
+          done
+
           if [ "${{ inputs.action }}" == "plan" ]; then
-            terraform plan \
-              -var-file="$TF_VARS_FILE" \
-              -var="environment=$TARGET_ENV" \
-              -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-              -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}" \
-              -var="auth_access_secret=$AUTH_ACCESS" \
-              -var="auth_refresh_secret=$AUTH_REFRESH" \
-              -var="auth_refresh_hash_secret=$AUTH_HASH"
+            terraform plan "${TF_VAR_ARGS[@]}"
           else
-            terraform apply -auto-approve \
-              -var-file="$TF_VARS_FILE" \
-              -var="environment=$TARGET_ENV" \
-              -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-              -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}" \
-              -var="auth_access_secret=$AUTH_ACCESS" \
-              -var="auth_refresh_secret=$AUTH_REFRESH" \
-              -var="auth_refresh_hash_secret=$AUTH_HASH"
+            terraform apply -auto-approve "${TF_VAR_ARGS[@]}"
           fi
 
       # ------------------------------------------------------------------------
