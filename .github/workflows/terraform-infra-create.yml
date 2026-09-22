@@ -90,7 +90,7 @@ jobs:
   # STAGE 1: INFRASTRUCTURE PROVISIONING (Terraform)
   # ============================================================================
   provision-infrastructure:
-    name: Terraform (${{ needs.resolve-environment.outputs.environment }})\
+    name: Terraform (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve-environment.outputs.environment }}
