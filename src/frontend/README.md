@@ -22,14 +22,14 @@ Open http://localhost:3000. Seeded mock accounts (password `Password1!`):
 - `auditor@example.com`
 - `admin@example.com`
 
-To use Jiamin’s workflow API instead, in `.env.local` set:
+To use the live workflow API instead, in `.env.local` set:
 
 ```bash
 NEXT_PUBLIC_USE_MOCK_AUTH=false
-API_PROXY_TARGET=http://localhost:8080
+API_PROXY_TARGET=https://aca-ewaste-dev-api.kindflower-300f4866.malaysiawest.azurecontainerapps.io
 ```
 
-The browser still calls `/api/v1/auth/login` on the Next.js origin. Next rewrites that to `API_PROXY_TARGET` so you do not depend on Go CORS. Restart `npm run dev` after changing env. Use the seeded users from the workflow API, not the mock emails above.
+The browser still calls `/api/v1/auth/login` on the Next.js origin. Next rewrites that to `API_PROXY_TARGET` so you do not depend on Go CORS. Restart `npm run dev` after changing env. Use the seeded users from the workflow API, not the mock emails above. Do not set `API_PROXY_TARGET` to the Azure UI host.
 
 Copy `.env.example` at the repo root for the API base URL. Do not commit `.env` or `.env.local`.
 

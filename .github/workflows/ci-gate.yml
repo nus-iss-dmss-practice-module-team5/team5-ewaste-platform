@@ -38,25 +38,30 @@ jobs:
   #     - name: Checkout Code Repository
   #       uses: actions/checkout@v4
 
-  #     - name: Setup Go Runtime
-  #       uses: actions/setup-go@v5
-  #       with:
-  #         go-version: ${{ env.GO_VERSION }}
-  #         cache: true
+      - name: Setup Go Runtime
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: src/backend/go.sum
 
   #     - name: Setup Node.js Runtime
   #       uses: actions/setup-node@v4
   #       with:
   #         node-version: ${{ env.NODE_VERSION }}
 
-  #     - name: Execute Pre-Commit Hooks
-  #       uses: pre-commit/action@v3.0.1
-  #       with:
-  #         extra_args: --all-files --show-diff-on-failure
+      - name: Setup Python Runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Execute Pre-Commit Hooks
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --show-diff-on-failure
 
 
-  
-    #1.2 SECRET DETECTION
+  # 1.2 SECRET DETECTION
   secret-scan:
     name: Gitleaks Secret Detection
     runs-on: ubuntu-latest
@@ -488,7 +493,7 @@ jobs:
           echo "=============================================="
           echo "       CI SECURITY PIPELINE COMPLETE"
           echo "=============================================="
-          
+
           echo "Gitleaks   : PASSED"
           echo "Semgrep    : PASSED"
           echo "Checkov    : PASSED"

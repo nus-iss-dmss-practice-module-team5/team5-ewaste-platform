@@ -26,6 +26,7 @@ type authRepositoryStub struct {
 	user      *model.User
 	findErr   error
 	session   *model.Session
+	audits    []*model.LoginAudit
 	createErr error
 	rotateErr error
 	revokeErr error
@@ -53,6 +54,11 @@ func (s *authRepositoryStub) CreateLoginSession(_ context.Context, _ *model.User
 		return s.createErr
 	}
 	s.session = session
+	return nil
+}
+
+func (s *authRepositoryStub) CreateLoginAudit(_ context.Context, audit *model.LoginAudit) error {
+	s.audits = append(s.audits, audit)
 	return nil
 }
 
@@ -124,7 +130,8 @@ func TestLoginReturnsFlatTokenResponseAndCorrelationID(t *testing.T) {
 }
 
 func TestLoginReturnsSafeBadRequest(t *testing.T) {
-	r := newLoginTestRouter(&authRepositoryStub{user: activeUserForTest(t)})
+	repo := &authRepositoryStub{user: activeUserForTest(t)}
+	r := newLoginTestRouter(repo)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"user@example.com"}`))
 	req.Header.Set("Content-Type", "application/json")
 	res := httptest.NewRecorder()
@@ -140,6 +147,9 @@ func TestLoginReturnsSafeBadRequest(t *testing.T) {
 	}
 	if response.Code != "AUTH_INVALID_REQUEST" || response.Message != "invalid request" || response.CorrelationID == "" {
 		t.Fatalf("unexpected safe error: %+v", response)
+	}
+	if len(repo.audits) != 1 || repo.audits[0].Result != service.LoginAuditFailure || repo.audits[0].ReasonCode == nil || *repo.audits[0].ReasonCode != "AUTH_INVALID_REQUEST" {
+		t.Fatalf("unexpected invalid-request audit: %+v", repo.audits)
 	}
 }
 
