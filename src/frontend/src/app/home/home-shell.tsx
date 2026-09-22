@@ -4,6 +4,7 @@ import { ROLE_HOME_TITLE, ROLE_LABEL, ROLE_NAV } from "@/lib/auth/roles";
 import { USE_MOCK_AUTH } from "@/lib/auth/config";
 import { useSession } from "@/lib/auth/session-context";
 import { useState } from "react";
+import { DonorBatchForm, DonorBatchList } from "./donor-batches";
 
 export function HomeShell() {
   const {
@@ -24,6 +25,12 @@ export function HomeShell() {
   const nav = ROLE_NAV[user.role];
   const current = activeNav ?? nav[0]?.id;
   const title = ROLE_HOME_TITLE[user.role];
+  const workflow =
+    user.role === "DONOR" && current === "requests" ? (
+      <DonorBatchList />
+    ) : user.role === "DONOR" && current === "new-request" ? (
+      <DonorBatchForm />
+    ) : null;
 
   async function onLogout() {
     setLoggingOut(true);
@@ -31,7 +38,7 @@ export function HomeShell() {
   }
 
   return (
-    <div className="flex min-h-full flex-1 bg-slate-50">
+    <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden bg-slate-50">
       <aside className="flex w-56 flex-col bg-teal-900 text-white">
         <div className="border-b border-teal-800 px-4 py-4 text-sm font-semibold">
           {ROLE_LABEL[user.role]}
@@ -72,7 +79,7 @@ export function HomeShell() {
           </button>
         </header>
 
-        <main className="flex-1 px-8 py-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-8 py-6">
           <h1 className="mb-4 text-2xl font-bold text-slate-900">{title}</h1>
           {justRenewed ? (
             <p
@@ -83,11 +90,14 @@ export function HomeShell() {
               Session renewed.
             </p>
           ) : null}
-          <p className="max-w-xl text-sm text-slate-600">
-            Signed in as {user.name} ({ROLE_LABEL[user.role]}). This home only
-            shows {ROLE_LABEL[user.role]} navigation. The role label is not a
-            switcher. Other screens stay placeholders until later sprint work.
-          </p>
+          {workflow ? (
+            workflow
+          ) : (
+            <p className="max-w-xl text-sm text-slate-600">
+              Signed in as {user.name} ({ROLE_LABEL[user.role]}). This section
+              stays a placeholder until later sprint work.
+            </p>
+          )}
           <p className="mt-3 text-sm text-slate-500">
             Current section: {nav.find((item) => item.id === current)?.label}
           </p>

@@ -1,0 +1,108 @@
+import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WorkflowError } from "@/lib/workflow/errors";
+import type { Batch } from "@/lib/workflow/types";
+import { DonorBatchForm, DonorBatchList } from "./donor-batches";
+
+const listBatches = vi.fn();
+const createBatchDraft = vi.fn();
+const editBatchDraft = vi.fn();
+const submitBatch = vi.fn();
+
+vi.mock("@/lib/auth/session-context", () => ({
+  useSession: () => ({
+    session: { tokens: { accessToken: "access-token" } },
+  }),
+}));
+
+vi.mock("@/lib/workflow/api", () => ({
+  listBatches: (...args: unknown[]) => listBatches(...args),
+  createBatchDraft: (...args: unknown[]) => createBatchDraft(...args),
+  editBatchDraft: (...args: unknown[]) => editBatchDraft(...args),
+  submitBatch: (...args: unknown[]) => submitBatch(...args),
+  newIdempotencyKey: () => "idem-test",
+}));
+
+function draft(): Batch {
+  return {
+    batchId: "batch-1",
+    status: "DRAFT",
+    version: 2,
+    category: "laptops",
+    quantity: 10,
+    estimatedWeightKg: 25.5,
+    conditionRating: "reusable",
+    isDataBearing: true,
+    zone: "central",
+    collectionDeadline: "2026-09-23T02:00:00.000Z",
+  };
+}
+
+describe("donor batches", () => {
+  beforeEach(() => {
+    listBatches.mockReset();
+    createBatchDraft.mockReset();
+    editBatchDraft.mockReset();
+    submitBatch.mockReset();
+  });
+
+  it("shows a loading state and then an empty list", async () => {
+    listBatches.mockResolvedValue({ data: [], page: 1, pageSize: 20, totalCount: 0, correlationId: "c" });
+    render(<DonorBatchList />);
+    expect(screen.getByTestId("donor-loading")).toBeInTheDocument();
+    expect(await screen.findByTestId("donor-empty")).toHaveTextContent("No batches yet");
+  });
+
+  it("shows a permission error without another organisation's batch", async () => {
+    listBatches.mockRejectedValue(
+      new WorkflowError("access denied", "forbidden", "FORBIDDEN", "corr-403", 403),
+    );
+    render(<DonorBatchList />);
+    expect(await screen.findByTestId("donor-list-forbidden")).toHaveTextContent(
+      "your organisation",
+    );
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("submits a draft with the current version", async () => {
+    const user = userEvent.setup();
+    listBatches.mockResolvedValue({
+      data: [draft()],
+      page: 1,
+      pageSize: 20,
+      totalCount: 1,
+      correlationId: "c",
+    });
+    submitBatch.mockResolvedValue({ ...draft(), status: "SUBMITTED", version: 3 });
+    render(<DonorBatchList />);
+    await user.click(await screen.findByTestId("donor-submit-batch-1"));
+    await waitFor(() => {
+      expect(submitBatch).toHaveBeenCalledWith("access-token", "batch-1", 2, "idem-test");
+    });
+    expect(await screen.findByTestId("donor-notice")).toHaveTextContent("SUBMITTED");
+  });
+
+  it("creates a draft with camelCase fields and shows validation from the API", async () => {
+    const user = userEvent.setup();
+    createBatchDraft.mockRejectedValue(
+      new WorkflowError("quantity is invalid", "validation", "VALIDATION_ERROR", "corr-422", 422),
+    );
+    render(<DonorBatchForm />);
+    await user.type(screen.getByTestId("donor-category"), "laptops");
+    await user.type(screen.getByTestId("donor-quantity"), "10");
+    await user.type(screen.getByTestId("donor-weight"), "25.5");
+    await user.type(screen.getByTestId("donor-condition"), "reusable");
+    await user.type(screen.getByTestId("donor-zone"), "central");
+    await user.type(screen.getByTestId("donor-deadline"), "2026-09-23T10:00");
+    await user.click(screen.getByTestId("donor-save"));
+
+    await waitFor(() => expect(createBatchDraft).toHaveBeenCalled());
+    const body = createBatchDraft.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body.estimatedWeightKg).toBe(25.5);
+    expect(body.conditionRating).toBe("reusable");
+    expect(body.isDataBearing).toBe(false);
+    expect(body).not.toHaveProperty("version");
+    expect(await screen.findByTestId("donor-form-error")).toHaveTextContent("quantity is invalid");
+  });
+});

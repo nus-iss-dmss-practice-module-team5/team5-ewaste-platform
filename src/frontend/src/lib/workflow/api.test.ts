@@ -1,0 +1,269 @@
+import { AxiosError, AxiosHeaders } from "axios";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { api } from "@/lib/auth/api-client";
+import {
+  claimOpportunity,
+  createBatchDraft,
+  draftBody,
+  listBatches,
+  reportFailedPickup,
+  selectAssignment,
+  submitBatch,
+} from "./api";
+
+vi.mock("@/lib/auth/api-client", () => ({
+  api: {
+    get: vi.fn(),
+    post: vi.fn(),
+    patch: vi.fn(),
+  },
+}));
+
+const get = vi.mocked(api.get);
+const post = vi.mocked(api.post);
+
+function axiosError(status: number | undefined, data?: unknown) {
+  if (status === undefined) {
+    return new AxiosError("network");
+  }
+  return new AxiosError("request failed", undefined, undefined, undefined, {
+    status,
+    statusText: "Error",
+    data,
+    headers: new AxiosHeaders(),
+    config: { headers: new AxiosHeaders() },
+  });
+}
+
+const batch = {
+  batchId: "batch-1",
+  status: "DRAFT",
+  version: 2,
+  category: "laptops",
+};
+
+describe("workflow api", () => {
+  beforeEach(() => {
+    get.mockReset();
+    post.mockReset();
+  });
+
+  it("sends camelCase draft fields and no version in the body", async () => {
+    post.mockResolvedValue({
+      data: { data: batch, correlationId: "corr-1" },
+    });
+
+    await createBatchDraft(
+      "token",
+      {
+        category: " laptops ",
+        quantity: 10,
+        estimatedWeightKg: 25.5,
+        conditionRating: " reusable ",
+        isDataBearing: true,
+        zone: " central ",
+        collectionDeadline: "2026-09-23T02:00:00.000Z",
+        notes: "  ",
+      },
+      "idem-1",
+    );
+
+    const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body).toEqual({
+      category: "laptops",
+      quantity: 10,
+      estimatedWeightKg: 25.5,
+      conditionRating: "reusable",
+      isDataBearing: true,
+      zone: "central",
+      collectionDeadline: "2026-09-23T02:00:00.000Z",
+    });
+    expect(body).not.toHaveProperty("version");
+    expect(body).not.toHaveProperty("notes");
+    expect(post.mock.calls[0]?.[2]).toEqual({
+      headers: {
+        Authorization: "Bearer token",
+        "Idempotency-Key": "idem-1",
+      },
+    });
+  });
+
+  it("submits with If-Match-Version and an empty body", async () => {
+    post.mockResolvedValue({
+      data: { data: { ...batch, status: "SUBMITTED", version: 3 }, correlationId: "corr-2" },
+    });
+
+    const submitted = await submitBatch("token", "batch-1", 2, "idem-submit");
+
+    expect(submitted.status).toBe("SUBMITTED");
+    expect(post).toHaveBeenCalledWith("/api/v1/batches/batch-1/submit", undefined, {
+      headers: {
+        Authorization: "Bearer token",
+        "Idempotency-Key": "idem-submit",
+        "If-Match-Version": "2",
+      },
+    });
+  });
+
+  it("lists batches with camelCase page parameters", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: [batch],
+        page: 1,
+        pageSize: 20,
+        totalCount: 1,
+        correlationId: "corr-list",
+      },
+    });
+
+    const page = await listBatches("token", { status: "DRAFT" });
+
+    expect(page.data[0]?.batchId).toBe("batch-1");
+    expect(get).toHaveBeenCalledWith("/api/v1/batches", {
+      headers: { Authorization: "Bearer token" },
+      params: { page: 1, pageSize: 20, status: "DRAFT" },
+    });
+  });
+
+  it("claims with the version header and expectedVersion body", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          batchId: "batch-1",
+          status: "APPROVED",
+          version: 4,
+          claimEpoch: "1",
+          claimId: "claim-1",
+          reservationId: "res-1",
+          correlationId: "corr-claim",
+        },
+        correlationId: "corr-claim",
+      },
+    });
+
+    const result = await claimOpportunity(
+      "token",
+      "batch-1",
+      { expectedVersion: 3, claimEpoch: "1", notes: "Ready" },
+      "idem-claim",
+    );
+
+    expect(result.status).toBe("APPROVED");
+    expect(post).toHaveBeenCalledWith(
+      "/api/v1/batches/batch-1/claim",
+      { expectedVersion: 3, claimEpoch: "1", notes: "Ready" },
+      {
+        headers: {
+          Authorization: "Bearer token",
+          "Idempotency-Key": "idem-claim",
+          "If-Match-Version": "3",
+        },
+      },
+    );
+  });
+
+  it("selects an assignment with the collector scope", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          assignmentId: "asg-1",
+          batchId: "batch-1",
+          assignmentStatus: "ACCEPTED",
+          assignmentSequence: 1,
+          version: 1,
+        },
+        correlationId: "corr-asg",
+      },
+    });
+
+    await selectAssignment(
+      "token",
+      "batch-1",
+      {
+        expectedVersion: 4,
+        claimEpoch: "1",
+        collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
+      },
+      "idem-select",
+    );
+
+    expect(post.mock.calls[0]?.[1]).toEqual({
+      expectedVersion: 4,
+      claimEpoch: "1",
+      collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
+    });
+  });
+
+  it("maps conflict, missing, duplicate, and network failures", async () => {
+    get.mockRejectedValueOnce(
+      axiosError(409, {
+        code: "STALE_VERSION",
+        message: "The resource has changed. Refresh and retry.",
+        correlationId: "corr-conflict",
+      }),
+    );
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "conflict",
+      correlationId: "corr-conflict",
+    });
+
+    get.mockRejectedValueOnce(axiosError(404, { code: "NOT_FOUND", message: "missing", correlationId: "corr-404" }));
+    await expect(listBatches("token")).rejects.toMatchObject({ kind: "not_found" });
+
+    get.mockRejectedValueOnce(
+      axiosError(409, { code: "DUPLICATE_CLAIM", message: "already sent", correlationId: "corr-dup" }),
+    );
+    await expect(listBatches("token")).rejects.toMatchObject({ kind: "duplicate" });
+
+    get.mockRejectedValueOnce(axiosError(undefined));
+    await expect(listBatches("token")).rejects.toMatchObject({
+      name: "WorkflowError",
+      kind: "network",
+    });
+  });
+
+  it("sends the failed-pickup reason without a version field in the body", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          assignmentId: "asg-1",
+          batchId: "batch-1",
+          assignmentStatus: "FAILED",
+          assignmentSequence: 1,
+          version: 2,
+        },
+        correlationId: "corr-fail",
+      },
+    });
+
+    await reportFailedPickup(
+      "token",
+      "asg-1",
+      1,
+      { failureReason: " collector absent ", observedDetails: "No recipient" },
+      "idem-fail",
+    );
+
+    const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body).toEqual({
+      failureReason: "collector absent",
+      observedDetails: "No recipient",
+    });
+    expect(body).not.toHaveProperty("version");
+  });
+
+  it("drops blank notes from a draft body", () => {
+    expect(
+      draftBody({
+        category: "laptops",
+        quantity: 1,
+        estimatedWeightKg: 1,
+        conditionRating: "reusable",
+        isDataBearing: false,
+        zone: "central",
+        collectionDeadline: "2026-09-23T02:00:00.000Z",
+        notes: " ",
+      }),
+    ).not.toHaveProperty("notes");
+  });
+});
