@@ -2,7 +2,7 @@ name: "IaC - Create Cloud Resources (Dev, Stg, Prod)"
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/pass-variables-to-aca-using-terraform]
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform-infra-create.yml'
@@ -90,7 +90,7 @@ jobs:
   # STAGE 1: INFRASTRUCTURE PROVISIONING (Terraform)
   # ============================================================================
   provision-infrastructure:
-    name: Terraform (${{ needs.resolve-environment.outputs.environment }})
+    name: Terraform (${{ needs.resolve-environment.outputs.environment }})\
     needs: [resolve-environment]
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve-environment.outputs.environment }}
@@ -106,6 +106,9 @@ jobs:
       redis_password: ${{ steps.tf_outputs.outputs.redis_password }}
       aca_identity_id: ${{ steps.tf_outputs.outputs.aca_identity_id }}
       key_vault_uri: ${{ steps.tf_outputs.outputs.key_vault_uri }}
+      aca_api_fqdn: ${{ steps.tf_outputs.outputs.aca_api_fqdn }}
+      aca_ui_fqdn: ${{ steps.tf_outputs.outputs.aca_ui_fqdn }}
+      aca_analytics_fqdn: ${{ steps.tf_outputs.outputs.aca_analytics_fqdn }}
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
@@ -124,19 +127,20 @@ jobs:
 
       - name: Set ARM Credentials for Terraform
         run: |
+          CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
           CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
-          echo "::add-mask::$CLIENT_SECRET"
+          SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)
+          TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)
+
+          echo "ARM_CLIENT_ID=$CLIENT_ID" >> $GITHUB_ENV
           echo "ARM_CLIENT_SECRET=$CLIENT_SECRET" >> $GITHUB_ENV
-          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$TENANT_ID" >> $GITHUB_ENV
 
       - name: Setup Terraform CLI
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.8.0
-          terraform_wrapper: false
 
       # ------------------------------------------------------------------------
       # 1.1 SHARED INFRASTRUCTURE (ACR & Log Analytics Workspace)
@@ -157,7 +161,7 @@ jobs:
           fi
 
       # ------------------------------------------------------------------------
-      # 1.2 ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, ACA)
+      # 1.2 ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, Event Hubs, ACA)
       # ------------------------------------------------------------------------
       - name: Apply Target Environment Infrastructure
         run: |
@@ -174,18 +178,31 @@ jobs:
             TF_VARS_FILE="environments/dev.tfvars"
           fi
 
+          AUTH_ACCESS="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
+          AUTH_REFRESH="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
+          AUTH_HASH="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
+          AUTH_ACCESS="${AUTH_ACCESS:-default-dev-access-secret-minimum-32-chars-long}"
+          AUTH_REFRESH="${AUTH_REFRESH:-default-dev-refresh-secret-minimum-32-chars-long}"
+          AUTH_HASH="${AUTH_HASH:-default-dev-refresh-hash-secret-32-chars}"
+
           if [ "${{ inputs.action }}" == "plan" ]; then
             terraform plan \
               -var-file="$TF_VARS_FILE" \
               -var="environment=$TARGET_ENV" \
               -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-              -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+              -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}" \
+              -var="auth_access_secret=$AUTH_ACCESS" \
+              -var="auth_refresh_secret=$AUTH_REFRESH" \
+              -var="auth_refresh_hash_secret=$AUTH_HASH"
           else
             terraform apply -auto-approve \
               -var-file="$TF_VARS_FILE" \
               -var="environment=$TARGET_ENV" \
               -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-              -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+              -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}" \
+              -var="auth_access_secret=$AUTH_ACCESS" \
+              -var="auth_refresh_secret=$AUTH_REFRESH" \
+              -var="auth_refresh_hash_secret=$AUTH_HASH"
           fi
 
       # ------------------------------------------------------------------------
@@ -212,6 +229,9 @@ jobs:
           if [ -z "$REDIS_PASS" ]; then
             REDIS_PASS=$(terraform output -raw redis_primary_access_key 2>/dev/null || echo "")
           fi
+          ACA_API_FQDN=$(terraform output -raw aca_api_fqdn 2>/dev/null || echo "")
+          ACA_UI_FQDN=$(terraform output -raw aca_ui_fqdn 2>/dev/null || echo "")
+          ACA_ANALYTICS_FQDN=$(terraform output -raw aca_analytics_fqdn 2>/dev/null || echo "")
 
           if [ -n "$MYSQL_PASS" ]; then
             echo "::add-mask::$MYSQL_PASS"
@@ -232,4 +252,7 @@ jobs:
             echo "redis_address=${REDIS_ADDR}"
             echo "redis_password=${REDIS_PASS}"
             echo "aca_identity_id=${ACA_IDENTITY_ID}"
+            echo "aca_api_fqdn=${ACA_API_FQDN}"
+            echo "aca_ui_fqdn=${ACA_UI_FQDN}"
+            echo "aca_analytics_fqdn=${ACA_ANALYTICS_FQDN}"
           } >> "$GITHUB_OUTPUT"

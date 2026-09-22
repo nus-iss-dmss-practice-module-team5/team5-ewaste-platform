@@ -85,3 +85,18 @@ output "kafka_topics" {
   value       = [for t in azurerm_eventhub.topics : t.name]
   description = "List of provisioned canonical Kafka topics."
 }
+
+output "aca_api_fqdn" {
+  value       = azurerm_container_app.api.ingress[0].fqdn
+  description = "The FQDN of the Backend API Container App."
+}
+
+output "aca_ui_fqdn" {
+  value       = azurerm_container_app.ui.ingress[0].fqdn
+  description = "The FQDN of the Frontend UI Container App."
+}
+
+output "aca_analytics_fqdn" {
+  value       = azurerm_container_app.analytics.ingress[0].fqdn
+  description = "The FQDN of the Analytics Worker Container App."
+}
