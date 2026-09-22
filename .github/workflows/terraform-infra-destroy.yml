@@ -101,17 +101,14 @@ jobs:
           echo "=========================================================="
 
           # Azure Container Apps Environment cannot be deleted while containing apps.
-          # Since API and UI container apps are deployed via Azure CLI in CD,
-          # explicitly delete them first to prevent Terraform deletion deadlocks.
-          if az containerapp show --name "aca-ewaste-${TARGET_ENV}-api" --resource-group "$RG" >/dev/null 2>&1; then
-            echo "Deleting container app: aca-ewaste-${TARGET_ENV}-api..."
-            az containerapp delete --name "aca-ewaste-${TARGET_ENV}-api" --resource-group "$RG" --yes || true
-          fi
-
-          if az containerapp show --name "aca-ewaste-${TARGET_ENV}-ui" --resource-group "$RG" >/dev/null 2>&1; then
-            echo "Deleting container app: aca-ewaste-${TARGET_ENV}-ui..."
-            az containerapp delete --name "aca-ewaste-${TARGET_ENV}-ui" --resource-group "$RG" --yes || true
-          fi
+          # Pre-delete all three container apps to prevent Terraform deletion deadlocks.
+          for APP_SUFFIX in api ui analytics; do
+            APP_NAME="aca-ewaste-${TARGET_ENV}-${APP_SUFFIX}"
+            if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
+              echo "Deleting container app: ${APP_NAME}..."
+              az containerapp delete --name "$APP_NAME" --resource-group "$RG" --yes || true
+            fi
+          done
 
       - name: Setup Terraform CLI
         uses: hashicorp/setup-terraform@v3

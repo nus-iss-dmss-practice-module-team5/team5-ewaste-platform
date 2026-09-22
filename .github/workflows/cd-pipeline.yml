@@ -49,11 +49,6 @@ jobs:
       is_production: ${{ steps.env_resolver.outputs.is_production }}
       deployment_desc: ${{ steps.env_resolver.outputs.deployment_desc }}
       resource_group: ${{ steps.env_resolver.outputs.resource_group }}
-      aca_env_name: ${{ steps.env_resolver.outputs.aca_env_name }}
-      mysql_fqdn: ${{ steps.env_resolver.outputs.mysql_fqdn }}
-      mysql_db: ${{ steps.env_resolver.outputs.mysql_db }}
-      mysql_admin_username: ${{ steps.env_resolver.outputs.mysql_admin_username }}
-      redis_address: ${{ steps.env_resolver.outputs.redis_address }}
     steps:
       - name: Determine Target Environment from Git Context
         id: env_resolver
@@ -86,17 +81,11 @@ jobs:
 
           # Deterministic Infrastructure Topology Bindings
           echo "resource_group=rg-ewaste-${TARGET}" >> $GITHUB_OUTPUT
-          echo "aca_env_name=cae-ewaste-${TARGET}" >> $GITHUB_OUTPUT
-          echo "mysql_fqdn=mysql-ewaste-${TARGET}.mysql.database.azure.com" >> $GITHUB_OUTPUT
-          echo "mysql_db=ewastedb" >> $GITHUB_OUTPUT
-          echo "mysql_admin_username=ewasteadmin" >> $GITHUB_OUTPUT
-          echo "redis_address=redis-ewaste-${TARGET}.redis.cache.windows.net:6380" >> $GITHUB_OUTPUT
 
           echo "========================================================"
           echo " Target Environment: $TARGET"
           echo " Trigger Reason: $DESC"
           echo " Resource Group: rg-ewaste-${TARGET}"
-          echo " ACA Environment: cae-ewaste-${TARGET}"
           echo "========================================================"
 
   # ============================================================================
