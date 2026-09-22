@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/pass-variables-to-aca-using-terraform]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -191,181 +191,13 @@ jobs:
             AUTH_REFRESH_HASH_SECRET="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
             APP_NAME="aca-ewaste-${TARGET_ENV}-api"
 
-            if [ "$TARGET_ENV" == "dev" ]; then
-              APP_MODE="development"
-            else
-              APP_MODE="production"
-            fi
+            echo "Performing atomic container image update for $APP_NAME..."
+            echo "Target Image Digest: ${{ env.API_IMMUTABLE_DIGEST }}"
 
-            DB_USER="${DB_USER:-ewasteadmin}"
-            DB_NAME="${DB_NAME:-ewastedb}"
-            REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
-
-            if [ -z "$REDIS_PASS" ] || [ "$REDIS_PASS" == "defaultRedisPass123!" ]; then
-              REDIS_NAME="redis-ewaste-${TARGET_ENV}"
-              FETCHED_KEY=$(az redis list-keys --name "$REDIS_NAME" --resource-group "$RG" --query primaryKey -o tsv 2>/dev/null || true)
-              if [ -n "$FETCHED_KEY" ]; then
-                echo "::add-mask::$FETCHED_KEY"
-                REDIS_PASS="$FETCHED_KEY"
-              fi
-            fi
-            REDIS_PASS="${REDIS_PASS:-defaultRedisPass123!}"
-
-            AUTH_ACCESS_SECRET="${AUTH_ACCESS_SECRET:-default-dev-access-secret-minimum-32-chars-long}"
-            AUTH_REFRESH_SECRET="${AUTH_REFRESH_SECRET:-default-dev-refresh-secret-minimum-32-chars-long}"
-            AUTH_REFRESH_HASH_SECRET="${AUTH_REFRESH_HASH_SECRET:-default-dev-refresh-hash-secret-32-chars}"
-
-            IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
-
-            echo "Deploying Backend API Container App ($APP_NAME)..."
-            if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME already exists. Ensuring ingress target-port is 8080..."
-              az containerapp ingress enable \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --type external \
-                --target-port 8080 || true
-
-              echo "Updating secrets and container image..."
-              az containerapp secret set \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --secrets db-password="$DB_PASS" \
-                          redis-password="$REDIS_PASS" \
-                          access-secret="$AUTH_ACCESS_SECRET" \
-                          refresh-secret="$AUTH_REFRESH_SECRET" \
-                          refresh-hash-secret="$AUTH_REFRESH_HASH_SECRET" || true
-
-              az containerapp update \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --image "${{ env.API_IMMUTABLE_DIGEST }}" \
-                --set-env-vars EWASTE_MODE="$APP_MODE" \
-                               EWASTE_SERVER_PORT=":8080" \
-                               EWASTE_DATABASE_HOST="$DB_HOST" \
-                               EWASTE_DATABASE_PORT="3306" \
-                               EWASTE_DATABASE_NAME="ewastedb" \
-                               EWASTE_DATABASE_USER="ewasteadmin" \
-                               MYSQL_PASSWORD=secretref:db-password \
-                               EWASTE_DATABASE_PASSWORD=secretref:db-password \
-                               EWASTE_REDIS_ADDRESS="$REDIS_ADDR" \
-                               REDIS_PASSWORD=secretref:redis-password \
-                               EWASTE_REDIS_PASSWORD=secretref:redis-password \
-                               EWASTE_REDIS_DB="0" \
-                               EWASTE_REDIS_TLS_ENABLED="true" \
-                               EWASTE_AUTH_ISSUER="ewaste-workflow-api" \
-                               EWASTE_AUTH_ACCESS_SECRET=secretref:access-secret \
-                               EWASTE_AUTH_REFRESH_SECRET=secretref:refresh-secret \
-                               EWASTE_AUTH_REFRESH_HASH_SECRET=secretref:refresh-hash-secret \
-                               EWASTE_AUTH_ACCESS_TTL="15m" \
-                               EWASTE_AUTH_REFRESH_TTL="24h" \
-                               EWASTE_RATE_LIMIT_REQUESTS="10" \
-                               EWASTE_RATE_LIMIT_WINDOW="1m" \
-                               EWASTE_LOGGING_LEVEL="info" \
-                               EWASTE_LOGGING_FILE_PATH="logs/workflow-api.log" \
-                               EWASTE_LOGGING_MAX_SIZE_MB="10" \
-                               EWASTE_LOGGING_MAX_BACKUPS="5" \
-                               EWASTE_LOGGING_MAX_AGE_DAYS="30" \
-                               EWASTE_LOGGING_COMPRESS="true" \
-                               EWASTE_LOGGING_CONSOLE="true"
-            else
-              echo "Container App $APP_NAME does not exist. Creating new container app..."
-              if [ -n "$IDENTITY" ]; then
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.API_IMMUTABLE_DIGEST }}" \
-                  --target-port 8080 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --user-assigned "$IDENTITY" \
-                  --registry-server "$ACR_SERVER" \
-                  --registry-identity "$IDENTITY" \
-                  --secrets db-password="$DB_PASS" \
-                            redis-password="$REDIS_PASS" \
-                            access-secret="$AUTH_ACCESS_SECRET" \
-                            refresh-secret="$AUTH_REFRESH_SECRET" \
-                            refresh-hash-secret="$AUTH_REFRESH_HASH_SECRET" \
-                  --env-vars EWASTE_MODE="$APP_MODE" \
-                             EWASTE_SERVER_PORT=":8080" \
-                             EWASTE_DATABASE_HOST="$DB_HOST" \
-                             EWASTE_DATABASE_PORT="3306" \
-                             EWASTE_DATABASE_NAME="ewastedb" \
-                             EWASTE_DATABASE_USER="ewasteadmin" \
-                             MYSQL_PASSWORD=secretref:db-password \
-                             EWASTE_DATABASE_PASSWORD=secretref:db-password \
-                             EWASTE_REDIS_ADDRESS="$REDIS_ADDR" \
-                             REDIS_PASSWORD=secretref:redis-password \
-                             EWASTE_REDIS_PASSWORD=secretref:redis-password \
-                             EWASTE_REDIS_DB="0" \
-                             EWASTE_REDIS_TLS_ENABLED="true" \
-                             EWASTE_AUTH_ISSUER="ewaste-workflow-api" \
-                             EWASTE_AUTH_ACCESS_SECRET=secretref:access-secret \
-                             EWASTE_AUTH_REFRESH_SECRET=secretref:refresh-secret \
-                             EWASTE_AUTH_REFRESH_HASH_SECRET=secretref:refresh-hash-secret \
-                             EWASTE_AUTH_ACCESS_TTL="15m" \
-                             EWASTE_AUTH_REFRESH_TTL="24h" \
-                             EWASTE_RATE_LIMIT_REQUESTS="10" \
-                             EWASTE_RATE_LIMIT_WINDOW="1m" \
-                             EWASTE_LOGGING_LEVEL="info" \
-                             EWASTE_LOGGING_FILE_PATH="logs/workflow-api.log" \
-                             EWASTE_LOGGING_MAX_SIZE_MB="10" \
-                             EWASTE_LOGGING_MAX_BACKUPS="5" \
-                             EWASTE_LOGGING_MAX_AGE_DAYS="30" \
-                             EWASTE_LOGGING_COMPRESS="true" \
-                             EWASTE_LOGGING_CONSOLE="true"
-              else
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.API_IMMUTABLE_DIGEST }}" \
-                  --target-port 8080 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --registry-server "$ACR_SERVER" \
-                  --secrets db-password="$DB_PASS" \
-                            redis-password="$REDIS_PASS" \
-                            access-secret="$AUTH_ACCESS_SECRET" \
-                            refresh-secret="$AUTH_REFRESH_SECRET" \
-                            refresh-hash-secret="$AUTH_REFRESH_HASH_SECRET" \
-                  --env-vars EWASTE_MODE="$APP_MODE" \
-                             EWASTE_SERVER_PORT=":8080" \
-                             EWASTE_DATABASE_HOST="$DB_HOST" \
-                             EWASTE_DATABASE_PORT="3306" \
-                             EWASTE_DATABASE_NAME="ewastedb" \
-                             EWASTE_DATABASE_USER="ewasteadmin" \
-                             MYSQL_PASSWORD=secretref:db-password \
-                             EWASTE_DATABASE_PASSWORD=secretref:db-password \
-                             EWASTE_REDIS_ADDRESS="$REDIS_ADDR" \
-                             REDIS_PASSWORD=secretref:redis-password \
-                             EWASTE_REDIS_PASSWORD=secretref:redis-password \
-                             EWASTE_REDIS_DB="0" \
-                             EWASTE_REDIS_TLS_ENABLED="true" \
-                             EWASTE_AUTH_ISSUER="ewaste-workflow-api" \
-                             EWASTE_AUTH_ACCESS_SECRET=secretref:access-secret \
-                             EWASTE_AUTH_REFRESH_SECRET=secretref:refresh-secret \
-                             EWASTE_AUTH_REFRESH_HASH_SECRET=secretref:refresh-hash-secret \
-                             EWASTE_AUTH_ACCESS_TTL="15m" \
-                             EWASTE_AUTH_REFRESH_TTL="24h" \
-                             EWASTE_RATE_LIMIT_REQUESTS="10" \
-                             EWASTE_RATE_LIMIT_WINDOW="1m" \
-                             EWASTE_LOGGING_LEVEL="info" \
-                             EWASTE_LOGGING_FILE_PATH="logs/workflow-api.log" \
-                             EWASTE_LOGGING_MAX_SIZE_MB="10" \
-                             EWASTE_LOGGING_MAX_BACKUPS="5" \
-                             EWASTE_LOGGING_MAX_AGE_DAYS="30" \
-                             EWASTE_LOGGING_COMPRESS="true" \
-                             EWASTE_LOGGING_CONSOLE="true"
-              fi
-            fi
+            az containerapp update \
+              --name "$APP_NAME" \
+              --resource-group "$RG" \
+              --image "${{ env.API_IMMUTABLE_DIGEST }}"
 
             API_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
             echo "aca_api_fqdn=$API_FQDN" >> "$GITHUB_OUTPUT"
@@ -402,24 +234,6 @@ jobs:
           UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
           echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
 
-#      - name: Sign UI Container Image Digest with Cosign
-#        run: |
-#          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
-#          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-#            cosign sign --yes \
-#              --key env://COSIGN_PRIVATE_KEY \
-#              ${{ env.UI_IMMUTABLE_DIGEST }}
-#          else
-#            echo "Signing UI image with cosign key..."
-#            if [ ! -f cosign.key ]; then
-#              cosign generate-key-pair
-#            fi
-#            cosign sign --yes --key cosign.key ${{ env.UI_IMMUTABLE_DIGEST }}
-#          fi
-#        env:
-#          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-#          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-
       - name: Deploy UI Container to Azure Container Apps
         id: ui_deploy
         uses: azure/cli@v2
@@ -427,84 +241,15 @@ jobs:
           inlineScript: |
             TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
             RG="${{ needs.resolve-environment.outputs.resource_group }}"
-            CAE="${{ needs.resolve-environment.outputs.aca_env_name }}"
-            ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
-            API_FQDN="${{ steps.api_deploy.outputs.aca_api_fqdn }}"
-            if [ -z "$API_FQDN" ]; then
-              API_FQDN=$(az containerapp show --name "aca-ewaste-${TARGET_ENV}-api" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv 2>/dev/null || true)
-            fi
-            API_URL="https://${API_FQDN}"
             APP_NAME="aca-ewaste-${TARGET_ENV}-ui"
 
-            IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
+            echo "Performing atomic container image update for $APP_NAME..."
+            echo "Target Image Digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
 
-            echo "Deploying Frontend UI Container App ($APP_NAME)..."
-            if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME already exists. Ensuring ingress target-port is 3000..."
-              az containerapp ingress enable \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --type external \
-                --target-port 3000 || true
-
-              echo "Updating container image and environment..."
-              az containerapp update \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
-                --set-env-vars APP_ENV="$TARGET_ENV" \
-                               NEXT_PUBLIC_API_URL="$API_URL" \
-                               NEXT_PUBLIC_API_BASE_URL="$API_URL" \
-                               API_PROXY_TARGET="$API_URL" \
-                               NEXT_PUBLIC_USE_MOCK_AUTH="false" \
-                               NODE_ENV="production" \
-                               PORT="3000"
-            else
-              echo "Container App $APP_NAME does not exist. Creating new container app..."
-              if [ -n "$IDENTITY" ]; then
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
-                  --target-port 3000 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --user-assigned "$IDENTITY" \
-                  --registry-server "$ACR_SERVER" \
-                  --registry-identity "$IDENTITY" \
-                  --env-vars APP_ENV="$TARGET_ENV" \
-                             NEXT_PUBLIC_API_URL="$API_URL" \
-                             NEXT_PUBLIC_API_BASE_URL="$API_URL" \
-                             API_PROXY_TARGET="$API_URL" \
-                             NEXT_PUBLIC_USE_MOCK_AUTH="false" \
-                             NODE_ENV="production" \
-                             PORT="3000"
-              else
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.UI_IMMUTABLE_DIGEST }}" \
-                  --target-port 3000 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --registry-server "$ACR_SERVER" \
-                  --env-vars APP_ENV="$TARGET_ENV" \
-                             NEXT_PUBLIC_API_URL="$API_URL" \
-                             NEXT_PUBLIC_API_BASE_URL="$API_URL" \
-                             API_PROXY_TARGET="$API_URL" \
-                             NEXT_PUBLIC_USE_MOCK_AUTH="false" \
-                             NODE_ENV="production" \
-                             PORT="3000"
-              fi
-            fi
+            az containerapp update \
+              --name "$APP_NAME" \
+              --resource-group "$RG" \
+              --image "${{ env.UI_IMMUTABLE_DIGEST }}"
 
             UI_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
             echo "aca_ui_fqdn=$UI_FQDN" >> "$GITHUB_OUTPUT"
@@ -536,123 +281,18 @@ jobs:
           inlineScript: |
             TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
             RG="${{ needs.resolve-environment.outputs.resource_group }}"
-            CAE="${{ needs.resolve-environment.outputs.aca_env_name }}"
-            ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
             APP_NAME="aca-ewaste-${TARGET_ENV}-analytics"
-            IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
 
-            # Discover Event Hubs Namespace and Connection String dynamically
-            EVH_NAME=$(az eventhubs namespace list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || true)
-            if [ -z "$EVH_NAME" ]; then
-              EVH_NAME="evh-ewaste-${TARGET_ENV}"
-            fi
+            echo "Performing atomic container image update for $APP_NAME..."
+            echo "Target Image Digest: ${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
 
-            if [ "$TARGET_ENV" == "dev" ]; then
-              ENABLE_TESTS="true"
-            else
-              ENABLE_TESTS="false"
-            fi
-
-            BOOTSTRAP_SERVERS="${EVH_NAME}.servicebus.windows.net:9093"
-            EVH_CONN_STR=$(az eventhubs namespace authorization-rule keys list \
+            az containerapp update \
+              --name "$APP_NAME" \
               --resource-group "$RG" \
-              --namespace-name "$EVH_NAME" \
-              --name "auth-ewaste-workload" \
-              --query primaryConnectionString -o tsv 2>/dev/null || true)
-
-            echo "Deploying Analytics Container App ($APP_NAME) with Bootstrap: $BOOTSTRAP_SERVERS..."
-
-            if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
-              echo "Container App $APP_NAME exists. Updating image and environment..."
-
-              if [ -n "$IDENTITY" ]; then
-                az containerapp identity assign \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --user-assigned "$IDENTITY" || true
-
-                az containerapp registry set \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --server "$ACR_SERVER" \
-                  --identity "$IDENTITY" || true
-              fi
-
-              az containerapp ingress enable \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --type external \
-                --target-port 8000 || true
-
-              if [ -n "$EVH_CONN_STR" ]; then
-                az containerapp secret set \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --secrets kafka-conn="$EVH_CONN_STR" || true
-              fi
-
-              az containerapp update \
-                --name "$APP_NAME" \
-                --resource-group "$RG" \
-                --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
-                --set-env-vars KAFKA_BOOTSTRAP_SERVERS="$BOOTSTRAP_SERVERS" \
-                               KAFKA_CONNECTION_STRING=secretref:kafka-conn \
-                               KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
-                               KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
-                               KAFKA_CONSUMER_GROUP="matching-worker" \
-                               ENABLE_TEST_ENDPOINTS="$ENABLE_TESTS" \
-                               LOG_LEVEL="INFO"
-            else
-              echo "Container App $APP_NAME does not exist. Creating new container app with ACR identity..."
-              if [ -n "$IDENTITY" ]; then
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
-                  --target-port 8000 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --user-assigned "$IDENTITY" \
-                  --registry-server "$ACR_SERVER" \
-                  --registry-identity "$IDENTITY" \
-                  --secrets kafka-conn="$EVH_CONN_STR" \
-                  --env-vars KAFKA_BOOTSTRAP_SERVERS="$BOOTSTRAP_SERVERS" \
-                             KAFKA_CONNECTION_STRING=secretref:kafka-conn \
-                             KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
-                             KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
-                             KAFKA_CONSUMER_GROUP="matching-worker" \
-                             ENABLE_TEST_ENDPOINTS="$ENABLE_TESTS" \
-                             LOG_LEVEL="INFO"
-              else
-                az containerapp create \
-                  --name "$APP_NAME" \
-                  --resource-group "$RG" \
-                  --environment "$CAE" \
-                  --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
-                  --target-port 8000 \
-                  --ingress external \
-                  --min-replicas 1 \
-                  --max-replicas 2 \
-                  --cpu 0.5 \
-                  --memory 1.0Gi \
-                  --registry-server "$ACR_SERVER" \
-                  --secrets kafka-conn="$EVH_CONN_STR" \
-                  --env-vars KAFKA_BOOTSTRAP_SERVERS="$BOOTSTRAP_SERVERS" \
-                             KAFKA_CONNECTION_STRING=secretref:kafka-conn \
-                             KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
-                             KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
-                             KAFKA_CONSUMER_GROUP="matching-worker" \
-                             ENABLE_TEST_ENDPOINTS="$ENABLE_TESTS" \
-                             LOG_LEVEL="INFO"
-              fi
-            fi
+              --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
 
             ANALYTICS_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
-            echo "aca_analytics_fqdn=$ANALYTICS_FQDN" >> $GITHUB_OUTPUT
+            echo "aca_analytics_fqdn=$ANALYTICS_FQDN" >> "$GITHUB_OUTPUT"
             echo "Analytics Worker deployed at: https://${ANALYTICS_FQDN}"
 
       # ------------------------------------------------------------------------
@@ -708,7 +348,7 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Prune Stale Container Images in ACR (Keep Last 3)
         if: ${{ inputs.rollback_tag == '' }}
-        run: |
+        run: |\
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
 
@@ -779,7 +419,7 @@ jobs:
       # 3.1 BACKEND API AUTHENTICATION SMOKE TEST
       # ------------------------------------------------------------------------
       - name: Execute Seeded-User Login API Smoke Test
-        run: |
+        run: |\
           API_FQDN="${{ needs.deploy-application.outputs.aca_api_fqdn }}"
           if [ -n "$API_FQDN" ]; then
             API_URL="https://${API_FQDN}/api/v1/auth/login"
@@ -789,7 +429,7 @@ jobs:
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_URL" \
               -H "Content-Type: application/json" \
               -H "X-Correlation-ID: $CORRELATION_ID" \
-              -d '{"username":"admin@ewaste.local","password":"Password123!"}' || true)
+              -d '{"email":"admin@ewaste.local","password":"Password123!"}' || true)
 
             HTTP_BODY=$(echo "$RESPONSE" | sed '$d')
             HTTP_STATUS=$(echo "$RESPONSE" | tail -n1)
@@ -804,7 +444,7 @@ jobs:
       # 3.2 FRONTEND UI ACCESSIBILITY SMOKE TEST
       # ------------------------------------------------------------------------
       - name: Execute Frontend UI Endpoint Smoke Test
-        run: |
+        run: |\
           UI_FQDN="${{ needs.deploy-application.outputs.aca_ui_fqdn }}"
           if [ -n "$UI_FQDN" ]; then
             UI_URL="https://${UI_FQDN}/"
@@ -819,7 +459,7 @@ jobs:
       # 3.3 ANALYTICS WORKER & EVENT HUBS INTEGRATION SMOKE TEST
       # ------------------------------------------------------------------------
       - name: Verify Live Kafka Event Publish and Consumer Loop
-        run: |
+        run: |\
           ANALYTICS_FQDN="${{ needs.deploy-application.outputs.aca_analytics_fqdn }}"
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
 
@@ -881,7 +521,7 @@ jobs:
       # 3.4 DEPLOYMENT SUMMARY & ARCHIVAL BANNER
       # ------------------------------------------------------------------------
       - name: Confirm Deployment & Archival State
-        run: |
+        run: |\
           echo "======================================================================"
           echo "  DEPLOYMENT & AUDIT SUITE COMPLETED SUCCESSFULLY"
           echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
