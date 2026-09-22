@@ -4,6 +4,7 @@ import { ROLE_HOME_TITLE, ROLE_LABEL, ROLE_NAV } from "@/lib/auth/roles";
 import { USE_MOCK_AUTH } from "@/lib/auth/config";
 import { useSession } from "@/lib/auth/session-context";
 import { useState } from "react";
+import { ClaimAction } from "./claim-action";
 
 export function HomeShell() {
   const {
@@ -24,6 +25,8 @@ export function HomeShell() {
   const nav = ROLE_NAV[user.role];
   const current = activeNav ?? nav[0]?.id;
   const title = ROLE_HOME_TITLE[user.role];
+  const workflow =
+    user.role === "RECYCLER" && current === "claim" ? <ClaimAction /> : null;
 
   async function onLogout() {
     setLoggingOut(true);
@@ -83,11 +86,14 @@ export function HomeShell() {
               Session renewed.
             </p>
           ) : null}
-          <p className="max-w-xl text-sm text-slate-600">
-            Signed in as {user.name} ({ROLE_LABEL[user.role]}). This home only
-            shows {ROLE_LABEL[user.role]} navigation. The role label is not a
-            switcher. Other screens stay placeholders until later sprint work.
-          </p>
+          {workflow ? (
+            workflow
+          ) : (
+            <p className="max-w-xl text-sm text-slate-600">
+              Signed in as {user.name} ({ROLE_LABEL[user.role]}). This section
+              stays a placeholder until later sprint work.
+            </p>
+          )}
           <p className="mt-3 text-sm text-slate-500">
             Current section: {nav.find((item) => item.id === current)?.label}
           </p>
