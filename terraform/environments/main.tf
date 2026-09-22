@@ -463,6 +463,11 @@ resource "azurerm_container_app" "api" {
       }
 
       env {
+        name  = "EWASTE_SERVER_ALLOWED_ORIGINS"
+        value = "https://aca-${local.name_prefix}-ui.${azurerm_container_app_environment.aca_env.default_domain}"
+      }
+
+      env {
         name  = "EWASTE_DATABASE_HOST"
         value = azurerm_mysql_flexible_server.db.fqdn
       }
