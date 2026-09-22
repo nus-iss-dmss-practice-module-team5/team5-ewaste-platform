@@ -63,7 +63,16 @@ func newRouterTest(t *testing.T, checker *health.Checker) *gin.Engine {
 	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
 	authService := service.NewAuthService(repo, tokens, zap.NewNop())
 	authController := controller.NewAuthController(authService, zap.NewNop())
-	return NewAuthRouter(authController, tokens, repo, routerTestLimiter{}, checker, nil, zap.NewNop())
+	return NewAuthRouter(
+		authController,
+		nil,
+		tokens,
+		repo,
+		routerTestLimiter{},
+		checker,
+		nil,
+		zap.NewNop(),
+	)
 }
 
 func TestNewTestRouterHelloEndpoint(t *testing.T) {

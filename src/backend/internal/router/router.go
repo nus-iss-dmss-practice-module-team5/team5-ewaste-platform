@@ -18,6 +18,7 @@ import (
 
 func NewAuthRouter(
 	authController *controller.AuthController,
+	batchController *controller.BatchController,
 	tokens *token.Service,
 	repo repository.AuthRepository,
 	limiter ratelimit.Limiter,
@@ -44,7 +45,7 @@ func NewAuthRouter(
 			response.JSON(c, http.StatusServiceUnavailable, health.Report{
 				Status: "not_ready",
 				MySQL:  "unavailable",
-				Redis:   "unavailable",
+				Redis:  "unavailable",
 			})
 			return
 		}
@@ -66,6 +67,15 @@ func NewAuthRouter(
 	auth.POST("/login", middleware.RateLimit(limiter), authController.Login)
 	auth.POST("/refresh", middleware.RateLimit(limiter), authController.Refresh)
 	auth.POST("/logout", middleware.RequireAccessTokens(tokens, repo), authController.Logout)
+
+	batches := r.Group("/api/v1/batches")
+	batches.Use(middleware.RequireAccessTokens(tokens, repo))
+
+	if batchController != nil {
+		batches.POST("", batchController.CreateDraft)
+		batches.PATCH("/:batch_id", batchController.EditDraft)
+		batches.POST("/:batch_id/submit", batchController.Submit)
+	}
 
 	r.NoRoute(func(c *gin.Context) {
 		response.Error(c, apierror.NotFound, middleware.GetCorrelationID(c))

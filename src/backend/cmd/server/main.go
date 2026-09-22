@@ -126,10 +126,16 @@ func run() error {
 	repo := repository.NewGormAuthRepository(db)
 	authService := service.NewAuthService(repo, tokens, appLogger.Logger)
 	authController := controller.NewAuthController(authService, appLogger.Logger)
+
+	batchRepository := repository.NewGormBatchRepository(db)
+	batchService := service.NewBatchService(batchRepository)
+	batchController := controller.NewBatchController(batchService, appLogger.Logger)
+
 	limiter := ratelimit.NewRedisLimiter(redisClient, cfg.RateLimit.Requests, cfg.RateLimit.Window)
 	checker := health.NewChecker(db, redisClient, 3*time.Second)
 	appRouter := router.NewAuthRouter(
 		authController,
+		batchController,
 		tokens,
 		repo,
 		limiter,
