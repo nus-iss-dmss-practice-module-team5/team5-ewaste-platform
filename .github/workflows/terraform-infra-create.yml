@@ -216,7 +216,10 @@ jobs:
               --query id -o tsv 2>/dev/null || true)
 
             if [ -n "$APP_ID" ]; then
-              echo "[import] Importing $APP_NAME into $RESOURCE_ADDR..."
+              # Azure CLI returns '/containerapps/' (lowercase), but Terraform
+              # AzureRM provider strictly requires '/containerApps/' with capital 'A'.
+              APP_ID=$(echo "$APP_ID" | sed -e 's|/providers/microsoft.app/|/providers/Microsoft.App/|I' -e 's|/containerapps/|/containerApps/|I')
+              echo "[import] Importing $APP_NAME into $RESOURCE_ADDR ($APP_ID)..."
               terraform import "${TF_VAR_ARGS[@]}" "$RESOURCE_ADDR" "$APP_ID"
             else
               echo "[import] $APP_NAME does not exist in Azure — nothing to import."

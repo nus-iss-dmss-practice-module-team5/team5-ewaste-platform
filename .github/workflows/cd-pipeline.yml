@@ -337,7 +337,7 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Prune Stale Container Images in ACR (Keep Last 3)
         if: ${{ inputs.rollback_tag == '' }}
-        run: |\
+        run: |
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
 
@@ -408,7 +408,7 @@ jobs:
       # 3.1 BACKEND API AUTHENTICATION SMOKE TEST
       # ------------------------------------------------------------------------
       - name: Execute Seeded-User Login API Smoke Test
-        run: |\
+        run: |
           API_FQDN="${{ needs.deploy-application.outputs.aca_api_fqdn }}"
           if [ -n "$API_FQDN" ]; then
             API_URL="https://${API_FQDN}/api/v1/auth/login"
@@ -433,7 +433,7 @@ jobs:
       # 3.2 FRONTEND UI ACCESSIBILITY SMOKE TEST
       # ------------------------------------------------------------------------
       - name: Execute Frontend UI Endpoint Smoke Test
-        run: |\
+        run: |
           UI_FQDN="${{ needs.deploy-application.outputs.aca_ui_fqdn }}"
           if [ -n "$UI_FQDN" ]; then
             UI_URL="https://${UI_FQDN}/"
@@ -448,7 +448,7 @@ jobs:
       # 3.3 ANALYTICS WORKER & EVENT HUBS INTEGRATION SMOKE TEST
       # ------------------------------------------------------------------------
       - name: Verify Live Kafka Event Publish and Consumer Loop
-        run: |\
+        run: |
           ANALYTICS_FQDN="${{ needs.deploy-application.outputs.aca_analytics_fqdn }}"
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
 
@@ -510,7 +510,7 @@ jobs:
       # 3.4 DEPLOYMENT SUMMARY & ARCHIVAL BANNER
       # ------------------------------------------------------------------------
       - name: Confirm Deployment & Archival State
-        run: |\
+        run: |
           echo "======================================================================"
           echo "  DEPLOYMENT & AUDIT SUITE COMPLETED SUCCESSFULLY"
           echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
