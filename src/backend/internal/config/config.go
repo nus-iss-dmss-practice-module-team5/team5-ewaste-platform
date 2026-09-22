@@ -52,7 +52,8 @@ func (c *Config) ApplyMode(mode string) error {
 }
 
 type ServerConfig struct {
-	Port string `mapstructure:"port"`
+	Port           string   `mapstructure:"port"`
+	AllowedOrigins []string `mapstructure:"allowed_origins"`
 }
 
 type DatabaseConfig struct {
@@ -118,9 +119,11 @@ func Load(configFile string) (Config, error) {
 	}
 
 	var cfg Config
-	if err := v.Unmarshal(&cfg, viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(
+	decodeHook := mapstructure.ComposeDecodeHookFunc(
 		mapstructure.StringToTimeDurationHookFunc(),
-	))); err != nil {
+		mapstructure.StringToSliceHookFunc(","),
+	)
+	if err := v.Unmarshal(&cfg, viper.DecodeHook(decodeHook)); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
@@ -129,6 +132,7 @@ func Load(configFile string) (Config, error) {
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("mode", ModeDevelopment)
 	v.SetDefault("server.port", ":8080")
+	v.SetDefault("server.allowed_origins", []string{"http://localhost:3000"})
 	v.SetDefault("database.host", "localhost")
 	v.SetDefault("database.port", 3306)
 	v.SetDefault("database.name", "ewaste")
@@ -159,6 +163,7 @@ func bindEnvironment(v *viper.Viper) {
 	keys := []string{
 		"mode",
 		"server.port",
+		"server.allowed_origins",
 		"database.host",
 		"database.port",
 		"database.name",

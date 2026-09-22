@@ -2,6 +2,9 @@ mode: test
 
 server:
   port: ":8080"
+  allowed_origins:
+    - "http://localhost:3000"
+    - "https://aca-ewaste-dev-ui.kindflower-300f4866.malaysiawest.azurecontainerapps.io"
 
 database:
   host: "mysql"

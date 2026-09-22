@@ -2,6 +2,8 @@ mode: development
 
 server:
   port: ":8080"
+  allowed_origins:
+    - "http://localhost:3000"
 
 database:
   host: "localhost"

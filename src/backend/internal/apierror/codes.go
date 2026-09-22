@@ -10,6 +10,6 @@ const (
 	NotFound           Code = "NOT_FOUND"
 	StaleVersion       Code = "STALE_VERSION"
 	ValidationError    Code = "VALIDATION_ERROR"
-	RateLimited        Code = "RATE_LIMITED"
-	ServiceUnavailable      = "SERVICE_UNAVAILABLE"
+	RateLimited        Code = "AUTH_RATE_LIMITED"
+	ServiceUnavailable Code = "SERVICE_UNAVAILABLE"
 )

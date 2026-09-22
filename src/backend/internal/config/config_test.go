@@ -27,6 +27,7 @@ auth:
 	t.Setenv("REDIS_PASSWORD", "redis-secret")
 	t.Setenv("EWASTE_MODE", "production")
 	t.Setenv("EWASTE_SERVER_PORT", ":8181")
+	t.Setenv("EWASTE_SERVER_ALLOWED_ORIGINS", "http://localhost:3000,https://example.com")
 	t.Setenv("EWASTE_DATABASE_HOST", "azure-mysql")
 	t.Setenv("EWASTE_DATABASE_PORT", "3306")
 	t.Setenv("EWASTE_DATABASE_NAME", "ewastedb")
@@ -46,6 +47,9 @@ auth:
 	}
 	if cfg.Server.Port != ":8181" {
 		t.Fatalf("expected server port from environment, got %q", cfg.Server.Port)
+	}
+	if len(cfg.Server.AllowedOrigins) != 2 || cfg.Server.AllowedOrigins[0] != "http://localhost:3000" || cfg.Server.AllowedOrigins[1] != "https://example.com" {
+		t.Fatalf("expected configured CORS origins, got %#v", cfg.Server.AllowedOrigins)
 	}
 	if cfg.Mode != ModeProduction || cfg.Database.Host != "azure-mysql" || cfg.Database.Port != 3306 || cfg.Database.Name != "ewastedb" || cfg.Database.User != "ewasteadmin" {
 		t.Fatalf("expected database and mode environment values, got mode=%q database=%+v", cfg.Mode, cfg.Database)

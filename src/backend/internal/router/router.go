@@ -4,38 +4,62 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 
+	"workflow-api/internal/apierror"
 	"workflow-api/internal/controller"
 	"workflow-api/internal/health"
 	"workflow-api/internal/middleware"
 	"workflow-api/internal/ratelimit"
 	"workflow-api/internal/repository"
+	"workflow-api/internal/response"
 	"workflow-api/internal/token"
 )
 
-func NewAuthRouter(authController *controller.AuthController, tokens *token.Service, repo repository.AuthRepository, limiter ratelimit.Limiter, checker *health.Checker) *gin.Engine {
+func NewAuthRouter(
+	authController *controller.AuthController,
+	tokens *token.Service,
+	repo repository.AuthRepository,
+	limiter ratelimit.Limiter,
+	checker *health.Checker,
+	allowedOrigins []string,
+	logger *zap.Logger,
+) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
+
 	r := gin.New()
-	r.Use(gin.Recovery(), middleware.CorrelationID(), middleware.CORS())
+	r.Use(
+		gin.Recovery(),
+		middleware.CorrelationID(),
+		middleware.RequestLogger(logger),
+		middleware.CORS(allowedOrigins),
+	)
 
 	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		response.JSON(c, http.StatusOK, gin.H{"status": "ok"})
 	})
+
 	r.GET("/readyz", func(c *gin.Context) {
 		if checker == nil {
-			c.JSON(http.StatusServiceUnavailable, health.Report{Status: "not_ready", MySQL: "unavailable", Redis: "unavailable"})
+			response.JSON(c, http.StatusServiceUnavailable, health.Report{
+				Status: "not_ready",
+				MySQL:  "unavailable",
+				Redis:   "unavailable",
+			})
 			return
 		}
+
 		report, err := checker.CheckDetailed(c.Request.Context())
 		if err != nil {
-			c.JSON(http.StatusServiceUnavailable, report)
+			response.JSON(c, http.StatusServiceUnavailable, report)
 			return
 		}
-		c.JSON(http.StatusOK, report)
+
+		response.JSON(c, http.StatusOK, report)
 	})
 
 	r.GET("/api/v1/hello", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"msg": "hello world"})
+		response.JSON(c, http.StatusOK, gin.H{"msg": "hello world"})
 	})
 
 	auth := r.Group("/api/v1/auth")
@@ -44,16 +68,28 @@ func NewAuthRouter(authController *controller.AuthController, tokens *token.Serv
 	auth.POST("/logout", middleware.RequireAccessTokens(tokens, repo), authController.Logout)
 
 	r.NoRoute(func(c *gin.Context) {
-		c.JSON(http.StatusNotFound, gin.H{"msg": "not found"})
+		response.Error(c, apierror.NotFound, middleware.GetCorrelationID(c))
 	})
+
 	return r
 }
 
-func NewTestRouter() *gin.Engine {
+func NewTestRouter(allowedOrigins ...string) *gin.Engine {
 	gin.SetMode(gin.TestMode)
+
 	r := gin.New()
-	r.Use(middleware.CORS())
-	r.GET("/api/v1/hello", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"msg": "hello world"}) })
-	r.NoRoute(func(c *gin.Context) { c.JSON(http.StatusNotFound, gin.H{"msg": "not found"}) })
+	r.Use(
+		middleware.CorrelationID(),
+		middleware.CORS(allowedOrigins),
+	)
+
+	r.GET("/api/v1/hello", func(c *gin.Context) {
+		response.JSON(c, http.StatusOK, gin.H{"msg": "hello world"})
+	})
+
+	r.NoRoute(func(c *gin.Context) {
+		response.Error(c, apierror.NotFound, middleware.GetCorrelationID(c))
+	})
+
 	return r
 }
