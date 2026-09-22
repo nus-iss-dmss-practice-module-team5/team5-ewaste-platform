@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [feature/pass-variables-to-aca-using-terraform]
+    branches: [dev, main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
