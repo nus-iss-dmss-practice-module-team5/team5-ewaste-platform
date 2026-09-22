@@ -1,4 +1,4 @@
-name: Database SQL Persistence (All Schemas)
+name: Database Schema, Migration and Persistence Tests
 
 on:
   pull_request:
