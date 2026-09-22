@@ -46,7 +46,10 @@ type BatchActor struct {
 type BatchCommandMetadata struct {
 	Actor           BatchActor
 	CorrelationID   string
+	ActorScope      string
+	CommandName     string
 	IdempotencyKey  string
+	RequestHash     string
 	ExpectedVersion int64
 }
 
@@ -57,6 +60,10 @@ func (m BatchCommandMetadata) Validate() error {
 
 	if m.CorrelationID == "" {
 		return fmt.Errorf("%w: correlation ID is missing", ErrBatchValidation)
+	}
+
+	if m.ActorScope == "" || m.CommandName == "" || m.IdempotencyKey == "" || m.RequestHash == "" {
+		return fmt.Errorf("%w: command replay metadata is incomplete", ErrBatchValidation)
 	}
 
 	return nil
