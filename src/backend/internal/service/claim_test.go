@@ -28,7 +28,7 @@ type fakeClaimRepository struct {
 }
 
 func (r *fakeClaimRepository) Transaction(
-	ctx context.Context,
+	_ context.Context,
 	fn func(repository.ClaimTransaction) error,
 ) error {
 	return fn(&fakeClaimTransaction{state: &r.state})
@@ -150,7 +150,7 @@ func (t *fakeClaimTransaction) ApproveBatch(
 	_ time.Time,
 ) (*model.Batch, error) {
 	t.state.batch.Status = model.BatchStatusApproved
-	t.state.batch.CurrentClaimID = &claimID
+	t.state.batch.CurrentClaimID = new(claimID)
 	t.state.batch.Version++
 	return t.state.batch, nil
 }
@@ -165,9 +165,9 @@ func (t *fakeClaimTransaction) CompleteCommand(
 	for _, command := range t.state.commands {
 		if command.ID == commandID {
 			command.State = model.CommandStateCompleted
-			command.ResponseStatus = &responseStatus
+			command.ResponseStatus = new(responseStatus)
 			command.ResponseJSON = responseJSON
-			command.CompletedAt = &completedAt
+			command.CompletedAt = new(completedAt)
 			return nil
 		}
 	}
@@ -216,8 +216,8 @@ func newClaimServiceFixture() (
 			Status:             model.BatchStatusMatched,
 			ClaimEpoch:         1,
 			Version:            3,
-			EstimatedWeightKg:  &weight,
-			CollectionDeadline: &deadline,
+			EstimatedWeightKg:  new(weight),
+			CollectionDeadline: new(deadline),
 			UpdatedAt:          now,
 		},
 		match: &model.ClaimMatch{
@@ -315,7 +315,7 @@ func TestClaimChangedPayloadReturnsIdempotencyConflict(t *testing.T) {
 		t.Fatalf("first claim failed: %v", err)
 	}
 	notes := "different payload"
-	request.Notes = &notes
+	request.Notes = new(notes)
 	_, err := service.Claim(context.Background(), "batch-001", request, metadata)
 	if !errors.Is(err, ErrClaimIdempotencyConflict) {
 		t.Fatalf("expected idempotency conflict, got %v", err)

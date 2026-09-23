@@ -265,7 +265,7 @@ func (s *ClaimWorkflowService) Claim(
 			OccurredAt:        now,
 			CreatedAt:         now,
 			PublishState:      model.OutboxPublishStatePending,
-			NextAttemptAt:     &nextAttemptAt,
+			NextAttemptAt:     new(nextAttemptAt),
 		}); err != nil {
 			return err
 		}
@@ -355,7 +355,7 @@ func (s *ClaimWorkflowService) loadReplay(
 	if err := json.Unmarshal(command.ResponseJSON, &result); err != nil {
 		return nil, fmt.Errorf("claim: decode replay response: %w", err)
 	}
-	return &result, nil
+	return new(result), nil
 }
 
 func requireRecycler(metadata BatchCommandMetadata) error {
