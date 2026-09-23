@@ -3,6 +3,7 @@ package model
 import "time"
 
 const RequestSubmittedEventType = "RequestSubmitted"
+const ClaimConfirmedEventType = "ClaimConfirmed"
 
 type OutboxPublishState string
 

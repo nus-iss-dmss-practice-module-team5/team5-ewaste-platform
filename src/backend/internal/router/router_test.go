@@ -66,6 +66,7 @@ func newRouterTest(t *testing.T, checker *health.Checker) *gin.Engine {
 	return NewAuthRouter(
 		authController,
 		nil,
+		nil,
 		tokens,
 		repo,
 		routerTestLimiter{},

@@ -5,6 +5,7 @@ import "time"
 const (
 	BatchAuditEventDraftSaved       = "DraftSaved"
 	BatchAuditEventRequestSubmitted = "RequestSubmitted"
+	BatchAuditEventClaimConfirmed   = "ClaimConfirmed"
 )
 
 type BatchAuditEvent struct {

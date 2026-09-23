@@ -7,6 +7,8 @@ type BatchStatus string
 const (
 	BatchStatusDraft     BatchStatus = "DRAFT"
 	BatchStatusSubmitted BatchStatus = "SUBMITTED"
+	BatchStatusMatched   BatchStatus = "MATCHED"
+	BatchStatusApproved  BatchStatus = "APPROVED"
 )
 
 type Batch struct {

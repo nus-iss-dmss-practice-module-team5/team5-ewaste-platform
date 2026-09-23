@@ -19,6 +19,7 @@ import (
 	"workflow-api/internal/docs"
 	"workflow-api/internal/eventbus"
 	"workflow-api/internal/health"
+	"workflow-api/internal/lease"
 	"workflow-api/internal/logger"
 	"workflow-api/internal/outbox"
 	"workflow-api/internal/ratelimit"
@@ -132,6 +133,14 @@ func run() error {
 	batchRepository := repository.NewGormBatchRepository(db)
 	batchService := service.NewBatchService(batchRepository)
 	batchController := controller.NewBatchController(batchService, appLogger.Logger)
+	claimRepository := repository.NewGormClaimRepository(db)
+	claimLease := lease.NewRedisBatchLease(
+		redisClient,
+		3*time.Second,
+		200*time.Millisecond,
+	)
+	claimService := service.NewClaimWorkflowService(claimRepository, claimLease)
+	claimController := controller.NewClaimController(claimService, appLogger.Logger)
 
 	if cfg.Kafka.Enabled {
 		kafkaPublisher, publisherErr := eventbus.NewKafkaPublisher(cfg.Kafka)
@@ -180,6 +189,7 @@ func run() error {
 	appRouter := router.NewAuthRouter(
 		authController,
 		batchController,
+		claimController,
 		tokens,
 		repo,
 		limiter,

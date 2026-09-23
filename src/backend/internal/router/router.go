@@ -19,6 +19,7 @@ import (
 func NewAuthRouter(
 	authController *controller.AuthController,
 	batchController *controller.BatchController,
+	claimController *controller.ClaimController,
 	tokens *token.Service,
 	repo repository.AuthRepository,
 	limiter ratelimit.Limiter,
@@ -75,6 +76,9 @@ func NewAuthRouter(
 		batches.POST("", batchController.CreateDraft)
 		batches.PATCH("/:batch_id", batchController.EditDraft)
 		batches.POST("/:batch_id/submit", batchController.Submit)
+	}
+	if claimController != nil {
+		batches.POST("/:batch_id/claim", claimController.Claim)
 	}
 
 	r.NoRoute(func(c *gin.Context) {
