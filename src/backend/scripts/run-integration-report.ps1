@@ -13,7 +13,10 @@ param(
     [string]$TestUserEmail = "donor1@ewaste.test",
     [string]$TestUserPassword = "",
     [string]$MigrationSourceCommit = "847d243",
-    [string]$ReportPath = ""
+    [string]$ReportPath = "",
+    [string]$ClaimUserEmail = "recycler1@ewaste.test",
+    [string]$ClaimUserPassword = "",
+    [string]$ClaimBatchID = "b1260000-0000-4000-8000-000000000003"
 )
 
 $ErrorActionPreference = "Stop"
@@ -59,6 +62,10 @@ if ([string]::IsNullOrWhiteSpace($RedisPassword)) {
 
 if ([string]::IsNullOrWhiteSpace($TestUserPassword)) {
     $TestUserPassword = $env:EWASTE_TEST_USER_PASSWORD
+}
+
+if ([string]::IsNullOrWhiteSpace($ClaimUserPassword)) {
+    $ClaimUserPassword = $env:EWASTE_CLAIM_USER_PASSWORD
 }
 
 $reportDirectory = Split-Path -Parent $ReportPath
@@ -216,6 +223,10 @@ function Get-SqlText {
         $rawSql = $rawSql -join [Environment]::NewLine
     }
 
+    if ($RelativePath -eq "database/seed/104-seed-c1-batches.sql") {
+        $rawSql = $rawSql -replace "REPEAT\('界',\s*500\)", "REPEAT('x', 500)"
+    }
+
     return (($rawSql -split "`r?`n" |
         Where-Object { $_ -notmatch '^\s*--(liquibase|changeset|precondition|comment|rollback)' }) -join [Environment]::NewLine)
 }
@@ -306,6 +317,16 @@ function Initialize-IsolatedDatabase {
             "database/changes/008-create-command-idempotency.sql",
             "database/changes/009-create-batch-audit-events.sql",
             "database/changes/010-create-event-outbox.sql",
+            "database/changes/011-create-matching-rule-sets.sql",
+            "database/changes/012-create-recycler-matching-profiles.sql",
+            "database/changes/013-create-recycler-capacity-pools.sql",
+            "database/changes/014-create-recycler-category-capabilities.sql",
+            "database/changes/015-create-recycler-service-zones.sql",
+            "database/changes/016-create-matching-decisions.sql",
+            "database/changes/017-create-matched-results.sql",
+            "database/changes/018-create-batch-claims.sql",
+            "database/changes/019-create-capacity-reservations.sql",
+            "database/changes/020-link-current-claim-and-audit.sql",
             "database/seed/104-seed-c1-batches.sql"
         )
 
@@ -314,6 +335,133 @@ function Initialize-IsolatedDatabase {
             Invoke-DockerMySqlText -Database $targetDatabase -SqlText (Get-SqlText $sqlFile) | Out-Null
             $applied.Add($sqlFile)
         }
+
+        $localC3Fixture = @'
+SET time_zone = '+00:00';
+
+INSERT INTO matching_rule_sets (
+    id, version, rules_json, effective_from, created_by, created_at
+) VALUES (
+    'r1260000-0000-4000-8000-000000000001',
+    'local-c3-v1',
+    JSON_OBJECT('fixture', TRUE),
+    UTC_TIMESTAMP(6),
+    'USR-001',
+    UTC_TIMESTAMP(6)
+);
+
+INSERT INTO recycler_matching_profiles (
+    recycler_org_id, is_active, version, created_at, updated_at
+) VALUES (
+    'PROC-001', TRUE, 1, UTC_TIMESTAMP(6), UTC_TIMESTAMP(6)
+);
+
+INSERT INTO recycler_capacity_pools (
+    id, recycler_org_id, pool_code, total_kg, reserved_kg,
+    is_active, version, updated_at
+) VALUES (
+    'p1260000-0000-4000-8000-000000000001',
+    'PROC-001',
+    'GENERAL',
+    1000.00,
+    0.00,
+    TRUE,
+    1,
+    UTC_TIMESTAMP(6)
+);
+
+INSERT INTO recycler_category_capabilities (
+    id, recycler_org_id, category, accepted_conditions_json,
+    supports_data_bearing, is_active, capacity_pool_id, version, updated_at
+) VALUES (
+    'c1260000-0000-4000-8000-000000000001',
+    'PROC-001',
+    'ICT_EQUIPMENT',
+    JSON_ARRAY('FUNCTIONAL', 'REPAIRABLE'),
+    FALSE,
+    TRUE,
+    'p1260000-0000-4000-8000-000000000001',
+    1,
+    UTC_TIMESTAMP(6)
+);
+
+INSERT INTO recycler_service_zones (
+    id, recycler_org_id, zone, minimum_lead_minutes,
+    is_active, version, updated_at
+) VALUES (
+    'z1260000-0000-4000-8000-000000000001',
+    'PROC-001',
+    'NORTH',
+    0,
+    TRUE,
+    1,
+    UTC_TIMESTAMP(6)
+);
+
+UPDATE ewaste_batches
+SET status = 'MATCHED',
+    version = 3,
+    collection_deadline = DATE_ADD(UTC_TIMESTAMP(6), INTERVAL 72 HOUR),
+    updated_at = UTC_TIMESTAMP(6)
+WHERE id = 'b1260000-0000-4000-8000-000000000003';
+
+INSERT INTO matching_decisions (
+    id, batch_id, trigger_id, trigger_type, batch_version, claim_epoch,
+    rule_set_id, evaluation_at, input_hash, profile_snapshot_hash,
+    input_snapshot_json, outcome, primary_reason, evaluated_count,
+    eligible_count, correlation_id, created_at, completed_at
+) VALUES (
+    'd1260000-0000-4000-8000-000000000001',
+    'b1260000-0000-4000-8000-000000000003',
+    't1260000-0000-4000-8000-000000000001',
+    'REQUEST_SUBMITTED',
+    2,
+    1,
+    'r1260000-0000-4000-8000-000000000001',
+    UTC_TIMESTAMP(6),
+    SHA2('local-c3-input', 256),
+    SHA2('local-c3-profile', 256),
+    JSON_OBJECT('fixture', TRUE),
+    'MATCHED',
+    'ELIGIBLE_EXISTS',
+    1,
+    1,
+    'local-c3-matching',
+    UTC_TIMESTAMP(6),
+    UTC_TIMESTAMP(6)
+);
+
+INSERT INTO matched_results (
+    id, decision_id, batch_id, recycler_org_id, profile_version,
+    category_match, capability_match, capacity_available, zone_match,
+    deadline_viable, is_matched, available_capacity_kg, capacity_pool_id,
+    capacity_version, minimum_lead_minutes, feasible_at, reason_code,
+    failed_rules_json, evidence_json, created_at
+) VALUES (
+    'm1260000-0000-4000-8000-000000000001',
+    'd1260000-0000-4000-8000-000000000001',
+    'b1260000-0000-4000-8000-000000000003',
+    'PROC-001',
+    1,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    TRUE,
+    1000.00,
+    'p1260000-0000-4000-8000-000000000001',
+    1,
+    0,
+    UTC_TIMESTAMP(6),
+    'ELIGIBLE',
+    JSON_ARRAY(),
+    JSON_OBJECT('fixture', TRUE),
+    UTC_TIMESTAMP(6)
+);
+'@
+        Invoke-DockerMySqlText -Database $targetDatabase -SqlText $localC3Fixture | Out-Null
+        $applied.Add("temporary inline C3 matching/claim fixture")
 
         [void]$results.Add([pscustomobject]@{
             Name = "database migration and seeding"
@@ -497,8 +645,69 @@ try {
                         Add-ApiResult -Name "Submitted batch rejects edit" -Response (Invoke-ApiRequest -Method "PATCH" -Uri "$baseUri/api/v1/batches/$batchId" -Headers $postSubmitEditHeaders -Body $editBody) -ExpectedStatus 409
                     }
 
+                    $forbiddenClaimHeaders = $authHeaders.Clone()
+                    $forbiddenClaimHeaders["Idempotency-Key"] = "forbidden-claim-$runId"
+                    $forbiddenClaimHeaders["If-Match-Version"] = "3"
+                    $claimBody = @{
+                        expected_version = 3
+                        claim_epoch = "1"
+                        notes = "local C3 integration claim"
+                    } | ConvertTo-Json -Compress
+                    Add-ApiResult -Name "Donor claim is forbidden" -Response (Invoke-ApiRequest -Method "POST" -Uri "$baseUri/api/v1/batches/$ClaimBatchID/claim" -Headers $forbiddenClaimHeaders -Body $claimBody) -ExpectedStatus 403
+
+                    $claimLoginBody = @{ email = $ClaimUserEmail; password = $ClaimUserPassword } | ConvertTo-Json -Compress
+                    $claimLoginResponse = Invoke-ApiRequest -Method "POST" -Uri "$baseUri/api/v1/auth/login" -Headers @{ "X-Correlation-ID" = "integration-claim-login" } -Body $claimLoginBody
+                    Add-ApiResult -Name "Recycler login" -Response $claimLoginResponse -ExpectedStatus 200
+
+                    $claimLoginJson = $null
+                    if ($claimLoginResponse.StatusCode -eq 200) {
+                        try { $claimLoginJson = $claimLoginResponse.Content | ConvertFrom-Json } catch { $claimLoginJson = $null }
+                    }
+                    $claimAccessToken = if ($null -ne $claimLoginJson) { [string]$claimLoginJson.access_token } else { "" }
+                    Add-AssertionResult -Name "Recycler login returns access token" -Passed (-not [string]::IsNullOrWhiteSpace($claimAccessToken)) -Details "access_token_present=$(-not [string]::IsNullOrWhiteSpace($claimAccessToken))"
+
+                    if (-not [string]::IsNullOrWhiteSpace($claimAccessToken)) {
+                        $claimCorrelationID = "integration-claim-$runId"
+                        $claimHeaders = @{
+                            Authorization = "Bearer $claimAccessToken"
+                            "X-Correlation-ID" = $claimCorrelationID
+                            "Idempotency-Key" = "claim-success-$runId"
+                            "If-Match-Version" = "3"
+                        }
+                        $claimResponse = Invoke-ApiRequest -Method "POST" -Uri "$baseUri/api/v1/batches/$ClaimBatchID/claim" -Headers $claimHeaders -Body $claimBody
+                        Add-ApiResult -Name "Recycler claims matched batch" -Response $claimResponse -ExpectedStatus 200
+
+                        $claimJson = $null
+                        if ($claimResponse.StatusCode -eq 200) {
+                            try { $claimJson = $claimResponse.Content | ConvertFrom-Json } catch { $claimJson = $null }
+                        }
+                        $claimStatus = if ($null -ne $claimJson) { [string]$claimJson.data.status } else { "" }
+                        $claimEventState = if ($null -ne $claimJson) { [string]$claimJson.data.event_state } else { "" }
+                        Add-AssertionResult -Name "Claim response records approval and outbox state" -Passed ($claimStatus -eq "APPROVED" -and $claimEventState -eq "PENDING") -Details "status=$claimStatus; event_state=$claimEventState"
+
+                        Add-ApiResult -Name "Claim idempotency replay" -Response (Invoke-ApiRequest -Method "POST" -Uri "$baseUri/api/v1/batches/$ClaimBatchID/claim" -Headers $claimHeaders -Body $claimBody) -ExpectedStatus 200
+
+                        $claimEvidenceSQL = @"
+SELECT IF(
+    (SELECT COUNT(*) FROM ewaste_batches WHERE id = '$ClaimBatchID' AND status = 'APPROVED' AND version = 4) = 1
+    AND (SELECT COUNT(*) FROM batch_claims WHERE batch_id = '$ClaimBatchID' AND claim_status = 'ACCEPTED') = 1
+    AND (SELECT COUNT(*) FROM capacity_reservations WHERE batch_id = '$ClaimBatchID' AND status = 'RESERVED') = 1
+    AND (SELECT COUNT(*) FROM batch_audit_events WHERE batch_id = '$ClaimBatchID' AND event_type = 'ClaimConfirmed' AND correlation_id = '$claimCorrelationID') = 1
+    AND (SELECT COUNT(*) FROM event_outbox WHERE batch_id = '$ClaimBatchID' AND event_type = 'ClaimConfirmed' AND publish_state = 'PENDING') = 1,
+    'PASS',
+    'FAIL'
+) AS result;
+"@
+                        $claimEvidence = Invoke-DockerMySqlText -Database $targetDatabase -SqlText $claimEvidenceSQL
+                        Add-AssertionResult -Name "Claim audit and outbox evidence" -Passed (($claimEvidence -join " ") -match "PASS") -Details ($claimEvidence -join " ")
+                    }
+
                     Add-ApiResult -Name "Logout revokes session" -Response (Invoke-ApiRequest -Method "POST" -Uri "$baseUri/api/v1/auth/logout" -Headers $authHeaders) -ExpectedStatus 204
                     Add-ApiResult -Name "Revoked access token is rejected" -Response (Invoke-ApiRequest -Method "POST" -Uri "$baseUri/api/v1/batches" -Headers $authHeaders -Body "{}") -ExpectedStatus 401
+
+                    if (-not [string]::IsNullOrWhiteSpace($claimAccessToken)) {
+                        Add-ApiResult -Name "Recycler logout revokes session" -Response (Invoke-ApiRequest -Method "POST" -Uri "$baseUri/api/v1/auth/logout" -Headers @{ Authorization = "Bearer $claimAccessToken"; "X-Correlation-ID" = "integration-claim-logout" }) -ExpectedStatus 204
+                    }
                 }
             }
             }
