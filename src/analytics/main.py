@@ -35,6 +35,11 @@ producer: Optional[KafkaProducer] = None
 consumer_thread: Optional[threading.Thread] = None
 stop_consumer_event = threading.Event()
 
+# In-memory deduplication cache — prevents reprocessing within a session.
+# Bounded to MAX_DEDUP_CACHE entries; cleared on overflow to prevent unbounded growth.
+MAX_DEDUP_CACHE = 10_000
+seen_event_ids: set = set()
+
 
 def get_kafka_producer_kwargs() -> dict:
     """Builds standard SASL_SSL authentication options for Azure Event Hubs."""
@@ -65,7 +70,7 @@ def get_kafka_consumer_kwargs() -> dict:
         "bootstrap_servers": [s.strip() for s in KAFKA_BOOTSTRAP_SERVERS.split(",")],
         "group_id": CONSUMER_GROUP,
         "auto_offset_reset": "earliest",
-        "enable_auto_commit": True,
+        "enable_auto_commit": False,  # offsets are committed manually after successful processing
         "value_deserializer": lambda m: json.loads(m.decode("utf-8")),
         "key_deserializer": lambda k: k.decode("utf-8") if k else None,
     }
@@ -86,7 +91,6 @@ def kafka_consumer_loop():
     """Background consumer daemon that listens on ewaste.batch.events."""
     logger.info(f"Starting background Kafka consumer on topic: '{KAFKA_TOPIC_BATCH_EVENTS}'...")
 
-    retries = 0
     while not stop_consumer_event.is_set():
         try:
             consumer = KafkaConsumer(KAFKA_TOPIC_BATCH_EVENTS, **get_kafka_consumer_kwargs())
@@ -104,14 +108,55 @@ def kafka_consumer_loop():
                     "value": message.value,
                     "consumed_at": time.time(),
                 }
-                if ENABLE_TEST_ENDPOINTS:
-                    recent_received_events.appendleft(event_data)
 
-                logger.info(
-                    f"Consuming Event: key={message.key} "
-                    f"event_type={message.value.get('event_type') if isinstance(message.value, dict) else 'unknown'} "
-                    f"offset={message.offset}"
+                # Extract a stable dedup key: prefer event_id from the envelope,
+                # fall back to topic+partition+offset (guarantees uniqueness at-least-once).
+                event_id = (
+                    message.value.get("event_id")
+                    if isinstance(message.value, dict)
+                    else None
                 )
+                dedup_key = event_id or f"{message.topic}-{message.partition}-{message.offset}"
+
+                if dedup_key in seen_event_ids:
+                    logger.info(
+                        f"Skipping duplicate event: key={message.key} "
+                        f"event_id={event_id} offset={message.offset}"
+                    )
+                    # Commit duplicate's offset so the consumer group doesn't stall.
+                    consumer.commit()
+                    continue
+
+                try:
+                    if ENABLE_TEST_ENDPOINTS:
+                        recent_received_events.appendleft(event_data)
+
+                    logger.info(
+                        f"Processing event: key={message.key} "
+                        f"event_type={message.value.get('event_type') if isinstance(message.value, dict) else 'unknown'} "
+                        f"offset={message.offset}"
+                    )
+
+                    # TODO: invoke matching algorithm, persist result, publish completion event.
+                    # On unrecoverable failure: publish to KAFKA_TOPIC_DLQ before committing.
+
+                    # Mark as processed and commit offset only after successful handling.
+                    seen_event_ids.add(dedup_key)
+                    if len(seen_event_ids) > MAX_DEDUP_CACHE:
+                        # Prevent unbounded growth — clear the cache on overflow.
+                        # Sessions longer than MAX_DEDUP_CACHE unique events will re-check
+                        # the DB/result store for idempotency rather than the in-memory set.
+                        seen_event_ids.clear()
+
+                    consumer.commit()
+
+                except Exception as processing_err:
+                    logger.error(
+                        f"Processing failed for event_id={event_id} "
+                        f"offset={message.offset}: {processing_err}. "
+                        f"Offset NOT committed — message will be redelivered."
+                    )
+                    # Do not commit: the consumer group will redeliver this message.
 
             consumer.close()
         except Exception as err:

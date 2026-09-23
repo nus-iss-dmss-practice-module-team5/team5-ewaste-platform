@@ -2,7 +2,7 @@ name: "IaC - Create Cloud Resources (Dev, Stg, Prod)"
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/pass-variables-to-aca-using-terraform]
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform-infra-create.yml'
