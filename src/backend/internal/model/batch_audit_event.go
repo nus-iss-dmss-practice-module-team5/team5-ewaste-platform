@@ -3,8 +3,8 @@ package model
 import "time"
 
 const (
-	BatchAuditEventDraftSaved        = "DraftSaved"
-	BatchAuditEventRequestSubmitted  = "RequestSubmitted"
+	BatchAuditEventDraftSaved       = "DraftSaved"
+	BatchAuditEventRequestSubmitted = "RequestSubmitted"
 )
 
 type BatchAuditEvent struct {
