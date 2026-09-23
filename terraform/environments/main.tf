@@ -602,6 +602,7 @@ resource "azurerm_container_app" "api" {
         value = "true"
       }
 
+      # ---- Kafka / Event Hubs outbox relay ----
       env {
         name  = "EWASTE_KAFKA_ENABLED"
         value = "true"
@@ -656,6 +657,7 @@ resource "azurerm_container_app" "api" {
     azurerm_private_endpoint.acr,
     azurerm_mysql_flexible_server.db,
     azurerm_redis_cache.redis,
+    azurerm_role_assignment.eventhub_sender,
     azurerm_eventhub_namespace_authorization_rule.app_auth
   ]
 }
@@ -820,7 +822,11 @@ resource "azurerm_container_app" "analytics" {
   }
 
   ingress {
-    external_enabled = true
+    # External ingress only in dev — the smoke test's publish-test and /events
+    # endpoints require an externally reachable FQDN from the GitHub Actions runner.
+    # In stg/prod, the analytics worker runs as an internal consumer-only service;
+    # ENABLE_TEST_ENDPOINTS is false and no external callers need to reach it.
+    external_enabled = var.environment == "dev" ? true : false
     target_port      = 8000
     transport        = "auto"
 
