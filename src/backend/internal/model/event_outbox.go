@@ -7,9 +7,7 @@ const RequestSubmittedEventType = "RequestSubmitted"
 type OutboxPublishState string
 
 const (
-	OutboxPublishStatePending     OutboxPublishState = "PENDING"
-	OutboxPublishStatePublished   OutboxPublishState = "PUBLISHED"
-	OutboxPublishStateQuarantined OutboxPublishState = "QUARANTINED"
+	OutboxPublishStatePending OutboxPublishState = "PENDING"
 )
 
 type EventOutbox struct {

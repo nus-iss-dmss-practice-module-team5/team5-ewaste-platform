@@ -513,12 +513,12 @@ func newCommand(
 ) *model.CommandIdempotency {
 	return &model.CommandIdempotency{
 		ID:             uuid.NewString(),
-		ActorUserID:    stringPtr(metadata.Actor.UserID),
+		ActorUserID:    new(metadata.Actor.UserID),
 		ActorScope:     metadata.ActorScope,
 		CommandName:    metadata.CommandName,
 		IdempotencyKey: metadata.IdempotencyKey,
 		RequestHash:    metadata.RequestHash,
-		BatchID:        stringPtr(batchID),
+		BatchID:        new(batchID),
 		State:          model.CommandStateInProgress,
 		CreatedAt:      now,
 		RetainUntil:    now.Add(retainFor),
@@ -562,8 +562,8 @@ func newAuditEvent(
 		ID:                  uuid.NewString(),
 		BatchID:             batch.ID,
 		CommandID:           commandID,
-		ActorUserID:         stringPtr(metadata.Actor.UserID),
-		ActorOrganizationID: stringPtr(metadata.Actor.OrganisationID),
+		ActorUserID:         new(metadata.Actor.UserID),
+		ActorOrganizationID: new(metadata.Actor.OrganisationID),
 		EventType:           eventType,
 		FromStatus:          fromStatus,
 		ToStatus:            toStatus,
@@ -808,12 +808,7 @@ func normalizeOptionalEnum(value *string) *string {
 		return nil
 	}
 
-	normalized := strings.ToUpper(strings.TrimSpace(*value))
-	return &normalized
-}
-
-func stringPtr(value string) *string {
-	return &value
+	return new(strings.ToUpper(strings.TrimSpace(*value)))
 }
 
 func allowedValue(value string, allowed ...string) bool {

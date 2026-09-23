@@ -11,7 +11,6 @@ var (
 	ErrBatchInvalidState        = errors.New("batch: invalid state")
 	ErrBatchStaleVersion        = errors.New("batch: stale version")
 	ErrBatchValidation          = errors.New("batch: validation failed")
-	ErrBatchIdempotencyReplay   = errors.New("batch: idempotency replay")
 	ErrBatchIdempotencyConflict = errors.New("batch: idempotency conflict")
 	ErrBatchInProgress          = errors.New("batch: command already in progress")
 )
