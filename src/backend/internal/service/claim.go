@@ -96,6 +96,14 @@ func (s *ClaimWorkflowService) Claim(
 
 	var result dto.ClaimResult
 	err = s.repository.Transaction(ctx, func(tx repository.ClaimTransaction) error {
+		if err := tx.ValidateRecyclerActor(
+			ctx,
+			metadata.Actor.UserID,
+			metadata.Actor.OrganisationID,
+		); err != nil {
+			return err
+		}
+
 		replay, replayErr := s.loadReplay(ctx, tx, metadata)
 		if replayErr != nil {
 			return replayErr
@@ -109,6 +117,15 @@ func (s *ClaimWorkflowService) Claim(
 		if err != nil {
 			return err
 		}
+
+		claimKeyExists, err := tx.ClaimKeyExists(ctx, metadata.IdempotencyKey)
+		if err != nil {
+			return err
+		}
+		if claimKeyExists {
+			return ErrClaimIdempotencyConflict
+		}
+
 		if batch.Version != uint32(metadata.ExpectedVersion) || batch.ClaimEpoch != claimEpoch {
 			return ErrClaimStaleVersion
 		}
@@ -295,6 +312,14 @@ func (s *ClaimWorkflowService) resolveReplay(
 ) (*dto.ClaimResult, error) {
 	var result *dto.ClaimResult
 	err := s.repository.Transaction(ctx, func(tx repository.ClaimTransaction) error {
+		if err := tx.ValidateRecyclerActor(
+			ctx,
+			metadata.Actor.UserID,
+			metadata.Actor.OrganisationID,
+		); err != nil {
+			return err
+		}
+
 		var err error
 		result, err = s.loadReplay(ctx, tx, metadata)
 		return err
@@ -421,6 +446,8 @@ func mapClaimRepositoryError(err error) error {
 	case errors.Is(err, repository.ErrClaimBatchNotFound),
 		errors.Is(err, repository.ErrClaimOpportunityNotFound):
 		return ErrClaimOpportunityNotFound
+	case errors.Is(err, repository.ErrClaimActorNotEligible):
+		return ErrClaimForbidden
 	case errors.Is(err, repository.ErrClaimConcurrency):
 		return ErrClaimConcurrent
 	default:

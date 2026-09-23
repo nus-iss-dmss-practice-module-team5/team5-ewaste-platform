@@ -54,12 +54,31 @@ func (t *fakeClaimTransaction) FindCommand(
 	return nil, repository.ErrClaimCommandNotFound
 }
 
+func (t *fakeClaimTransaction) ValidateRecyclerActor(
+	_ context.Context,
+	_, _ string,
+) error {
+	return nil
+}
+
 func (t *fakeClaimTransaction) CreateCommand(
 	_ context.Context,
 	command *model.CommandIdempotency,
 ) error {
 	t.state.commands = append(t.state.commands, command)
 	return nil
+}
+
+func (t *fakeClaimTransaction) ClaimKeyExists(
+	_ context.Context,
+	idempotencyKey string,
+) (bool, error) {
+	for _, claim := range t.state.claims {
+		if claim.IdempotencyKey == idempotencyKey {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (t *fakeClaimTransaction) FindBatchForUpdate(

@@ -17,6 +17,7 @@ var (
 	ErrClaimOpportunityNotFound = errors.New("repository: claim opportunity not found")
 	ErrClaimPoolNotFound        = errors.New("repository: claim capacity pool not found")
 	ErrClaimConcurrency         = errors.New("repository: claim concurrency conflict")
+	ErrClaimActorNotEligible    = errors.New("repository: claim actor is not eligible")
 )
 
 type ClaimRepository interface {
@@ -24,8 +25,10 @@ type ClaimRepository interface {
 }
 
 type ClaimTransaction interface {
+	ValidateRecyclerActor(context.Context, string, string) error
 	FindCommand(context.Context, string, string, string) (*model.CommandIdempotency, error)
 	CreateCommand(context.Context, *model.CommandIdempotency) error
+	ClaimKeyExists(context.Context, string) (bool, error)
 	FindBatchForUpdate(context.Context, string) (*model.Batch, error)
 	FindEligibleMatch(context.Context, *model.Batch, string) (*model.ClaimMatch, error)
 	LockCapacityPoolForUpdate(context.Context, string, string) (*model.CapacityPool, error)
@@ -61,6 +64,38 @@ func (r *GormClaimRepository) Transaction(
 
 type gormClaimTransaction struct {
 	db *gorm.DB
+}
+
+func (t *gormClaimTransaction) ValidateRecyclerActor(
+	ctx context.Context,
+	userID string,
+	organisationID string,
+) error {
+	var count int64
+	err := t.db.WithContext(ctx).
+		Table("users AS u").
+		Joins("INNER JOIN roles AS role ON role.role_code = u.role_code").
+		Joins("INNER JOIN organisations AS org ON org.organisation_id = u.organisation_id").
+		Where(`
+			u.user_id = ?
+			AND u.organisation_id = ?
+			AND u.status = 'ACTIVE'
+			AND u.role_code = 'RECYCLER'
+			AND role.is_active = TRUE
+			AND role.allowed_organisation_type = 'PROCESSING_FACILITY'
+			AND org.organisation_id = ?
+			AND org.organisation_type = 'PROCESSING_FACILITY'
+			AND org.status = 'ACTIVE'
+		`, userID, organisationID, organisationID).
+		Count(&count).
+		Error
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrClaimActorNotEligible
+	}
+	return nil
 }
 
 func (t *gormClaimTransaction) FindCommand(
@@ -101,6 +136,19 @@ func (t *gormClaimTransaction) CreateCommand(
 	}
 
 	return t.db.WithContext(ctx).Create(command).Error
+}
+
+func (t *gormClaimTransaction) ClaimKeyExists(
+	ctx context.Context,
+	idempotencyKey string,
+) (bool, error) {
+	var count int64
+	err := t.db.WithContext(ctx).
+		Model(&model.BatchClaim{}).
+		Where("idempotency_key = ?", idempotencyKey).
+		Count(&count).
+		Error
+	return count > 0, err
 }
 
 func (t *gormClaimTransaction) FindBatchForUpdate(

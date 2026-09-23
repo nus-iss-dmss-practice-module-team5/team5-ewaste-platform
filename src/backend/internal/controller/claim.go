@@ -122,6 +122,8 @@ func mapClaimError(err error) apierror.Code {
 	switch {
 	case errors.Is(err, service.ErrClaimForbidden):
 		return apierror.Forbidden
+	case errors.Is(err, repository.ErrClaimActorNotEligible):
+		return apierror.Forbidden
 	case errors.Is(err, service.ErrClaimOpportunityNotFound),
 		errors.Is(err, repository.ErrClaimBatchNotFound),
 		errors.Is(err, repository.ErrClaimOpportunityNotFound):
