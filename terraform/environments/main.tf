@@ -442,6 +442,11 @@ resource "azurerm_container_app" "api" {
     value = var.auth_refresh_hash_secret
   }
 
+  secret {
+    name  = "kafka-conn"
+    value = azurerm_eventhub_namespace_authorization_rule.app_auth.primary_connection_string
+  }
+
   template {
     min_replicas = 1
     max_replicas = 2
@@ -596,6 +601,36 @@ resource "azurerm_container_app" "api" {
         name  = "EWASTE_LOGGING_CONSOLE"
         value = "true"
       }
+
+      env {
+        name  = "EWASTE_KAFKA_ENABLED"
+        value = "true"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_BROKERS"
+        value = "${azurerm_eventhub_namespace.kafka.name}.servicebus.windows.net:9093"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_TLS_ENABLED"
+        value = "true"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_SASL_MECHANISM"
+        value = "PLAIN"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_SASL_USERNAME"
+        value = "$ConnectionString"
+      }
+
+      env {
+        name        = "EWASTE_KAFKA_SASL_PASSWORD"
+        secret_name = "kafka-conn"
+      }
     }
   }
 
@@ -620,7 +655,8 @@ resource "azurerm_container_app" "api" {
     azurerm_role_assignment.acr_pull,
     azurerm_private_endpoint.acr,
     azurerm_mysql_flexible_server.db,
-    azurerm_redis_cache.redis
+    azurerm_redis_cache.redis,
+    azurerm_eventhub_namespace_authorization_rule.app_auth
   ]
 }
 
