@@ -20,6 +20,18 @@ redis:
   db: 0
   tls_enabled: false
 
+kafka:
+  enabled: false
+  brokers:
+    - "localhost:9092"
+  client_id: "workflow-api"
+  publish_interval: "1s"
+  batch_size: 50
+  lease_duration: "30s"
+  leader_lease_duration: "30s"
+  retry_backoff: "5s"
+  publish_timeout: "10s"
+
 auth:
   issuer: "ewaste-workflow-api"
   access_secret: ""

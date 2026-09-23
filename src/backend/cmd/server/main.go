@@ -17,8 +17,10 @@ import (
 	"workflow-api/internal/config"
 	"workflow-api/internal/controller"
 	"workflow-api/internal/docs"
+	"workflow-api/internal/eventbus"
 	"workflow-api/internal/health"
 	"workflow-api/internal/logger"
+	"workflow-api/internal/outbox"
 	"workflow-api/internal/ratelimit"
 	"workflow-api/internal/repository"
 	"workflow-api/internal/router"
@@ -130,6 +132,47 @@ func run() error {
 	batchRepository := repository.NewGormBatchRepository(db)
 	batchService := service.NewBatchService(batchRepository)
 	batchController := controller.NewBatchController(batchService, appLogger.Logger)
+
+	if cfg.Kafka.Enabled {
+		kafkaPublisher, publisherErr := eventbus.NewKafkaPublisher(cfg.Kafka)
+		if publisherErr != nil {
+			return fmt.Errorf("create kafka publisher: %w", publisherErr)
+		}
+
+		defer func() {
+			if closeErr := kafkaPublisher.Close(); closeErr != nil {
+				appLogger.Warn("close kafka publisher", zap.Error(closeErr))
+			}
+		}()
+
+		relayContext, cancelRelay := context.WithCancel(context.Background())
+		defer cancelRelay()
+
+		relay := outbox.NewRelay(
+			repository.NewGormOutboxRepository(db),
+			kafkaPublisher,
+			outbox.NewRedisLeaderLeaseFactory(
+				redisClient,
+				"ewaste:workflow-api:event-outbox-relay",
+			),
+			outbox.RelayConfig{
+				PollInterval:        cfg.Kafka.PublishInterval,
+				BatchSize:           cfg.Kafka.BatchSize,
+				LeaseDuration:       cfg.Kafka.LeaseDuration,
+				LeaderLeaseDuration: cfg.Kafka.LeaderLeaseDuration,
+				RetryBackoff:        cfg.Kafka.RetryBackoff,
+				PublishTimeout:      cfg.Kafka.PublishTimeout,
+			},
+			appLogger.Logger,
+		)
+
+		go relay.Run(relayContext)
+
+		appLogger.Info(
+			"kafka outbox relay started",
+			zap.Strings("brokers", cfg.Kafka.Brokers),
+		)
+	}
 
 	limiter := ratelimit.NewRedisLimiter(redisClient, cfg.RateLimit.Requests, cfg.RateLimit.Window)
 	checker := health.NewChecker(db, redisClient, 3*time.Second)

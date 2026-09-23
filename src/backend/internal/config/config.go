@@ -14,6 +14,7 @@ type Config struct {
 	Server    ServerConfig    `mapstructure:"server"`
 	Database  DatabaseConfig  `mapstructure:"database"`
 	Redis     RedisConfig     `mapstructure:"redis"`
+	Kafka     KafkaConfig     `mapstructure:"kafka"`
 	Auth      AuthConfig      `mapstructure:"auth"`
 	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
 	Logging   LoggingConfig   `mapstructure:"logging"`
@@ -49,6 +50,18 @@ func (c *Config) ApplyMode(mode string) error {
 		}
 	}
 	return nil
+}
+
+type KafkaConfig struct {
+	Enabled             bool          `mapstructure:"enabled"`
+	Brokers             []string      `mapstructure:"brokers"`
+	ClientID            string        `mapstructure:"client_id"`
+	PublishInterval     time.Duration `mapstructure:"publish_interval"`
+	BatchSize           int           `mapstructure:"batch_size"`
+	LeaseDuration       time.Duration `mapstructure:"lease_duration"`
+	LeaderLeaseDuration time.Duration `mapstructure:"leader_lease_duration"`
+	RetryBackoff        time.Duration `mapstructure:"retry_backoff"`
+	PublishTimeout      time.Duration `mapstructure:"publish_timeout"`
 }
 
 type ServerConfig struct {
@@ -157,6 +170,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("logging.max_age_days", 30)
 	v.SetDefault("logging.compress", true)
 	v.SetDefault("logging.console", true)
+	v.SetDefault("kafka.enabled", false)
+	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
+	v.SetDefault("kafka.client_id", "workflow-api")
+	v.SetDefault("kafka.publish_interval", time.Second)
+	v.SetDefault("kafka.batch_size", 50)
+	v.SetDefault("kafka.lease_duration", 30*time.Second)
+	v.SetDefault("kafka.leader_lease_duration", 30*time.Second)
+	v.SetDefault("kafka.retry_backoff", 5*time.Second)
+	v.SetDefault("kafka.publish_timeout", 10*time.Second)
 }
 
 func bindEnvironment(v *viper.Viper) {
@@ -188,6 +210,15 @@ func bindEnvironment(v *viper.Viper) {
 		"logging.max_age_days",
 		"logging.compress",
 		"logging.console",
+		"kafka.enabled",
+		"kafka.brokers",
+		"kafka.client_id",
+		"kafka.publish_interval",
+		"kafka.batch_size",
+		"kafka.lease_duration",
+		"kafka.leader_lease_duration",
+		"kafka.retry_backoff",
+		"kafka.publish_timeout",
 	}
 	for _, key := range keys {
 		envName := "EWASTE_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
