@@ -117,7 +117,7 @@ func (s *AssignmentWorkflowService) Select(ctx context.Context, batchID string, 
 				return ErrAssignmentForbidden
 			}
 			sequence = previous.AssignmentSequence + 1
-			previousID = &previous.ID
+			previousID = new(previous.ID)
 		}
 
 		now := s.clock().UTC()
@@ -146,7 +146,7 @@ func (s *AssignmentWorkflowService) Select(ctx context.Context, batchID string, 
 		if err := tx.LinkCommandAssignment(ctx, command.ID, assignment.ID); err != nil {
 			return err
 		}
-		assignedBatch, err := tx.UpdateBatchAssignment(ctx, batch.ID, batch.Version, model.BatchStatusApproved, model.BatchStatusAssigned, &assignment.ID, now)
+		assignedBatch, err := tx.UpdateBatchAssignment(ctx, batch.ID, batch.Version, model.BatchStatusApproved, model.BatchStatusAssigned, new(assignment.ID), now)
 		if err != nil {
 			return err
 		}
@@ -155,7 +155,7 @@ func (s *AssignmentWorkflowService) Select(ctx context.Context, batchID string, 
 		}
 		if previousID != nil {
 			reason := "collector replacement"
-			if err := tx.CreateAction(ctx, s.action(metadata, command.ID, assignment, model.AssignmentActionReassigned, model.BatchStatusApproved, model.BatchStatusAssigned, &reason, previousID, now, scopeDetails)); err != nil {
+			if err := tx.CreateAction(ctx, s.action(metadata, command.ID, assignment, model.AssignmentActionReassigned, model.BatchStatusApproved, model.BatchStatusAssigned, new(reason), previousID, now, scopeDetails)); err != nil {
 				return err
 			}
 		}
@@ -163,8 +163,8 @@ func (s *AssignmentWorkflowService) Select(ctx context.Context, batchID string, 
 			"assignment_id": assignment.ID, "collector_user_id": assignment.CollectorUserID,
 			"collector_scope_id": assignment.CollectorScopeID, "collector_scope_version": strconv.FormatUint(scope.Version, 10), "assignment_sequence": strconv.FormatUint(sequence, 10),
 		}, now)
-		audit.AssignmentID = &assignment.ID
-		audit.ClaimID = &claim.ID
+		audit.AssignmentID = new(assignment.ID)
+		audit.ClaimID = new(claim.ID)
 		if err := tx.AppendAudit(ctx, audit); err != nil {
 			return err
 		}
@@ -180,7 +180,7 @@ func (s *AssignmentWorkflowService) Select(ctx context.Context, batchID string, 
 		if err := tx.EnqueueOutbox(ctx, newOutbox(eventID, command.ID, assignedBatch, model.CollectorAssignedEventType, collectorAssignedTopic, payload, metadata.CorrelationID, now)); err != nil {
 			return err
 		}
-		result = mutationResult(assignment, assignedBatch, metadata.CorrelationID, eventID)
+		result = mutationResult(assignment, metadata.CorrelationID, eventID)
 		responseJSON, err := json.Marshal(result)
 		if err != nil {
 			return err
@@ -267,7 +267,7 @@ func (s *AssignmentWorkflowService) changeAssignment(ctx context.Context, assign
 			if err := tx.UpdateAssignment(ctx, assignment); err != nil {
 				return err
 			}
-			updatedBatch, err := tx.UpdateBatchAssignment(ctx, batch.ID, batch.Version, model.BatchStatusAssigned, model.BatchStatusAssigned, &assignment.ID, now)
+			updatedBatch, err := tx.UpdateBatchAssignment(ctx, batch.ID, batch.Version, model.BatchStatusAssigned, model.BatchStatusAssigned, new(assignment.ID), now)
 			if err != nil {
 				return err
 			}
@@ -275,11 +275,11 @@ func (s *AssignmentWorkflowService) changeAssignment(ctx context.Context, assign
 				return err
 			}
 			audit := newAuditEvent(metadata, command.ID, updatedBatch, model.BatchAuditEventAssignmentAccepted, model.BatchStatusAssigned, model.BatchStatusAssigned, map[string]string{"assignment_id": assignment.ID}, now)
-			audit.AssignmentID = &assignment.ID
+			audit.AssignmentID = new(assignment.ID)
 			if err := tx.AppendAudit(ctx, audit); err != nil {
 				return err
 			}
-			result = mutationResult(assignment, updatedBatch, metadata.CorrelationID, "")
+			result = mutationResult(assignment, metadata.CorrelationID, "")
 		case RejectAssignmentCommand:
 			if assignment.AssignmentStatus != model.AssignmentStatusPending && assignment.AssignmentStatus != model.AssignmentStatusAccepted {
 				return ErrAssignmentInvalidState
@@ -299,15 +299,15 @@ func (s *AssignmentWorkflowService) changeAssignment(ctx context.Context, assign
 				return err
 			}
 			reason := request.RejectionReason
-			if err := tx.CreateAction(ctx, s.action(metadata, command.ID, assignment, model.AssignmentActionRejected, model.BatchStatusAssigned, model.BatchStatusApproved, &reason, nil, now, nil)); err != nil {
+			if err := tx.CreateAction(ctx, s.action(metadata, command.ID, assignment, model.AssignmentActionRejected, model.BatchStatusAssigned, model.BatchStatusApproved, new(reason), nil, now, nil)); err != nil {
 				return err
 			}
 			audit := newAuditEvent(metadata, command.ID, updatedBatch, model.BatchAuditEventAssignmentRejected, model.BatchStatusAssigned, model.BatchStatusApproved, map[string]string{"assignment_id": assignment.ID, "reason": request.RejectionReason}, now)
-			audit.AssignmentID = &assignment.ID
+			audit.AssignmentID = new(assignment.ID)
 			if err := tx.AppendAudit(ctx, audit); err != nil {
 				return err
 			}
-			result = mutationResult(assignment, updatedBatch, metadata.CorrelationID, "")
+			result = mutationResult(assignment, metadata.CorrelationID, "")
 		default:
 			return ErrAssignmentValidation
 		}
@@ -425,13 +425,13 @@ func (s *AssignmentWorkflowService) recordPickup(ctx context.Context, assignment
 		}
 		assignment.ClosedAt = new(now)
 		closure := actionType
-		assignment.ClosureReason = &closure
+		assignment.ClosureReason = new(closure)
 		assignment.Version++
 		assignment.UpdatedAt = now
 		if err := tx.UpdateAssignment(ctx, assignment); err != nil {
 			return err
 		}
-		updatedBatch, err := tx.UpdateBatchAssignment(ctx, batch.ID, batch.Version, model.BatchStatusAssigned, toStatus, &assignment.ID, now)
+		updatedBatch, err := tx.UpdateBatchAssignment(ctx, batch.ID, batch.Version, model.BatchStatusAssigned, toStatus, new(assignment.ID), now)
 		if err != nil {
 			return err
 		}
@@ -439,7 +439,7 @@ func (s *AssignmentWorkflowService) recordPickup(ctx context.Context, assignment
 			return err
 		}
 		audit := newAuditEvent(metadata, command.ID, updatedBatch, auditType, model.BatchStatusAssigned, toStatus, map[string]string{"assignment_id": assignment.ID, "handoff_id": handoff.ID}, now)
-		audit.AssignmentID = &assignment.ID
+		audit.AssignmentID = new(assignment.ID)
 		if err := tx.AppendAudit(ctx, audit); err != nil {
 			return err
 		}
@@ -460,7 +460,7 @@ func (s *AssignmentWorkflowService) recordPickup(ctx context.Context, assignment
 		if err := tx.EnqueueOutbox(ctx, newOutbox(eventID, command.ID, updatedBatch, eventType, topic, eventPayload, metadata.CorrelationID, now)); err != nil {
 			return err
 		}
-		result = mutationResult(assignment, updatedBatch, metadata.CorrelationID, eventID)
+		result = mutationResult(assignment, metadata.CorrelationID, eventID)
 		responseJSON, err := json.Marshal(result)
 		if err != nil {
 			return err
@@ -510,7 +510,7 @@ func (s *AssignmentWorkflowService) RecoverFailedCollection(ctx context.Context,
 			return ErrAssignmentInvalidState
 		}
 		now := s.clock().UTC()
-		command := &model.CommandIdempotency{ID: s.newID(), ServicePrincipal: &servicePrincipal, ActorScope: metadata.ActorScope, CommandName: metadata.CommandName, IdempotencyKey: metadata.IdempotencyKey, RequestHash: metadata.RequestHash, BatchID: &batch.ID, AssignmentID: &assignment.ID, State: model.CommandStateInProgress, CreatedAt: now, RetainUntil: now.Add(s.retainFor)}
+		command := &model.CommandIdempotency{ID: s.newID(), ServicePrincipal: new(servicePrincipal), ActorScope: metadata.ActorScope, CommandName: metadata.CommandName, IdempotencyKey: metadata.IdempotencyKey, RequestHash: metadata.RequestHash, BatchID: new(batch.ID), AssignmentID: new(assignment.ID), State: model.CommandStateInProgress, CreatedAt: now, RetainUntil: now.Add(s.retainFor)}
 		if err := tx.CreateCommand(ctx, command); err != nil {
 			return err
 		}
@@ -518,7 +518,7 @@ func (s *AssignmentWorkflowService) RecoverFailedCollection(ctx context.Context,
 		if err != nil {
 			return err
 		}
-		audit := &model.BatchAuditEvent{ID: s.newID(), BatchID: batch.ID, CommandID: command.ID, AssignmentID: &assignment.ID, ServicePrincipal: &servicePrincipal, EventType: model.BatchAuditEventCollectionRecoveryApproved, FromStatus: model.BatchStatusFailedCollection, ToStatus: model.BatchStatusApproved, BatchVersion: updatedBatch.Version, SequenceInCommand: 1, OccurredAt: now, CorrelationID: correlationID, DetailsJSON: []byte("{\"result\":\"APPROVED_FOR_REASSIGNMENT\"}")}
+		audit := &model.BatchAuditEvent{ID: s.newID(), BatchID: batch.ID, CommandID: command.ID, AssignmentID: new(assignment.ID), ServicePrincipal: new(servicePrincipal), EventType: model.BatchAuditEventCollectionRecoveryApproved, FromStatus: model.BatchStatusFailedCollection, ToStatus: model.BatchStatusApproved, BatchVersion: updatedBatch.Version, SequenceInCommand: 1, OccurredAt: now, CorrelationID: correlationID, DetailsJSON: []byte("{\"result\":\"APPROVED_FOR_REASSIGNMENT\"}")}
 		if err := tx.AppendAudit(ctx, audit); err != nil {
 			return err
 		}
@@ -659,7 +659,7 @@ func (s *AssignmentWorkflowService) action(metadata BatchCommandMetadata, comman
 	return &model.AssignmentAction{ID: s.newID(), BatchID: assignment.BatchID, AssignmentID: assignment.ID, ActionType: actionType, ActorUserID: new(metadata.Actor.UserID), ActorOrgID: new(metadata.Actor.OrganisationID), Reason: reason, PreviousAssignmentID: previous, FromBatchStatus: from, ToBatchStatus: to, AssignmentVersion: assignment.Version, CommandID: commandID, OccurredAt: now, CorrelationID: metadata.CorrelationID, DetailsJSON: details}
 }
 
-func mutationResult(assignment *model.BatchAssignment, batch *model.Batch, correlationID, eventID string) dto.AssignmentMutationResult {
+func mutationResult(assignment *model.BatchAssignment, correlationID, eventID string) dto.AssignmentMutationResult {
 	return dto.AssignmentMutationResult{Data: viewOf(assignment), CorrelationID: correlationID, EventID: eventID, EventState: stateForEvent(eventID)}
 }
 

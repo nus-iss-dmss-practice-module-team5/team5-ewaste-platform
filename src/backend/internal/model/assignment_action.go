@@ -8,7 +8,6 @@ const (
 	AssignmentActionRejected        = "REJECTED"
 	AssignmentActionHandoffRecorded = "HANDOFF_RECORDED"
 	AssignmentActionPickupFailed    = "PICKUP_FAILED"
-	AssignmentActionSuperseded      = "SUPERSEDED"
 	AssignmentActionReassigned      = "REASSIGNED"
 )
 
