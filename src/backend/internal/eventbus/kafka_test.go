@@ -5,23 +5,28 @@ import (
 	"testing"
 	"time"
 
+	"github.com/segmentio/kafka-go"
+
 	"workflow-api/internal/config"
 )
 
 func TestNewKafkaPublisherConfiguresEventHubsTransport(t *testing.T) {
 	publisher, err := NewKafkaPublisher(config.KafkaConfig{
-		Brokers:       []string{"evh-ewaste-dev.servicebus.windows.net:9093"},
-		TLSEnabled:    true,
-		SASLMechanism: "PLAIN",
-		SASLUsername:  "$ConnectionString",
-		SASLPassword:  "Endpoint=sb://evh-ewaste-dev.servicebus.windows.net/;SharedAccessKey=redacted",
+		Brokers:        []string{"evh-ewaste-dev.servicebus.windows.net:9093"},
+		TLSEnabled:     true,
+		SASLMechanism:  "PLAIN",
+		SASLUsername:   "$ConnectionString",
+		SASLPassword:   "Endpoint=sb://evh-ewaste-dev.servicebus.windows.net/;SharedAccessKey=redacted",
 		PublishTimeout: time.Second,
 	})
 	if err != nil {
 		t.Fatalf("create Event Hubs publisher: %v", err)
 	}
 
-	transport := publisher.writer.Transport
+	transport, ok := publisher.writer.Transport.(*kafka.Transport)
+	if !ok {
+		t.Fatalf("expected kafka.Transport, got %T", publisher.writer.Transport)
+	}
 	if transport == nil || transport.TLS == nil {
 		t.Fatal("expected TLS transport for Event Hubs")
 	}
