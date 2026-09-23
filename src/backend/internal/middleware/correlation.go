@@ -44,5 +44,9 @@ func GetCorrelationID(c *gin.Context) string {
 	}
 
 	correlationID, ok := value.(string)
-	return correlationID, ok
+	if !ok {
+		return ""
+	}
+
+	return correlationID
 }

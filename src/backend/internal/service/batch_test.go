@@ -190,8 +190,9 @@ func cloneBatch(source *model.Batch) *model.Batch {
 		return nil
 	}
 
-	copy := *source
-	return &copy
+	clone := new(model.Batch)
+	*clone = *source
+	return clone
 }
 
 func cloneCommand(source *model.CommandIdempotency) *model.CommandIdempotency {
@@ -199,44 +200,38 @@ func cloneCommand(source *model.CommandIdempotency) *model.CommandIdempotency {
 		return nil
 	}
 
-	copy := *source
-	copy.ResponseJSON = append([]byte(nil), source.ResponseJSON...)
-	return &copy
+	clone := new(model.CommandIdempotency)
+	*clone = *source
+	clone.ResponseJSON = append([]byte(nil), source.ResponseJSON...)
+	return clone
 }
 
 func applyFakeChanges(batch *model.Batch, changes map[string]any) {
 	for field, value := range changes {
 		switch field {
 		case "category":
-			normalized := value.(string)
-			batch.Category = &normalized
+			batch.Category = new(value.(string))
 
 		case "quantity":
-			quantity := value.(int)
-			batch.Quantity = &quantity
+			batch.Quantity = new(value.(int))
 
 		case "estimated_weight_kg":
-			weight := value.(string)
-			batch.EstimatedWeightKg = &weight
+			batch.EstimatedWeightKg = new(value.(string))
 
 		case "condition_rating":
-			condition := value.(string)
-			batch.ConditionRating = &condition
+			batch.ConditionRating = new(value.(string))
 
 		case "is_data_bearing":
 			batch.IsDataBearing = value.(bool)
 
 		case "zone":
-			zone := value.(string)
-			batch.Zone = &zone
+			batch.Zone = new(value.(string))
 
 		case "collection_deadline":
-			deadline := value.(time.Time)
-			batch.CollectionDeadline = &deadline
+			batch.CollectionDeadline = new(value.(time.Time))
 
 		case "notes":
-			notes := value.(string)
-			batch.Notes = &notes
+			batch.Notes = new(value.(string))
 		}
 	}
 }
@@ -269,24 +264,15 @@ func testDonorMetadata(
 }
 
 func testDraftRequest(now time.Time) dto.BatchDraftRequest {
-	category := "ICT_EQUIPMENT"
-	quantity := 3
-	weight := 2.50
-	condition := "FUNCTIONAL"
-	dataBearing := false
-	zone := "CENTRAL"
-	deadline := now.Add(72 * time.Hour)
-	notes := "working test batch"
-
 	return dto.BatchDraftRequest{
-		Category:           &category,
-		Quantity:           &quantity,
-		EstimatedWeightKg:  &weight,
-		ConditionRating:    &condition,
-		IsDataBearing:      &dataBearing,
-		Zone:               &zone,
-		CollectionDeadline: &deadline,
-		Notes:              &notes,
+		Category:           new("ICT_EQUIPMENT"),
+		Quantity:           new(3),
+		EstimatedWeightKg:  new(2.50),
+		ConditionRating:    new("FUNCTIONAL"),
+		IsDataBearing:      new(false),
+		Zone:               new("CENTRAL"),
+		CollectionDeadline: new(now.Add(72 * time.Hour)),
+		Notes:              new("working test batch"),
 	}
 }
 
@@ -517,8 +503,7 @@ func TestBatchServiceReplaysIdempotentCreateAndRejectsHashMismatch(t *testing.T)
 	}
 
 	changedRequest := request
-	changedNotes := "changed payload"
-	changedRequest.Notes = &changedNotes
+	changedRequest.Notes = new("changed payload")
 
 	_, err = service.CreateDraft(
 		context.Background(),

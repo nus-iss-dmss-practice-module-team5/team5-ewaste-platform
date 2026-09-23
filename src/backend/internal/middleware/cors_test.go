@@ -48,11 +48,11 @@ func TestCORSHandlesPreflightForConfiguredUIOrigin(t *testing.T) {
 	if res.Code != http.StatusNoContent {
 		t.Fatalf("expected 204, got %d", res.Code)
 	}
-	if got := res.Header().Get("Access-Control-Allow-Methods"); got != "GET, POST, OPTIONS" {
-		t.Fatalf("expected allowed methods %q, got %q", "GET, POST, OPTIONS", got)
+	if got := res.Header().Get("Access-Control-Allow-Methods"); got != "GET, POST, PATCH, OPTIONS" {
+		t.Fatalf("expected allowed methods %q, got %q", "GET, POST, PATCH, OPTIONS", got)
 	}
-	if got := res.Header().Get("Access-Control-Allow-Headers"); got != "Authorization, Content-Type, X-Correlation-ID" {
-		t.Fatalf("expected allowed headers %q, got %q", "Authorization, Content-Type, X-Correlation-ID", got)
+	if got := res.Header().Get("Access-Control-Allow-Headers"); got != "Authorization, Content-Type, X-Correlation-ID, Idempotency-Key, If-Match-Version" {
+		t.Fatalf("expected allowed headers %q, got %q", "Authorization, Content-Type, X-Correlation-ID, Idempotency-Key, If-Match-Version", got)
 	}
 }
 
