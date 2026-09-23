@@ -26,6 +26,10 @@ kafka:
   brokers:
     - "localhost:9092"
   client_id: "workflow-api"
+  tls_enabled: false
+  sasl_mechanism: "PLAIN"
+  sasl_username: ""
+  sasl_password: ""
   publish_interval: "1s"
   batch_size: 50
   max_attempts: 5

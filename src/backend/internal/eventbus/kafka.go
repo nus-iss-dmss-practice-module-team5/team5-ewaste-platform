@@ -2,14 +2,18 @@ package eventbus
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
+	"github.com/segmentio/kafka-go/sasl/plain"
 
 	"workflow-api/internal/config"
 	"workflow-api/internal/model"
@@ -76,6 +80,41 @@ func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
 		clientID = "workflow-api"
 	}
 
+	transport := &kafka.Transport{
+		DialTimeout: publishTimeout,
+		ClientID:    clientID,
+	}
+
+	if cfg.TLSEnabled {
+		// Event Hubs requires TLS 1.2 or newer for its Kafka endpoint.
+		// ServerName is set explicitly so certificate verification remains
+		// enabled when the broker address is supplied as host:port.
+		transport.TLS = &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			ServerName: kafkaServerName(brokers[0]),
+		}
+	}
+
+	saslUsername := strings.TrimSpace(cfg.SASLUsername)
+	saslPassword := cfg.SASLPassword
+	if saslUsername != "" || saslPassword != "" {
+		if saslUsername == "" || saslPassword == "" {
+			return nil, errors.New("kafka sasl username and password must be configured together")
+		}
+
+		mechanism := strings.ToUpper(strings.TrimSpace(cfg.SASLMechanism))
+		if mechanism == "" {
+			mechanism = "PLAIN"
+		}
+		if mechanism != "PLAIN" {
+			return nil, fmt.Errorf("unsupported kafka sasl mechanism %q", mechanism)
+		}
+		transport.SASL = plain.Mechanism{
+			Username: saslUsername,
+			Password: saslPassword,
+		}
+	}
+
 	return &KafkaPublisher{
 		// WriterConfig/NewWriter are deprecated in kafka-go v0.4.51.
 		// Configure Writer directly so broker acknowledgements remain explicit.
@@ -88,12 +127,17 @@ func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
 			ReadTimeout:  publishTimeout,
 			WriteTimeout: publishTimeout,
 			Async:        false,
-			Transport: &kafka.Transport{
-				DialTimeout: publishTimeout,
-				ClientID:    clientID,
-			},
+			Transport:    transport,
 		},
 	}, nil
+}
+
+func kafkaServerName(address string) string {
+	host, _, err := net.SplitHostPort(address)
+	if err == nil {
+		return host
+	}
+	return strings.Trim(address, "[]")
 }
 
 // validateEvent checks routing identity before the network call. The payload

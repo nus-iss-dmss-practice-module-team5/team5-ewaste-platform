@@ -25,6 +25,12 @@ kafka:
   brokers:
     - "localhost:9092"
   client_id: "workflow-api"
+  # Azure Event Hubs uses Kafka over TLS with SASL/PLAIN.
+  tls_enabled: false
+  sasl_mechanism: "PLAIN"
+  sasl_username: ""
+  # Supply the password through EWASTE_KAFKA_SASL_PASSWORD or KAFKA_CONNECTION_STRING.
+  sasl_password: ""
   publish_interval: "1s"
   batch_size: 50
   max_attempts: 5

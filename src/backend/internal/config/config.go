@@ -56,6 +56,10 @@ type KafkaConfig struct {
 	Enabled             bool          `mapstructure:"enabled"`
 	Brokers             []string      `mapstructure:"brokers"`
 	ClientID            string        `mapstructure:"client_id"`
+	TLSEnabled          bool          `mapstructure:"tls_enabled"`
+	SASLMechanism       string        `mapstructure:"sasl_mechanism"`
+	SASLUsername        string        `mapstructure:"sasl_username"`
+	SASLPassword        string        `mapstructure:"sasl_password"`
 	PublishInterval     time.Duration `mapstructure:"publish_interval"`
 	BatchSize           int           `mapstructure:"batch_size"`
 	MaxAttempts         int           `mapstructure:"max_attempts"`
@@ -174,6 +178,10 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("kafka.enabled", false)
 	v.SetDefault("kafka.brokers", []string{"localhost:9092"})
 	v.SetDefault("kafka.client_id", "workflow-api")
+	v.SetDefault("kafka.tls_enabled", false)
+	v.SetDefault("kafka.sasl_mechanism", "PLAIN")
+	v.SetDefault("kafka.sasl_username", "")
+	v.SetDefault("kafka.sasl_password", "")
 	v.SetDefault("kafka.publish_interval", time.Second)
 	v.SetDefault("kafka.batch_size", 50)
 	v.SetDefault("kafka.max_attempts", 5)
@@ -215,6 +223,10 @@ func bindEnvironment(v *viper.Viper) {
 		"kafka.enabled",
 		"kafka.brokers",
 		"kafka.client_id",
+		"kafka.tls_enabled",
+		"kafka.sasl_mechanism",
+		"kafka.sasl_username",
+		"kafka.sasl_password",
 		"kafka.publish_interval",
 		"kafka.batch_size",
 		"kafka.max_attempts",
@@ -231,6 +243,13 @@ func bindEnvironment(v *viper.Viper) {
 		}
 		if key == "redis.password" {
 			_ = v.BindEnv(key, "REDIS_PASSWORD", envName)
+			continue
+		}
+		if key == "kafka.sasl_password" {
+			// Azure Event Hubs exposes the Kafka password as a connection
+			// string. Keep the generic EWASTE name while accepting the same
+			// secret name used by the Analytics worker deployment.
+			_ = v.BindEnv(key, "KAFKA_CONNECTION_STRING", "EWASTE_KAFKA_CONNECTION_STRING", envName)
 			continue
 		}
 		_ = v.BindEnv(key, envName)
