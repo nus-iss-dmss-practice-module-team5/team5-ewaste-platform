@@ -830,8 +830,8 @@ components:
       additionalProperties: false
       properties:
         pickup_occurred_at: {type: string, format: date-time}
-        donor_representative_name: {type: string, maxLength: 150}
-        actual_item_count: {type: integer, minimum: 0}
+        donor_representative_name: {type: string, maxLength: 100}
+        actual_item_count: {type: integer, minimum: 1, maximum: 100000}
         verification_hash: {type: string, pattern: '^[0-9a-fA-F]{64}$'}
         notes: {type: string, maxLength: 500}
     FailedPickupRequest:
@@ -839,7 +839,10 @@ components:
       required: [failure_reason]
       additionalProperties: false
       properties:
-        failure_reason: {type: string, maxLength: 100}
+        failure_reason:
+          type: string
+          maxLength: 32
+          enum: [DONOR_UNAVAILABLE, INCORRECT_ITEMS, ACCESS_DENIED, DAMAGED_HAZARDOUS, SAFETY_CANCEL]
         observed_details: {type: string, maxLength: 500}
     Assignment:
       type: object

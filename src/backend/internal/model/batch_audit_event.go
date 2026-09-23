@@ -3,9 +3,15 @@ package model
 import "time"
 
 const (
-	BatchAuditEventDraftSaved       = "DraftSaved"
-	BatchAuditEventRequestSubmitted = "RequestSubmitted"
-	BatchAuditEventClaimConfirmed   = "ClaimConfirmed"
+	BatchAuditEventDraftSaved                 = "DraftSaved"
+	BatchAuditEventRequestSubmitted           = "RequestSubmitted"
+	BatchAuditEventClaimConfirmed             = "ClaimConfirmed"
+	BatchAuditEventCollectorAssigned          = "CollectorAssigned"
+	BatchAuditEventAssignmentAccepted         = "AssignmentAccepted"
+	BatchAuditEventAssignmentRejected         = "AssignmentRejected"
+	BatchAuditEventCollectionCompleted        = "CollectionCompleted"
+	BatchAuditEventCollectionFailed           = "CollectionFailed"
+	BatchAuditEventCollectionRecoveryApproved = "CollectionRecoveryApproved"
 )
 
 type BatchAuditEvent struct {

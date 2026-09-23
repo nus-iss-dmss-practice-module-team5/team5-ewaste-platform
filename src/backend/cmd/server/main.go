@@ -141,6 +141,9 @@ func run() error {
 	)
 	claimService := service.NewClaimWorkflowService(claimRepository, claimLease)
 	claimController := controller.NewClaimController(claimService, appLogger.Logger)
+	assignmentRepository := repository.NewGormAssignmentRepository(db)
+	assignmentService := service.NewAssignmentWorkflowService(assignmentRepository)
+	assignmentController := controller.NewAssignmentController(assignmentService, appLogger.Logger)
 
 	if cfg.Kafka.Enabled {
 		kafkaPublisher, publisherErr := eventbus.NewKafkaPublisher(cfg.Kafka)
@@ -190,6 +193,7 @@ func run() error {
 		authController,
 		batchController,
 		claimController,
+		assignmentController,
 		tokens,
 		repo,
 		limiter,

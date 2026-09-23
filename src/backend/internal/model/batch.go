@@ -5,10 +5,13 @@ import "time"
 type BatchStatus string
 
 const (
-	BatchStatusDraft     BatchStatus = "DRAFT"
-	BatchStatusSubmitted BatchStatus = "SUBMITTED"
-	BatchStatusMatched   BatchStatus = "MATCHED"
-	BatchStatusApproved  BatchStatus = "APPROVED"
+	BatchStatusDraft            BatchStatus = "DRAFT"
+	BatchStatusSubmitted        BatchStatus = "SUBMITTED"
+	BatchStatusMatched          BatchStatus = "MATCHED"
+	BatchStatusApproved         BatchStatus = "APPROVED"
+	BatchStatusAssigned         BatchStatus = "ASSIGNED"
+	BatchStatusCollected        BatchStatus = "COLLECTED"
+	BatchStatusFailedCollection BatchStatus = "FAILED_COLLECTION"
 )
 
 type Batch struct {

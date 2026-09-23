@@ -2,8 +2,13 @@ package model
 
 import "time"
 
-const RequestSubmittedEventType = "RequestSubmitted"
-const ClaimConfirmedEventType = "ClaimConfirmed"
+const (
+	RequestSubmittedEventType    = "RequestSubmitted"
+	ClaimConfirmedEventType      = "ClaimConfirmed"
+	CollectorAssignedEventType   = "CollectorAssigned"
+	CollectionCompletedEventType = "CollectionCompleted"
+	CollectionFailedEventType    = "CollectionFailed"
+)
 
 type OutboxPublishState string
 

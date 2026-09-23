@@ -20,6 +20,7 @@ func NewAuthRouter(
 	authController *controller.AuthController,
 	batchController *controller.BatchController,
 	claimController *controller.ClaimController,
+	assignmentController *controller.AssignmentController,
 	tokens *token.Service,
 	repo repository.AuthRepository,
 	limiter ratelimit.Limiter,
@@ -79,6 +80,18 @@ func NewAuthRouter(
 	}
 	if claimController != nil {
 		batches.POST("/:batch_id/claim", claimController.Claim)
+	}
+	if assignmentController != nil {
+		batches.POST("/:batch_id/assignments", assignmentController.Select)
+	}
+
+	assignments := r.Group("/api/v1/assignments")
+	assignments.Use(middleware.RequireAccessTokens(tokens, repo))
+	if assignmentController != nil {
+		assignments.POST("/:assignment_id/accept", assignmentController.Accept)
+		assignments.POST("/:assignment_id/reject", assignmentController.Reject)
+		assignments.POST("/:assignment_id/handoff", assignmentController.Handoff)
+		assignments.POST("/:assignment_id/fail", assignmentController.Fail)
 	}
 
 	r.NoRoute(func(c *gin.Context) {
