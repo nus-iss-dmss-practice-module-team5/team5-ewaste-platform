@@ -158,6 +158,7 @@ func run() error {
 			outbox.RelayConfig{
 				PollInterval:        cfg.Kafka.PublishInterval,
 				BatchSize:           cfg.Kafka.BatchSize,
+				MaxAttempts:         cfg.Kafka.MaxAttempts,
 				LeaseDuration:       cfg.Kafka.LeaseDuration,
 				LeaderLeaseDuration: cfg.Kafka.LeaderLeaseDuration,
 				RetryBackoff:        cfg.Kafka.RetryBackoff,

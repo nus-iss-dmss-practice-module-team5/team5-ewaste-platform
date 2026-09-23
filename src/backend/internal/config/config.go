@@ -58,6 +58,7 @@ type KafkaConfig struct {
 	ClientID            string        `mapstructure:"client_id"`
 	PublishInterval     time.Duration `mapstructure:"publish_interval"`
 	BatchSize           int           `mapstructure:"batch_size"`
+	MaxAttempts         int           `mapstructure:"max_attempts"`
 	LeaseDuration       time.Duration `mapstructure:"lease_duration"`
 	LeaderLeaseDuration time.Duration `mapstructure:"leader_lease_duration"`
 	RetryBackoff        time.Duration `mapstructure:"retry_backoff"`
@@ -175,6 +176,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("kafka.client_id", "workflow-api")
 	v.SetDefault("kafka.publish_interval", time.Second)
 	v.SetDefault("kafka.batch_size", 50)
+	v.SetDefault("kafka.max_attempts", 5)
 	v.SetDefault("kafka.lease_duration", 30*time.Second)
 	v.SetDefault("kafka.leader_lease_duration", 30*time.Second)
 	v.SetDefault("kafka.retry_backoff", 5*time.Second)
@@ -215,6 +217,7 @@ func bindEnvironment(v *viper.Viper) {
 		"kafka.client_id",
 		"kafka.publish_interval",
 		"kafka.batch_size",
+		"kafka.max_attempts",
 		"kafka.lease_duration",
 		"kafka.leader_lease_duration",
 		"kafka.retry_backoff",

@@ -43,6 +43,15 @@ type KafkaPublisher struct {
 	writer *kafka.Writer
 }
 
+var canonicalTopicByEventType = map[string]string{
+	"RequestSubmitted":    "ewaste.batch.events",
+	"MatchingCompleted":   "ewaste.batch.events",
+	"ClaimConfirmed":      "ewaste.claim.events",
+	"CollectorAssigned":   "batch.collector.assigned",
+	"CollectionCompleted": "batch.collection.completed",
+	"CollectionFailed":    "batch.collection.failed",
+}
+
 func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
 	brokers := make([]string, 0, len(cfg.Brokers))
 
@@ -68,17 +77,22 @@ func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
 	}
 
 	return &KafkaPublisher{
-		writer: kafka.NewWriter(kafka.WriterConfig{
-			Brokers:      brokers,
+		// WriterConfig/NewWriter are deprecated in kafka-go v0.4.51.
+		// Configure Writer directly so broker acknowledgements remain explicit.
+		writer: &kafka.Writer{
+			Addr:         kafka.TCP(brokers...),
 			Balancer:     &kafka.Hash{},
-			RequiredAcks: int(kafka.RequireAll),
+			RequiredAcks: kafka.RequireAll,
 			BatchSize:    1,
+			MaxAttempts:  cfg.MaxAttempts,
+			ReadTimeout:  publishTimeout,
+			WriteTimeout: publishTimeout,
 			Async:        false,
-			Dialer: &kafka.Dialer{
-				Timeout:  publishTimeout,
-				ClientID: clientID,
+			Transport: &kafka.Transport{
+				DialTimeout: publishTimeout,
+				ClientID:    clientID,
 			},
-		}),
+		},
 	}, nil
 }
 
@@ -99,6 +113,12 @@ func validateEvent(event model.EventOutbox) error {
 	if event.PartitionKey != event.BatchID {
 		return &InvalidEventError{
 			cause: errors.New("kafka partition key must equal batch id"),
+		}
+	}
+	expectedTopic, knownEventType := canonicalTopicByEventType[event.EventType]
+	if !knownEventType || event.Topic != expectedTopic {
+		return &InvalidEventError{
+			cause: errors.New("kafka event type and topic do not agree"),
 		}
 	}
 	if event.SchemaVersion != 1 {
@@ -128,6 +148,41 @@ func validateEvent(event model.EventOutbox) error {
 			return &InvalidEventError{
 				cause: errors.New("kafka identifier must be a lowercase uuid"),
 			}
+		}
+	}
+
+	var envelope struct {
+		EventID           string          `json:"event_id"`
+		EventType         string          `json:"event_type"`
+		SchemaVersion     uint32          `json:"schema_version"`
+		CommandID         string          `json:"command_id"`
+		BatchID           string          `json:"batch_id"`
+		BatchVersion      uint32          `json:"batch_version"`
+		ClaimEpoch        string          `json:"claim_epoch"`
+		SequenceInCommand uint32          `json:"sequence_in_command"`
+		OccurredAt        time.Time       `json:"occurred_at"`
+		CorrelationID     string          `json:"correlation_id"`
+		Data              json.RawMessage `json:"data"`
+	}
+
+	if err := json.Unmarshal(event.PayloadJSON, &envelope); err != nil {
+		return &InvalidEventError{cause: ErrKafkaPayloadMissing}
+	}
+	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
+		return &InvalidEventError{cause: errors.New("kafka event data is missing")}
+	}
+	if envelope.EventID != event.EventID ||
+		envelope.EventType != event.EventType ||
+		envelope.SchemaVersion != event.SchemaVersion ||
+		envelope.CommandID != event.CommandID ||
+		envelope.BatchID != event.BatchID ||
+		envelope.BatchVersion != event.AggregateVersion ||
+		envelope.SequenceInCommand != event.SequenceInCommand ||
+		envelope.CorrelationID != event.CorrelationID ||
+		envelope.OccurredAt.UTC().UnixMicro() != event.OccurredAt.UTC().UnixMicro() ||
+		envelope.ClaimEpoch == "" {
+		return &InvalidEventError{
+			cause: errors.New("kafka payload metadata does not match outbox metadata"),
 		}
 	}
 

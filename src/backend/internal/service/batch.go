@@ -597,26 +597,26 @@ func buildRequestSubmittedPayload(
 	}
 
 	payload := struct {
-		EventID           string    `json:"event_id"`
-		EventType         string    `json:"event_type"`
-		SchemaVersion     int       `json:"schema_version"`
-		CommandID         string    `json:"command_id"`
-		BatchID           string    `json:"batch_id"`
-		BatchVersion      uint32    `json:"batch_version"`
-		ClaimEpoch        string    `json:"claim_epoch"`
-		SequenceInCommand uint32    `json:"sequence_in_command"`
-		OccurredAt        time.Time `json:"occurred_at"`
-		CorrelationID     string    `json:"correlation_id"`
+		EventID           string            `json:"event_id"`
+		EventType         string            `json:"event_type"`
+		SchemaVersion     int               `json:"schema_version"`
+		CommandID         string            `json:"command_id"`
+		BatchID           string            `json:"batch_id"`
+		BatchVersion      uint32            `json:"batch_version"`
+		ClaimEpoch        string            `json:"claim_epoch"`
+		SequenceInCommand uint32            `json:"sequence_in_command"`
+		OccurredAt        contractTimestamp `json:"occurred_at"`
+		CorrelationID     string            `json:"correlation_id"`
 		Data              struct {
-			OrganizationID     string    `json:"organization_id"`
-			SubmittedAt        time.Time `json:"submitted_at"`
-			Category           string    `json:"category"`
-			Quantity           int       `json:"quantity"`
-			EstimatedWeightKg  string    `json:"estimated_weight_kg"`
-			ConditionRating    string    `json:"condition_rating"`
-			IsDataBearing      bool      `json:"is_data_bearing"`
-			Zone               string    `json:"zone"`
-			CollectionDeadline time.Time `json:"collection_deadline"`
+			OrganizationID     string            `json:"organization_id"`
+			SubmittedAt        contractTimestamp `json:"submitted_at"`
+			Category           string            `json:"category"`
+			Quantity           int               `json:"quantity"`
+			EstimatedWeightKg  string            `json:"estimated_weight_kg"`
+			ConditionRating    string            `json:"condition_rating"`
+			IsDataBearing      bool              `json:"is_data_bearing"`
+			Zone               string            `json:"zone"`
+			CollectionDeadline contractTimestamp `json:"collection_deadline"`
 		} `json:"data"`
 	}{}
 
@@ -628,20 +628,32 @@ func buildRequestSubmittedPayload(
 	payload.BatchVersion = batch.Version
 	payload.ClaimEpoch = strconv.FormatUint(batch.ClaimEpoch, 10)
 	payload.SequenceInCommand = 1
-	payload.OccurredAt = *batch.SubmittedAt
+	payload.OccurredAt = contractTimestamp(*batch.SubmittedAt)
 	payload.CorrelationID = correlationID
 
 	payload.Data.OrganizationID = batch.OrganizationID
-	payload.Data.SubmittedAt = *batch.SubmittedAt
+	payload.Data.SubmittedAt = contractTimestamp(*batch.SubmittedAt)
 	payload.Data.Category = *batch.Category
 	payload.Data.Quantity = *batch.Quantity
 	payload.Data.EstimatedWeightKg = weight
 	payload.Data.ConditionRating = *batch.ConditionRating
 	payload.Data.IsDataBearing = batch.IsDataBearing
 	payload.Data.Zone = *batch.Zone
-	payload.Data.CollectionDeadline = *batch.CollectionDeadline
+	payload.Data.CollectionDeadline = contractTimestamp(*batch.CollectionDeadline)
 
 	return json.Marshal(payload)
+}
+
+// contractTimestamp keeps the wire contract at UTC with exactly six fractional
+// digits, matching the DATETIME(6) format defined by EWCSB-107.
+type contractTimestamp time.Time
+
+func (t contractTimestamp) MarshalJSON() ([]byte, error) {
+	formatted := time.Time(t).
+		UTC().
+		Format("2006-01-02T15:04:05.000000Z")
+
+	return json.Marshal(formatted)
 }
 
 func validateDraft(

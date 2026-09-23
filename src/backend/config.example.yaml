@@ -27,6 +27,7 @@ kafka:
   client_id: "workflow-api"
   publish_interval: "1s"
   batch_size: 50
+  max_attempts: 5
   lease_duration: "30s"
   leader_lease_duration: "30s"
   retry_backoff: "5s"

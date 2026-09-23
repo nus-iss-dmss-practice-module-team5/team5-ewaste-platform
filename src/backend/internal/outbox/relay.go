@@ -21,6 +21,7 @@ type Publisher interface {
 type RelayConfig struct {
 	PollInterval        time.Duration
 	BatchSize           int
+	MaxAttempts         int
 	LeaseDuration       time.Duration
 	LeaderLeaseDuration time.Duration
 	RetryBackoff        time.Duration
@@ -48,6 +49,9 @@ func NewRelay(
 	}
 	if cfg.BatchSize <= 0 {
 		cfg.BatchSize = 50
+	}
+	if cfg.MaxAttempts <= 0 {
+		cfg.MaxAttempts = 5
 	}
 	if cfg.LeaseDuration <= 0 {
 		cfg.LeaseDuration = 30 * time.Second
@@ -180,6 +184,21 @@ func (r *Relay) processOnce(ctx context.Context) {
 				); quarantineErr != nil {
 					r.logger.Error(
 						"quarantine outbox event",
+						zap.String("event_id", event.EventID),
+						zap.Error(quarantineErr),
+					)
+				}
+				continue
+			}
+
+			if event.AttemptCount+1 >= uint32(r.config.MaxAttempts) {
+				if quarantineErr := r.repository.MarkQuarantined(
+					ctx,
+					event.EventID,
+					"KAFKA_MAX_ATTEMPTS",
+				); quarantineErr != nil {
+					r.logger.Error(
+						"quarantine exhausted outbox event",
 						zap.String("event_id", event.EventID),
 						zap.Error(quarantineErr),
 					)
