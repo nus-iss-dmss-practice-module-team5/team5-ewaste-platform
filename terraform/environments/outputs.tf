@@ -69,3 +69,34 @@ output "acr_login_server" {
   value       = data.azurerm_container_registry.shared_acr.login_server
   description = "Login server for the shared Azure Container Registry."
 }
+
+output "kafka_bootstrap_servers" {
+  value       = "${azurerm_eventhub_namespace.kafka.name}.servicebus.windows.net:9093"
+  description = "Kafka bootstrap broker endpoint for Go relay and Python matching consumers."
+}
+
+output "kafka_primary_connection_string" {
+  value       = azurerm_eventhub_namespace_authorization_rule.app_auth.primary_connection_string
+  sensitive   = true
+  description = "SASL/PLAIN connection string for Kafka producers and consumers."
+}
+
+output "kafka_topics" {
+  value       = [for t in azurerm_eventhub.topics : t.name]
+  description = "List of provisioned canonical Kafka topics."
+}
+
+output "aca_api_fqdn" {
+  value       = azurerm_container_app.api.ingress[0].fqdn
+  description = "The FQDN of the Backend API Container App."
+}
+
+output "aca_ui_fqdn" {
+  value       = azurerm_container_app.ui.ingress[0].fqdn
+  description = "The FQDN of the Frontend UI Container App."
+}
+
+output "aca_analytics_fqdn" {
+  value       = azurerm_container_app.analytics.ingress[0].fqdn
+  description = "The FQDN of the Analytics Worker Container App."
+}
