@@ -111,21 +111,90 @@ describe("collector work", () => {
     });
     render(<CollectorWork />);
     await user.click(await screen.findByTestId("collector-open-asg-1"));
-    await user.type(
+    await user.selectOptions(
       screen.getByTestId("collector-failure-reason"),
-      "collector absent",
+      "DONOR_UNAVAILABLE",
     );
     await user.click(screen.getByTestId("collector-fail"));
     expect(await screen.findByTestId("collector-failed")).toHaveTextContent(
-      "returns to APPROVED",
+      "Donor unavailable. The batch returns to APPROVED",
     );
     expect(reportFailedPickup).toHaveBeenCalledWith(
       "access-token",
       "asg-1",
       1,
-      { failureReason: "collector absent", observedDetails: "" },
+      { failureReason: "DONOR_UNAVAILABLE", observedDetails: "" },
       "idem-collector",
     );
+  });
+
+  it("offers only the backend failure reasons", async () => {
+    const user = userEvent.setup();
+    render(<CollectorWork />);
+    await user.click(await screen.findByTestId("collector-open-asg-1"));
+    const options = Array.from(
+      screen.getByTestId("collector-failure-reason").querySelectorAll("option"),
+    ).map((option) => option.value);
+    expect(options).toEqual([
+      "",
+      "DONOR_UNAVAILABLE",
+      "INCORRECT_ITEMS",
+      "ACCESS_DENIED",
+      "DAMAGED_HAZARDOUS",
+      "SAFETY_CANCEL",
+    ]);
+  });
+
+  it("requires a failure reason before reporting a failed pickup", async () => {
+    const user = userEvent.setup();
+    render(<CollectorWork />);
+    await user.click(await screen.findByTestId("collector-open-asg-1"));
+    await user.click(screen.getByTestId("collector-fail"));
+    expect(
+      await screen.findByTestId("collector-action-validation"),
+    ).toHaveTextContent("Choose a failure reason");
+    expect(reportFailedPickup).not.toHaveBeenCalled();
+  });
+
+  async function fillHandoff(
+    user: ReturnType<typeof userEvent.setup>,
+    count: string,
+  ) {
+    await user.click(await screen.findByTestId("collector-open-asg-1"));
+    await user.type(
+      screen.getByTestId("collector-pickup-at"),
+      "2026-09-23T10:00",
+    );
+    await user.type(
+      screen.getByTestId("collector-representative"),
+      "Representative",
+    );
+    if (count) {
+      await user.type(screen.getByTestId("collector-actual-count"), count);
+    }
+    await user.type(screen.getByTestId("collector-hash"), "a".repeat(64));
+    await user.click(screen.getByTestId("collector-handoff-submit"));
+  }
+
+  it("rejects an empty actual item count before calling handoff", async () => {
+    const user = userEvent.setup();
+    render(<CollectorWork />);
+    await fillHandoff(user, "");
+    expect(
+      await screen.findByTestId("collector-action-validation"),
+    ).toHaveTextContent("from 1 to 100000");
+    expect(recordHandoff).not.toHaveBeenCalled();
+  });
+
+  it("blocks a zero actual item count before calling handoff", async () => {
+    const user = userEvent.setup();
+    render(<CollectorWork />);
+    await fillHandoff(user, "0");
+    const count = screen.getByTestId(
+      "collector-actual-count",
+    ) as HTMLInputElement;
+    expect(count.validity.rangeUnderflow).toBe(true);
+    expect(recordHandoff).not.toHaveBeenCalled();
   });
 
   it("keeps conflict and network failures recoverable", async () => {

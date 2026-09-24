@@ -28,6 +28,7 @@ import type {
   ClaimCommand,
   ClaimResult,
   FailPickupCommand,
+  FailureReason,
   HandoffCommand,
   Opportunity,
   Page,
@@ -367,10 +368,10 @@ export async function reportFailedPickup(
     return mockReportFailedPickup(assignmentId, version);
   }
   const body: {
-    failure_reason: string;
+    failure_reason: FailureReason;
     observed_details?: string;
   } = {
-    failure_reason: command.failureReason.trim(),
+    failure_reason: command.failureReason,
   };
   const observedDetails = command.observedDetails?.trim();
   if (observedDetails) {

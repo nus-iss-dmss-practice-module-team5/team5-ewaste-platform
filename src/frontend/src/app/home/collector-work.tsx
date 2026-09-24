@@ -10,7 +10,12 @@ import {
   reportFailedPickup,
   selectAssignment,
 } from "@/lib/workflow/api";
-import type { Assignment, Batch } from "@/lib/workflow/types";
+import {
+  FAILURE_REASONS,
+  type Assignment,
+  type Batch,
+  type FailureReason,
+} from "@/lib/workflow/types";
 import { FormEvent, Fragment, useEffect, useState } from "react";
 import { USE_LOCAL_COLLECTOR_MOCK } from "@/lib/workflow/local-collector-mock";
 import {
@@ -22,6 +27,16 @@ import {
 } from "./workflow-ui";
 
 type Notice = { testId: string; text: string };
+
+const FAILURE_REASON_LABELS: Record<FailureReason, string> = {
+  DONOR_UNAVAILABLE: "Donor unavailable",
+  INCORRECT_ITEMS: "Incorrect items",
+  ACCESS_DENIED: "Access denied",
+  DAMAGED_HAZARDOUS: "Damaged or hazardous items",
+  SAFETY_CANCEL: "Cancelled for safety",
+};
+
+const MAX_ACTUAL_ITEM_COUNT = 100000;
 
 function selectBlockReason(
   batch: Batch,
@@ -51,7 +66,7 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
     null,
   );
   const [rejectionReason, setRejectionReason] = useState("");
-  const [failureReason, setFailureReason] = useState("");
+  const [failureReason, setFailureReason] = useState<FailureReason | "">("");
   const [observedDetails, setObservedDetails] = useState("");
   const [representative, setRepresentative] = useState("");
   const [actualCount, setActualCount] = useState("");
@@ -157,7 +172,15 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
 
   async function onFail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!session || !active || !failureReason.trim()) {
+    if (!session || !active) {
+      return;
+    }
+    if (!failureReason) {
+      setActionError({
+        testId: "collector-action-validation",
+        tone: "warning",
+        text: "Choose a failure reason.",
+      });
       return;
     }
     await finish(async () => {
@@ -170,7 +193,7 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
       );
       setNotice({
         testId: "collector-failed",
-        text: `Pickup failed because ${failureReason.trim()}. The batch returns to APPROVED so another collector can select it.`,
+        text: `Pickup failed: ${FAILURE_REASON_LABELS[failureReason]}. The batch returns to APPROVED so another collector can select it.`,
       });
       setFailureReason("");
       setObservedDetails("");
@@ -192,11 +215,15 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
       });
       return;
     }
-    if (!Number.isInteger(actualItemCount) || actualItemCount < 0) {
+    if (
+      !Number.isInteger(actualItemCount) ||
+      actualItemCount < 1 ||
+      actualItemCount > MAX_ACTUAL_ITEM_COUNT
+    ) {
       setActionError({
         testId: "collector-action-validation",
         tone: "warning",
-        text: "Actual item count must be a whole number.",
+        text: `Actual item count must be a whole number from 1 to ${MAX_ACTUAL_ITEM_COUNT}.`,
       });
       return;
     }
@@ -439,13 +466,22 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
           </form>
           <form onSubmit={(event) => void onFail(event)} className="grid gap-2">
             <h3 className="font-semibold text-slate-900">Failed pickup</h3>
-            <input
+            <select
               data-testid="collector-failure-reason"
+              aria-label="Failure reason"
               value={failureReason}
-              onChange={(event) => setFailureReason(event.target.value)}
-              placeholder="Failure reason"
+              onChange={(event) =>
+                setFailureReason(event.target.value as FailureReason | "")
+              }
               className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
-            />
+            >
+              <option value="">Choose a failure reason</option>
+              {FAILURE_REASONS.map((reason) => (
+                <option key={reason} value={reason}>
+                  {FAILURE_REASON_LABELS[reason]}
+                </option>
+              ))}
+            </select>
             <textarea
               data-testid="collector-failure-details"
               value={observedDetails}
@@ -484,7 +520,9 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
             <input
               data-testid="collector-actual-count"
               type="number"
-              min={0}
+              min={1}
+              max={MAX_ACTUAL_ITEM_COUNT}
+              step={1}
               value={actualCount}
               onChange={(event) => setActualCount(event.target.value)}
               placeholder="Actual item count"

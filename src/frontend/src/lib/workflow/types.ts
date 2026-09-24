@@ -118,7 +118,17 @@ export type HandoffCommand = {
   notes?: string;
 };
 
+export const FAILURE_REASONS = [
+  "DONOR_UNAVAILABLE",
+  "INCORRECT_ITEMS",
+  "ACCESS_DENIED",
+  "DAMAGED_HAZARDOUS",
+  "SAFETY_CANCEL",
+] as const;
+
+export type FailureReason = (typeof FAILURE_REASONS)[number];
+
 export type FailPickupCommand = {
-  failureReason: string;
+  failureReason: FailureReason;
   observedDetails?: string;
 };
