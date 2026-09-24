@@ -6,6 +6,7 @@ import {
   createBatchDraft,
   draftBody,
   listBatches,
+  listOpportunities,
   reportFailedPickup,
   selectAssignment,
   submitBatch,
@@ -90,19 +91,26 @@ describe("workflow api", () => {
 
   it("submits with If-Match-Version and an empty body", async () => {
     post.mockResolvedValue({
-      data: { data: { ...batch, status: "SUBMITTED", version: 3 }, correlationId: "corr-2" },
+      data: {
+        data: { ...batch, status: "SUBMITTED", version: 3 },
+        correlationId: "corr-2",
+      },
     });
 
     const submitted = await submitBatch("token", "batch-1", 2, "idem-submit");
 
     expect(submitted.status).toBe("SUBMITTED");
-    expect(post).toHaveBeenCalledWith("/api/v1/batches/batch-1/submit", undefined, {
-      headers: {
-        Authorization: "Bearer token",
-        "Idempotency-Key": "idem-submit",
-        "If-Match-Version": "2",
+    expect(post).toHaveBeenCalledWith(
+      "/api/v1/batches/batch-1/submit",
+      undefined,
+      {
+        headers: {
+          Authorization: "Bearer token",
+          "Idempotency-Key": "idem-submit",
+          "If-Match-Version": "2",
+        },
       },
-    });
+    );
   });
 
   it("lists batches with camelCase page parameters", async () => {
@@ -122,6 +130,43 @@ describe("workflow api", () => {
     expect(get).toHaveBeenCalledWith("/api/v1/batches", {
       headers: { Authorization: "Bearer token" },
       params: { page: 1, pageSize: 20, status: "DRAFT" },
+    });
+  });
+
+  it("lists opportunities with page_size and maps snake_case fields", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: [
+          {
+            batch_id: "batch-1",
+            status: "MATCHED",
+            category: "laptops",
+            quantity: 10,
+            estimated_weight_kg: 25.5,
+            zone: "central",
+            collection_deadline: "2026-09-23T02:00:00.000Z",
+            eligibility_reason: "Zone and category match.",
+          },
+        ],
+        page: 1,
+        page_size: 20,
+        total_count: 1,
+        correlation_id: "corr-opp",
+      },
+    });
+
+    const page = await listOpportunities("token");
+
+    expect(page.data[0]).toMatchObject({
+      batchId: "batch-1",
+      estimatedWeightKg: 25.5,
+      collectionDeadline: "2026-09-23T02:00:00.000Z",
+      eligibilityReason: "Zone and category match.",
+    });
+    expect(page.correlationId).toBe("corr-opp");
+    expect(get).toHaveBeenCalledWith("/api/v1/opportunities", {
+      headers: { Authorization: "Bearer token" },
+      params: { page: 1, page_size: 20 },
     });
   });
 
@@ -207,13 +252,27 @@ describe("workflow api", () => {
       correlationId: "corr-conflict",
     });
 
-    get.mockRejectedValueOnce(axiosError(404, { code: "NOT_FOUND", message: "missing", correlationId: "corr-404" }));
-    await expect(listBatches("token")).rejects.toMatchObject({ kind: "not_found" });
+    get.mockRejectedValueOnce(
+      axiosError(404, {
+        code: "NOT_FOUND",
+        message: "missing",
+        correlationId: "corr-404",
+      }),
+    );
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "not_found",
+    });
 
     get.mockRejectedValueOnce(
-      axiosError(409, { code: "DUPLICATE_CLAIM", message: "already sent", correlationId: "corr-dup" }),
+      axiosError(409, {
+        code: "DUPLICATE_CLAIM",
+        message: "already sent",
+        correlationId: "corr-dup",
+      }),
     );
-    await expect(listBatches("token")).rejects.toMatchObject({ kind: "duplicate" });
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "duplicate",
+    });
 
     get.mockRejectedValueOnce(axiosError(undefined));
     await expect(listBatches("token")).rejects.toMatchObject({

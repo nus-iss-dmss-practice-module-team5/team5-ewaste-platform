@@ -27,7 +27,13 @@ export function Banner({
   );
 }
 
-export function LoadingLine({ testId, children }: { testId: string; children: string }) {
+export function LoadingLine({
+  testId,
+  children,
+}: {
+  testId: string;
+  children: string;
+}) {
   return (
     <p role="status" data-testid={testId} className="text-sm text-slate-600">
       {children}
@@ -60,14 +66,22 @@ export function messageForKind(kind: WorkflowErrorKind): string {
 
 export function bannerForError(error: unknown, fallbackTestId: string) {
   if (!isWorkflowError(error)) {
-    return { testId: fallbackTestId, tone: "error" as const, text: messageForKind("error") };
+    return {
+      testId: fallbackTestId,
+      tone: "error" as const,
+      text: messageForKind("error"),
+    };
   }
   const tone =
-    error.kind === "conflict" || error.kind === "duplicate" || error.kind === "validation"
+    error.kind === "conflict" ||
+    error.kind === "duplicate" ||
+    error.kind === "validation"
       ? ("warning" as const)
       : ("error" as const);
   const text =
-    error.kind === "validation" || error.kind === "conflict" || error.kind === "duplicate"
+    error.kind === "validation" ||
+    error.kind === "conflict" ||
+    error.kind === "duplicate"
       ? error.message || messageForKind(error.kind)
       : messageForKind(error.kind);
   return { testId: `${fallbackTestId}-${error.kind}`, tone, text };

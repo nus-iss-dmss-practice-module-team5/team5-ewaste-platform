@@ -63,7 +63,9 @@ describe("opportunity view", () => {
     expect(await screen.findByTestId("opportunity-detail")).toHaveTextContent(
       "Zone and category match.",
     );
-    expect(screen.queryByRole("button", { name: "Claim" })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Claim" }),
+    ).not.toBeInTheDocument();
   });
 
   it("shows permission and stale detail states", async () => {
@@ -72,9 +74,9 @@ describe("opportunity view", () => {
       new WorkflowError("denied", "forbidden", "FORBIDDEN", "corr-403", 403),
     );
     const { unmount } = render(<OpportunityView />);
-    expect(await screen.findByTestId("opportunity-list-forbidden")).toHaveTextContent(
-      "organisation",
-    );
+    expect(
+      await screen.findByTestId("opportunity-list-forbidden"),
+    ).toHaveTextContent("organisation");
     unmount();
 
     listOpportunities.mockResolvedValue({
@@ -89,6 +91,8 @@ describe("opportunity view", () => {
     );
     render(<OpportunityView />);
     await user.click(await screen.findByTestId("opportunity-open-batch-1"));
-    expect(await screen.findByTestId("opportunity-stale")).toHaveTextContent("stale");
+    expect(await screen.findByTestId("opportunity-stale")).toHaveTextContent(
+      "stale",
+    );
   });
 });

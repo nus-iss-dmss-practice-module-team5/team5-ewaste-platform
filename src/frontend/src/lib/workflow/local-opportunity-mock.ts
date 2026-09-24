@@ -1,4 +1,5 @@
 import { WorkflowError } from "./errors";
+import { parseOpportunity } from "./parse";
 import type { Opportunity, Page } from "./types";
 
 export const USE_LOCAL_OPPORTUNITY_MOCK =
@@ -29,7 +30,7 @@ async function load(): Promise<Opportunity[]> {
       "corr-local-mock",
     );
   }
-  rows = data as Opportunity[];
+  rows = data.map(parseOpportunity);
   return rows;
 }
 
@@ -44,7 +45,9 @@ export async function mockListOpportunities(): Promise<Page<Opportunity>> {
   };
 }
 
-export async function mockGetOpportunity(batchId: string): Promise<Opportunity> {
+export async function mockGetOpportunity(
+  batchId: string,
+): Promise<Opportunity> {
   const data = await load();
   const match = data.find((row) => row.batchId === batchId);
   if (!match) {

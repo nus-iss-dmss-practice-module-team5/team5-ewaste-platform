@@ -49,13 +49,14 @@ function commandHeaders(
 ) {
   return authHeaders(accessToken, {
     "Idempotency-Key": idempotencyKey,
-    ...(version === undefined
-      ? {}
-      : { "If-Match-Version": String(version) }),
+    ...(version === undefined ? {} : { "If-Match-Version": String(version) }),
   });
 }
 
-async function call<T>(request: Promise<{ data: unknown }>, parse: (data: unknown) => T): Promise<T> {
+async function call<T>(
+  request: Promise<{ data: unknown }>,
+  parse: (data: unknown) => T,
+): Promise<T> {
   try {
     const response = await request;
     return parse(response.data);
@@ -168,7 +169,7 @@ export async function listOpportunities(
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
       },
     }),
     parseOpportunityPage,
@@ -234,7 +235,11 @@ export async function selectAssignment(
 
 export async function listAssignments(
   accessToken: string,
-  query: { status?: Assignment["assignmentStatus"]; page?: number; pageSize?: number } = {},
+  query: {
+    status?: Assignment["assignmentStatus"];
+    page?: number;
+    pageSize?: number;
+  } = {},
 ): Promise<Page<Assignment>> {
   return call(
     api.get("/api/v1/assignments", {

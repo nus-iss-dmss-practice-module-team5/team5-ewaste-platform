@@ -62,8 +62,12 @@ export function OpportunityView() {
     }
   }
 
-  const loadBanner = loadError ? bannerForError(loadError, "opportunity-list") : null;
-  const detailBanner = detailError ? bannerForError(detailError, "opportunity-detail") : null;
+  const loadBanner = loadError
+    ? bannerForError(loadError, "opportunity-list")
+    : null;
+  const detailBanner = detailError
+    ? bannerForError(detailError, "opportunity-detail")
+    : null;
 
   return (
     <section data-testid="opportunity-view" className="max-w-4xl">
@@ -85,10 +89,14 @@ export function OpportunityView() {
         Refresh
       </button>
       {rows === null ? (
-        <LoadingLine testId="opportunity-loading">Loading opportunities…</LoadingLine>
+        <LoadingLine testId="opportunity-loading">
+          Loading opportunities…
+        </LoadingLine>
       ) : null}
       {loadBanner ? (
-        <Banner testId={loadBanner.testId} tone={loadBanner.tone}>{loadBanner.text}</Banner>
+        <Banner testId={loadBanner.testId} tone={loadBanner.tone}>
+          {loadBanner.text}
+        </Banner>
       ) : null}
       {rows && rows.length === 0 && !loadError ? (
         <Banner testId="opportunity-empty" tone="info">
@@ -103,10 +111,14 @@ export function OpportunityView() {
         </Banner>
       ) : null}
       {detailBanner && !stale ? (
-        <Banner testId={detailBanner.testId} tone={detailBanner.tone}>{detailBanner.text}</Banner>
+        <Banner testId={detailBanner.testId} tone={detailBanner.tone}>
+          {detailBanner.text}
+        </Banner>
       ) : null}
       {loadingDetail ? (
-        <LoadingLine testId="opportunity-detail-loading">Loading opportunity…</LoadingLine>
+        <LoadingLine testId="opportunity-detail-loading">
+          Loading opportunity…
+        </LoadingLine>
       ) : null}
       {rows && rows.length > 0 ? (
         <table className="mt-2 w-full text-left text-sm">
@@ -125,7 +137,9 @@ export function OpportunityView() {
                 <td className="py-2 pr-3">{row.category}</td>
                 <td className="py-2 pr-3">{row.status}</td>
                 <td className="py-2 pr-3">{row.zone}</td>
-                <td className="py-2 pr-3">{formatWhen(row.collectionDeadline)}</td>
+                <td className="py-2 pr-3">
+                  {formatWhen(row.collectionDeadline)}
+                </td>
                 <td className="py-2">
                   <button
                     type="button"
@@ -142,12 +156,19 @@ export function OpportunityView() {
         </table>
       ) : null}
       {selected ? (
-        <article data-testid="opportunity-detail" className="mt-6 max-w-xl rounded-md border border-slate-200 bg-white p-4 text-sm">
-          <h2 className="text-lg font-semibold text-slate-900">{selected.category}</h2>
+        <article
+          data-testid="opportunity-detail"
+          className="mt-6 max-w-xl rounded-md border border-slate-200 bg-white p-4 text-sm"
+        >
+          <h2 className="text-lg font-semibold text-slate-900">
+            {selected.category}
+          </h2>
           <p className="mt-2 text-slate-600">Status {selected.status}</p>
           <p className="text-slate-600">Quantity {selected.quantity}</p>
           <p className="text-slate-600">Zone {selected.zone}</p>
-          <p className="text-slate-600">Deadline {formatWhen(selected.collectionDeadline)}</p>
+          <p className="text-slate-600">
+            Deadline {formatWhen(selected.collectionDeadline)}
+          </p>
           <p className="mt-2 text-slate-700">{selected.eligibilityReason}</p>
         </article>
       ) : null}
