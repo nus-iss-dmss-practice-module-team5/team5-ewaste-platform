@@ -17,12 +17,11 @@ type AssignmentAction struct {
 	AssignmentID         string      `gorm:"column:assignment_id;size:36;index"`
 	ActionType           string      `gorm:"column:action_type;size:32"`
 	ActorUserID          *string     `gorm:"column:actor_user_id;size:32"`
-	ActorOrgID           *string     `gorm:"column:actor_org_id;size:32"`
 	ServicePrincipal     *string     `gorm:"column:service_principal;size:128"`
 	Reason               *string     `gorm:"column:reason;size:255"`
 	PreviousAssignmentID *string     `gorm:"column:previous_assignment_id;size:36"`
-	FromBatchStatus      BatchStatus `gorm:"column:from_batch_status;size:32"`
-	ToBatchStatus        BatchStatus `gorm:"column:to_batch_status;size:32"`
+	FromStatus           BatchStatus `gorm:"column:from_status;size:32"`
+	ToStatus             BatchStatus `gorm:"column:to_status;size:32"`
 	AssignmentVersion    uint32      `gorm:"column:assignment_version"`
 	CommandID            string      `gorm:"column:command_id;size:36"`
 	OccurredAt           time.Time   `gorm:"column:occurred_at"`

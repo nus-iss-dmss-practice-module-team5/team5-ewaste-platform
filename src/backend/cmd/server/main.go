@@ -144,6 +144,9 @@ func run() error {
 	assignmentRepository := repository.NewGormAssignmentRepository(db)
 	assignmentService := service.NewAssignmentWorkflowService(assignmentRepository)
 	assignmentController := controller.NewAssignmentController(assignmentService, appLogger.Logger)
+	workflowReadRepository := repository.NewGormWorkflowReadRepository(db)
+	workflowReadService := service.NewWorkflowReadService(workflowReadRepository)
+	workflowReadController := controller.NewWorkflowReadController(workflowReadService, appLogger.Logger)
 
 	if cfg.Kafka.Enabled {
 		kafkaPublisher, publisherErr := eventbus.NewKafkaPublisher(cfg.Kafka)
@@ -200,6 +203,7 @@ func run() error {
 		checker,
 		cfg.Server.AllowedOrigins,
 		appLogger.Logger,
+		workflowReadController,
 	)
 
 	if cfg.Mode != config.ModeProduction {

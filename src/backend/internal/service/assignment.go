@@ -656,7 +656,12 @@ func validateFailure(request dto.FailedPickupRequest) error {
 }
 
 func (s *AssignmentWorkflowService) action(metadata BatchCommandMetadata, commandID string, assignment *model.BatchAssignment, actionType string, from, to model.BatchStatus, reason, previous *string, now time.Time, details []byte) *model.AssignmentAction {
-	return &model.AssignmentAction{ID: s.newID(), BatchID: assignment.BatchID, AssignmentID: assignment.ID, ActionType: actionType, ActorUserID: new(metadata.Actor.UserID), ActorOrgID: new(metadata.Actor.OrganisationID), Reason: reason, PreviousAssignmentID: previous, FromBatchStatus: from, ToBatchStatus: to, AssignmentVersion: assignment.Version, CommandID: commandID, OccurredAt: now, CorrelationID: metadata.CorrelationID, DetailsJSON: details}
+	if len(details) == 0 {
+		// assignment_actions.details_json is NOT NULL. Keep the action snapshot
+		// valid even when an action has no additional fields.
+		details = []byte("{}")
+	}
+	return &model.AssignmentAction{ID: s.newID(), BatchID: assignment.BatchID, AssignmentID: assignment.ID, ActionType: actionType, ActorUserID: new(metadata.Actor.UserID), Reason: reason, PreviousAssignmentID: previous, FromStatus: from, ToStatus: to, AssignmentVersion: assignment.Version, CommandID: commandID, OccurredAt: now, CorrelationID: metadata.CorrelationID, DetailsJSON: details}
 }
 
 func mutationResult(assignment *model.BatchAssignment, correlationID, eventID string) dto.AssignmentMutationResult {

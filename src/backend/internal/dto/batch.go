@@ -32,3 +32,14 @@ type BatchView struct {
 type BatchIDParams struct {
 	BatchID string `uri:"batch_id" binding:"required"`
 }
+
+type OpportunityView struct {
+	BatchID            string     `json:"batch_id"`
+	Status             string     `json:"status"`
+	Category           *string    `json:"category"`
+	Quantity           *int       `json:"quantity"`
+	EstimatedWeightKg  *float64   `json:"estimated_weight_kg,omitempty"`
+	Zone               *string    `json:"zone"`
+	CollectionDeadline *time.Time `json:"collection_deadline"`
+	EligibilityReason  string     `json:"eligibility_reason"`
+}

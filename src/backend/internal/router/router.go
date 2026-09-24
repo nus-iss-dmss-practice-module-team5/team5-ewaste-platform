@@ -27,6 +27,7 @@ func NewAuthRouter(
 	checker *health.Checker,
 	allowedOrigins []string,
 	logger *zap.Logger,
+	readControllers ...*controller.WorkflowReadController,
 ) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
@@ -73,6 +74,10 @@ func NewAuthRouter(
 	batches := r.Group("/api/v1/batches")
 	batches.Use(middleware.RequireAccessTokens(tokens, repo))
 
+	if len(readControllers) > 0 && readControllers[0] != nil {
+		batches.GET("", readControllers[0].ListBatches)
+		batches.GET("/:batch_id", readControllers[0].GetBatch)
+	}
 	if batchController != nil {
 		batches.POST("", batchController.CreateDraft)
 		batches.PATCH("/:batch_id", batchController.EditDraft)
@@ -87,11 +92,22 @@ func NewAuthRouter(
 
 	assignments := r.Group("/api/v1/assignments")
 	assignments.Use(middleware.RequireAccessTokens(tokens, repo))
+	if len(readControllers) > 0 && readControllers[0] != nil {
+		assignments.GET("", readControllers[0].ListAssignments)
+		assignments.GET("/:assignment_id", readControllers[0].GetAssignment)
+	}
 	if assignmentController != nil {
 		assignments.POST("/:assignment_id/accept", assignmentController.Accept)
 		assignments.POST("/:assignment_id/reject", assignmentController.Reject)
 		assignments.POST("/:assignment_id/handoff", assignmentController.Handoff)
 		assignments.POST("/:assignment_id/fail", assignmentController.Fail)
+	}
+
+	if len(readControllers) > 0 && readControllers[0] != nil {
+		opportunities := r.Group("/api/v1/opportunities")
+		opportunities.Use(middleware.RequireAccessTokens(tokens, repo))
+		opportunities.GET("", readControllers[0].ListOpportunities)
+		opportunities.GET("/:batch_id", readControllers[0].GetOpportunity)
 	}
 
 	r.NoRoute(func(c *gin.Context) {
