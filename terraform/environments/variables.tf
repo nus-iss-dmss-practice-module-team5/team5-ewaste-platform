@@ -71,20 +71,17 @@ variable "analytics_image_digest" {
 variable "auth_access_secret" {
   type        = string
   sensitive   = true
-  default     = "default-dev-access-secret-minimum-32-chars-long"
   description = "JWT access token signing secret for backend API."
 }
 
 variable "auth_refresh_secret" {
   type        = string
   sensitive   = true
-  default     = "default-dev-refresh-secret-minimum-32-chars-long"
   description = "JWT refresh token signing secret for backend API."
 }
 
 variable "auth_refresh_hash_secret" {
   type        = string
   sensitive   = true
-  default     = "default-dev-refresh-hash-secret-32-chars"
   description = "HMAC secret for refresh token fingerprinting."
 }

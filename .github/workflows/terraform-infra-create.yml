@@ -181,9 +181,24 @@ jobs:
           AUTH_ACCESS="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
           AUTH_REFRESH="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
           AUTH_HASH="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
-          AUTH_ACCESS="${AUTH_ACCESS:-default-dev-access-secret-minimum-32-chars-long}"
-          AUTH_REFRESH="${AUTH_REFRESH:-default-dev-refresh-secret-minimum-32-chars-long}"
-          AUTH_HASH="${AUTH_HASH:-default-dev-refresh-hash-secret-32-chars}"
+
+          if [ "$TARGET_ENV" != "dev" ]; then
+            if [ -z "$AUTH_ACCESS" ] || [ -z "$AUTH_REFRESH" ] || [ -z "$AUTH_HASH" ]; then
+              echo "::error::Missing required JWT authentication secrets for environment '$TARGET_ENV'. EWASTE_AUTH_ACCESS_SECRET, EWASTE_AUTH_REFRESH_SECRET, and EWASTE_AUTH_REFRESH_HASH_SECRET must be configured in GitHub Secrets."
+              exit 1
+            fi
+            if [ "$AUTH_ACCESS" == "default-dev-access-secret-minimum-32-chars-long" ] || \
+               [ "$AUTH_REFRESH" == "default-dev-refresh-secret-minimum-32-chars-long" ] || \
+               [ "$AUTH_HASH" == "default-dev-refresh-hash-secret-32-chars" ]; then
+              echo "::error::Insecure default JWT secrets detected for environment '$TARGET_ENV'. Staging and production require non-default, dedicated secrets."
+              exit 1
+            fi
+          else
+            # Local dev environment fallback only
+            AUTH_ACCESS="${AUTH_ACCESS:-default-dev-access-secret-minimum-32-chars-long}"
+            AUTH_REFRESH="${AUTH_REFRESH:-default-dev-refresh-secret-minimum-32-chars-long}"
+            AUTH_HASH="${AUTH_HASH:-default-dev-refresh-hash-secret-32-chars}"
+          fi
 
           TF_VAR_ARGS=(
             -var-file="$TF_VARS_FILE"
