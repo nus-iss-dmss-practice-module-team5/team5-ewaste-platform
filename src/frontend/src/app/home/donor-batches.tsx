@@ -49,6 +49,8 @@ function useRetryKey() {
   };
 }
 
+const MAX_QUANTITY = 100000;
+
 const EMPTY_FIELDS: DraftFields = {
   category: "",
   quantity: "",
@@ -84,8 +86,14 @@ function parseDraft(
   if (category) body.category = category;
   if (fields.quantity.trim()) {
     const quantity = Number(fields.quantity);
-    if (!Number.isInteger(quantity) || quantity < 1) {
-      return { error: "Quantity must be a whole number of at least 1." };
+    if (
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      quantity > MAX_QUANTITY
+    ) {
+      return {
+        error: `Quantity must be a whole number from 1 to ${MAX_QUANTITY}.`,
+      };
     }
     body.quantity = quantity;
   }
@@ -123,9 +131,10 @@ function completenessError(batch: Batch): string | null {
   if (
     batch.quantity === undefined ||
     !Number.isInteger(batch.quantity) ||
-    batch.quantity < 1
+    batch.quantity < 1 ||
+    batch.quantity > MAX_QUANTITY
   ) {
-    return "Quantity must be a whole number of at least 1 before submit.";
+    return `Quantity must be a whole number from 1 to ${MAX_QUANTITY} before submit.`;
   }
   if (
     batch.estimatedWeightKg === undefined ||
@@ -188,6 +197,8 @@ function DraftForm({
           data-testid="donor-quantity"
           type="number"
           min={1}
+          max={MAX_QUANTITY}
+          step={1}
           value={fields.quantity}
           onChange={(event) =>
             setFields({ ...fields, quantity: event.target.value })

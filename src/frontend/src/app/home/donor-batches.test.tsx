@@ -183,6 +183,35 @@ describe("donor batches", () => {
     expect(body).not.toHaveProperty("collectionDeadline");
   });
 
+  it("blocks a quantity above the API maximum", async () => {
+    const user = userEvent.setup();
+    render(<DonorBatchForm />);
+    await user.type(screen.getByTestId("donor-category"), "laptops");
+    await user.type(screen.getByTestId("donor-quantity"), "100001");
+    await user.click(screen.getByTestId("donor-save"));
+
+    const quantity = screen.getByTestId("donor-quantity") as HTMLInputElement;
+    expect(quantity.validity.rangeOverflow).toBe(true);
+    expect(createBatchDraft).not.toHaveBeenCalled();
+  });
+
+  it("blocks submit of a stored quantity above the API maximum", async () => {
+    const user = userEvent.setup();
+    listBatches.mockResolvedValue({
+      data: [{ ...draft(), quantity: 100001 }],
+      page: 1,
+      pageSize: 20,
+      totalCount: 1,
+      correlationId: "c",
+    });
+    render(<DonorBatchList />);
+    await user.click(await screen.findByTestId("donor-submit-batch-1"));
+    expect(await screen.findByTestId("donor-action-error")).toHaveTextContent(
+      "from 1 to 100000 before submit",
+    );
+    expect(submitBatch).not.toHaveBeenCalled();
+  });
+
   it("blocks submit until the draft is complete", async () => {
     const user = userEvent.setup();
     listBatches.mockResolvedValue({
