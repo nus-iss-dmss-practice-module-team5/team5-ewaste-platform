@@ -224,8 +224,9 @@ resource "azurerm_role_assignment" "acr_pull" {
 # ============================================================================
 
 resource "azurerm_mysql_flexible_server" "db" {
-  # checkov:skip=CKV_AZURE_42:Auto-grow disabled in Sprint 1 baseline for student cost control.
-  # checkov:skip=CKV_AZURE_98:Geo-redundant backup disabled for single-region academic MVP.
+  # checkov:skip=CKV_AZURE_94:Geo-redundant backup disabled for single-region academic MVP.
+  # checkov:skip=CKV_AZURE_53:Public network enabled with closed default firewall; GitHub runner IP is ephemerally whitelisted during deployments/migrations and removed post-job.
+  # checkov:skip=CKV_AZURE_96:Infrastructure encryption disabled for student academic MVP cost control.
   name                   = "mysql-${local.name_prefix}"
   resource_group_name    = azurerm_resource_group.env_rg.name
   location               = azurerm_resource_group.env_rg.location
@@ -250,15 +251,6 @@ resource "azurerm_mysql_flexible_server" "db" {
       high_availability[0].standby_availability_zone
     ]
   }
-}
-
-# Allow Azure Container Apps and GitHub Actions runners to connect
-resource "azurerm_mysql_flexible_server_firewall_rule" "allow_azure_services" {
-  name                = "allow-azure-and-runners"
-  resource_group_name = azurerm_resource_group.env_rg.name
-  server_name         = azurerm_mysql_flexible_server.db.name
-  start_ip_address    = "0.0.0.0"
-  end_ip_address      = "255.255.255.255"
 }
 
 resource "azurerm_mysql_flexible_database" "ewastedb" {
