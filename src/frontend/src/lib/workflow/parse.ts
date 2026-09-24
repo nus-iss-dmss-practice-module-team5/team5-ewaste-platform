@@ -81,27 +81,27 @@ export function parseBatch(value: unknown): Batch {
     "Batch",
   ) as BatchStatus;
   const batch: Batch = {
-    batchId: requireString(value, "batchId", "Batch"),
+    batchId: requireString(value, "batch_id", "Batch"),
     status,
     version: requireNumber(value, "version", "Batch"),
   };
   const category = readString(value, "category");
   const quantity = readNumber(value, "quantity");
-  const estimatedWeightKg = readNumber(value, "estimatedWeightKg");
-  const conditionRating = readString(value, "conditionRating");
+  const estimatedWeightKg = readNumber(value, "estimated_weight_kg");
+  const conditionRating = readString(value, "condition_rating");
   const zone = readString(value, "zone");
-  const collectionDeadline = readString(value, "collectionDeadline");
+  const collectionDeadline = readString(value, "collection_deadline");
   const notes = readString(value, "notes");
-  const claimEpoch = readString(value, "claimEpoch");
-  const createdAt = readString(value, "createdAt");
-  const updatedAt = readString(value, "updatedAt");
+  const claimEpoch = readString(value, "claim_epoch");
+  const createdAt = readString(value, "created_at");
+  const updatedAt = readString(value, "updated_at");
   if (category) batch.category = category;
   if (quantity !== undefined) batch.quantity = quantity;
   if (estimatedWeightKg !== undefined)
     batch.estimatedWeightKg = estimatedWeightKg;
   if (conditionRating) batch.conditionRating = conditionRating;
-  if (typeof value.isDataBearing === "boolean") {
-    batch.isDataBearing = value.isDataBearing;
+  if (typeof value.is_data_bearing === "boolean") {
+    batch.isDataBearing = value.is_data_bearing;
   }
   if (zone) batch.zone = zone;
   if (collectionDeadline) batch.collectionDeadline = collectionDeadline;
@@ -122,21 +122,25 @@ export function parseOpportunity(value: unknown): Opportunity {
     "Opportunity",
   ) as OpportunityStatus;
   const opportunity: Opportunity = {
-    batchId: requireString(value, "batchId", "Opportunity"),
+    batchId: requireString(value, "batch_id", "Opportunity"),
     status,
     category: requireString(value, "category", "Opportunity"),
     quantity: requireNumber(value, "quantity", "Opportunity"),
     zone: requireString(value, "zone", "Opportunity"),
     collectionDeadline: requireString(
       value,
-      "collectionDeadline",
+      "collection_deadline",
       "Opportunity",
     ),
-    eligibilityReason: requireString(value, "eligibilityReason", "Opportunity"),
+    eligibilityReason: requireString(
+      value,
+      "eligibility_reason",
+      "Opportunity",
+    ),
   };
-  const estimatedWeightKg = readNumber(value, "estimatedWeightKg");
+  const estimatedWeightKg = readNumber(value, "estimated_weight_kg");
   const version = readNumber(value, "version");
-  const claimEpoch = readString(value, "claimEpoch");
+  const claimEpoch = readString(value, "claim_epoch");
   if (estimatedWeightKg !== undefined) {
     opportunity.estimatedWeightKg = estimatedWeightKg;
   }
@@ -154,13 +158,13 @@ export function parseClaimResult(value: unknown): ClaimResult {
     throw contractError("Claim did not end at APPROVED.");
   }
   return {
-    batchId: requireString(value, "batchId", "Claim"),
+    batchId: requireString(value, "batch_id", "Claim"),
     status: "APPROVED",
     version: requireNumber(value, "version", "Claim"),
-    claimEpoch: requireString(value, "claimEpoch", "Claim"),
-    claimId: requireString(value, "claimId", "Claim"),
-    reservationId: requireString(value, "reservationId", "Claim"),
-    correlationId: requireString(value, "correlationId", "Claim"),
+    claimEpoch: requireString(value, "claim_epoch", "Claim"),
+    claimId: requireString(value, "claim_id", "Claim"),
+    reservationId: requireString(value, "reservation_id", "Claim"),
+    correlationId: requireString(value, "correlation_id", "Claim"),
   };
 }
 
@@ -206,9 +210,9 @@ function parsePage<T>(
   return {
     data: value.data.map(parseItem),
     page: requireNumber(value, "page", label),
-    pageSize: requireNumber(value, "pageSize", label),
-    totalCount: requireNumber(value, "totalCount", label),
-    correlationId: requireString(value, "correlationId", label),
+    pageSize: requireNumber(value, "page_size", label),
+    totalCount: requireNumber(value, "total_count", label),
+    correlationId: requireString(value, "correlation_id", label),
   };
 }
 

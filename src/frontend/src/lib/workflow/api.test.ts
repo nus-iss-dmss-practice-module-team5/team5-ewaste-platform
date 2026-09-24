@@ -38,7 +38,7 @@ function axiosError(status: number | undefined, data?: unknown) {
 }
 
 const batch = {
-  batchId: "batch-1",
+  batch_id: "batch-1",
   status: "DRAFT",
   version: 2,
   category: "laptops",
@@ -50,7 +50,7 @@ describe("workflow api", () => {
     post.mockReset();
   });
 
-  it("sends camelCase draft fields and no version in the body", async () => {
+  it("sends snake_case draft fields and no version in the body", async () => {
     post.mockResolvedValue({
       data: { data: batch, correlationId: "corr-1" },
     });
@@ -74,11 +74,11 @@ describe("workflow api", () => {
     expect(body).toEqual({
       category: "laptops",
       quantity: 10,
-      estimatedWeightKg: 25.5,
-      conditionRating: "reusable",
-      isDataBearing: true,
+      estimated_weight_kg: 25.5,
+      condition_rating: "reusable",
+      is_data_bearing: true,
       zone: "central",
-      collectionDeadline: "2026-09-23T02:00:00.000Z",
+      collection_deadline: "2026-09-23T02:00:00.000Z",
     });
     expect(body).not.toHaveProperty("version");
     expect(body).not.toHaveProperty("notes");
@@ -114,14 +114,14 @@ describe("workflow api", () => {
     );
   });
 
-  it("lists batches with camelCase page parameters", async () => {
+  it("lists batches with page_size and maps snake_case fields", async () => {
     get.mockResolvedValue({
       data: {
         data: [batch],
         page: 1,
-        pageSize: 20,
-        totalCount: 1,
-        correlationId: "corr-list",
+        page_size: 20,
+        total_count: 1,
+        correlation_id: "corr-list",
       },
     });
 
@@ -130,23 +130,23 @@ describe("workflow api", () => {
     expect(page.data[0]?.batchId).toBe("batch-1");
     expect(get).toHaveBeenCalledWith("/api/v1/batches", {
       headers: { Authorization: "Bearer token" },
-      params: { page: 1, pageSize: 20, status: "DRAFT" },
+      params: { page: 1, page_size: 20, status: "DRAFT" },
     });
   });
 
-  it("claims with the version header and expectedVersion body", async () => {
+  it("claims with the version header and expected_version body", async () => {
     post.mockResolvedValue({
       data: {
         data: {
-          batchId: "batch-1",
+          batch_id: "batch-1",
           status: "APPROVED",
           version: 4,
-          claimEpoch: "1",
-          claimId: "claim-1",
-          reservationId: "res-1",
-          correlationId: "corr-claim",
+          claim_epoch: "1",
+          claim_id: "claim-1",
+          reservation_id: "res-1",
+          correlation_id: "corr-claim",
         },
-        correlationId: "corr-claim",
+        correlation_id: "corr-claim",
       },
     });
 
@@ -160,7 +160,7 @@ describe("workflow api", () => {
     expect(result.status).toBe("APPROVED");
     expect(post).toHaveBeenCalledWith(
       "/api/v1/batches/batch-1/claim",
-      { expectedVersion: 3, claimEpoch: "1", notes: "Ready" },
+      { expected_version: 3, claim_epoch: "1", notes: "Ready" },
       {
         headers: {
           Authorization: "Bearer token",

@@ -82,7 +82,7 @@ export async function listBatches(
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
         ...(query.status ? { status: query.status } : {}),
       },
     }),
@@ -100,15 +100,26 @@ export async function getBatch(
   );
 }
 
-export function draftBody(input: BatchDraftRequest): BatchDraftRequest {
-  const body: BatchDraftRequest = {
+type BatchDraftWire = {
+  category: string;
+  quantity: number;
+  estimated_weight_kg: number;
+  condition_rating: string;
+  is_data_bearing: boolean;
+  zone: string;
+  collection_deadline: string;
+  notes?: string;
+};
+
+export function draftBody(input: BatchDraftRequest): BatchDraftWire {
+  const body: BatchDraftWire = {
     category: input.category.trim(),
     quantity: input.quantity,
-    estimatedWeightKg: input.estimatedWeightKg,
-    conditionRating: input.conditionRating.trim(),
-    isDataBearing: input.isDataBearing,
+    estimated_weight_kg: input.estimatedWeightKg,
+    condition_rating: input.conditionRating.trim(),
+    is_data_bearing: input.isDataBearing,
     zone: input.zone.trim(),
-    collectionDeadline: input.collectionDeadline,
+    collection_deadline: input.collectionDeadline,
   };
   const notes = input.notes?.trim();
   if (notes) {
@@ -174,7 +185,7 @@ export async function listOpportunities(
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
       },
     }),
     parseOpportunityPage,
@@ -197,9 +208,13 @@ export async function claimOpportunity(
   command: ClaimCommand,
   idempotencyKey: string,
 ): Promise<ClaimResult> {
-  const body: ClaimCommand = {
-    expectedVersion: command.expectedVersion,
-    claimEpoch: command.claimEpoch,
+  const body: {
+    expected_version: number;
+    claim_epoch: string;
+    notes?: string;
+  } = {
+    expected_version: command.expectedVersion,
+    claim_epoch: command.claimEpoch,
   };
   const notes = command.notes?.trim();
   if (notes) {
@@ -254,7 +269,7 @@ export async function listAssignments(
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
         ...(query.status ? { status: query.status } : {}),
       },
     }),
