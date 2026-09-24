@@ -59,6 +59,19 @@ describe("userFromAccessToken", () => {
     ).toBe("ADMIN");
   });
 
+  it("reads collector_scope_id without using the organisation id", () => {
+    const token = jwtWithPayload({
+      sub: "USR-005",
+      email: "collector1@ewaste.test",
+      role: "COLLECTOR",
+      org: "COL-001",
+      collector_scope_id: "scope-collector-001",
+    });
+    const user = userFromAccessToken(token);
+    expect(user.collectorScopeId).toBe("scope-collector-001");
+    expect(user.organisationId).toBe("COL-001");
+  });
+
   it("rejects a token that has no role", () => {
     const token = jwtWithPayload({
       sub: "usr-donor-001",

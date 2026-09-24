@@ -2,7 +2,6 @@
 
 import { useSession } from "@/lib/auth/session-context";
 import {
-  acceptAssignment,
   listAssignments,
   listBatches,
   newIdempotencyKey,
@@ -14,11 +13,20 @@ import {
 import type { Assignment, Batch } from "@/lib/workflow/types";
 import { FormEvent, Fragment, useEffect, useState } from "react";
 import { USE_LOCAL_COLLECTOR_MOCK } from "@/lib/workflow/local-collector-mock";
-import { Banner, LoadingLine, bannerForError, formatWhen, toUtcIso } from "./workflow-ui";
+import {
+  Banner,
+  LoadingLine,
+  bannerForError,
+  formatWhen,
+  toUtcIso,
+} from "./workflow-ui";
 
 type Notice = { testId: string; text: string };
 
-function selectBlockReason(batch: Batch, collectorScopeId: string): string | null {
+function selectBlockReason(
+  batch: Batch,
+  collectorScopeId: string,
+): string | null {
   if (!collectorScopeId) {
     return "Your session has no collector scope, so this batch cannot be selected.";
   }
@@ -30,14 +38,18 @@ function selectBlockReason(batch: Batch, collectorScopeId: string): string | nul
 
 export function CollectorWork({ history = false }: { history?: boolean }) {
   const { session } = useSession();
-  const scopeId = session?.user.organisationId ?? "";
+  const scopeId = session?.user.collectorScopeId ?? "";
   const [available, setAvailable] = useState<Batch[] | null>(null);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [pending, setPending] = useState(false);
-  const [actionError, setActionError] = useState<ReturnType<typeof bannerForError> | null>(null);
+  const [actionError, setActionError] = useState<ReturnType<
+    typeof bannerForError
+  > | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [selectedAssignment, setSelectedAssignment] = useState<string | null>(null);
+  const [selectedAssignment, setSelectedAssignment] = useState<string | null>(
+    null,
+  );
   const [rejectionReason, setRejectionReason] = useState("");
   const [failureReason, setFailureReason] = useState("");
   const [observedDetails, setObservedDetails] = useState("");
@@ -47,7 +59,8 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
   const [verificationHash, setVerificationHash] = useState("");
   const [handoffNotes, setHandoffNotes] = useState("");
 
-  const active = assignments?.find((row) => row.assignmentId === selectedAssignment) ?? null;
+  const active =
+    assignments?.find((row) => row.assignmentId === selectedAssignment) ?? null;
 
   async function reload() {
     if (!session) {
@@ -117,24 +130,6 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
       setNotice({
         testId: "collector-accepted",
         text: `Batch selected. Assignment ${created.assignmentId} is ${created.assignmentStatus}.`,
-      });
-    });
-  }
-
-  async function onAccept(assignment: Assignment) {
-    if (!session) {
-      return;
-    }
-    await finish(async () => {
-      const updated = await acceptAssignment(
-        session.tokens.accessToken,
-        assignment.assignmentId,
-        assignment.version,
-        newIdempotencyKey(),
-      );
-      setNotice({
-        testId: "collector-legacy-accept",
-        text: `Legacy accept completed. Status is ${updated.assignmentStatus}.`,
       });
     });
   }
@@ -241,10 +236,15 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
         row.assignmentStatus === "SUPERSEDED"
       : row.assignmentStatus === "ACCEPTED",
   );
-  const loadBanner = loadError ? bannerForError(loadError, "collector-list") : null;
+  const loadBanner = loadError
+    ? bannerForError(loadError, "collector-list")
+    : null;
 
   return (
-    <section data-testid={history ? "collector-history" : "collector-work"} className="max-w-4xl">
+    <section
+      data-testid={history ? "collector-history" : "collector-work"}
+      className="max-w-4xl"
+    >
       <p className="mb-4 max-w-xl text-sm text-slate-600">
         {history
           ? "Completed, failed, and superseded assignments for your collector scope."
@@ -261,15 +261,25 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
         </div>
       ) : null}
       {available === null || assignments === null ? (
-        <LoadingLine testId="collector-loading">Loading collector work…</LoadingLine>
+        <LoadingLine testId="collector-loading">
+          Loading collector work…
+        </LoadingLine>
       ) : null}
       {loadBanner ? (
-        <Banner testId={loadBanner.testId} tone={loadBanner.tone}>{loadBanner.text}</Banner>
+        <Banner testId={loadBanner.testId} tone={loadBanner.tone}>
+          {loadBanner.text}
+        </Banner>
       ) : null}
-      {notice ? <Banner testId={notice.testId} tone="success">{notice.text}</Banner> : null}
+      {notice ? (
+        <Banner testId={notice.testId} tone="success">
+          {notice.text}
+        </Banner>
+      ) : null}
       {actionError ? (
         <div className="mt-3">
-          <Banner testId={actionError.testId} tone={actionError.tone}>{actionError.text}</Banner>
+          <Banner testId={actionError.testId} tone={actionError.tone}>
+            {actionError.text}
+          </Banner>
           <button
             type="button"
             data-testid="collector-retry"
@@ -301,12 +311,18 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
               const blocked = selectBlockReason(batch, scopeId);
               return (
                 <tr key={batch.batchId} className="border-t border-slate-200">
-                  <td className="py-2 pr-3">{batch.category ?? batch.batchId}</td>
+                  <td className="py-2 pr-3">
+                    {batch.category ?? batch.batchId}
+                  </td>
                   <td className="py-2 pr-3">{batch.status}</td>
                   <td className="py-2 pr-3">{batch.zone ?? "—"}</td>
                   <td className="py-2">
                     {blocked ? (
-                      <span data-testid={`collector-select-blocked-${batch.batchId}`}>{blocked}</span>
+                      <span
+                        data-testid={`collector-select-blocked-${batch.batchId}`}
+                      >
+                        {blocked}
+                      </span>
                     ) : (
                       <button
                         type="button"
@@ -328,7 +344,9 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
 
       {assignments && visibleAssignments.length === 0 && !loadError ? (
         <Banner testId="collector-assignments-empty" tone="info">
-          {history ? "No completed or failed assignments yet." : "No accepted assignments yet."}
+          {history
+            ? "No completed or failed assignments yet."
+            : "No accepted assignments yet."}
         </Banner>
       ) : null}
       {history && visibleAssignments.length > 0 ? (
@@ -355,7 +373,8 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
                       data-testid={`collector-reassignment-${row.assignmentId}`}
                       className="pb-2 text-slate-600"
                     >
-                      Failed pickup. The batch is APPROVED again and needs another collector.
+                      Failed pickup. The batch is APPROVED again and needs
+                      another collector.
                     </td>
                   </tr>
                 ) : null}
@@ -367,9 +386,13 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
       {!history && visibleAssignments.length > 0 ? (
         <ul className="mt-4 divide-y divide-slate-200 border-y border-slate-200 text-sm">
           {visibleAssignments.map((row) => (
-            <li key={row.assignmentId} className="flex items-center justify-between gap-4 py-3">
+            <li
+              key={row.assignmentId}
+              className="flex items-center justify-between gap-4 py-3"
+            >
               <span className="min-w-0 break-all">
-                {row.batchId} · {row.assignmentStatus} · {formatWhen(row.updatedAt)}
+                {row.batchId} · {row.assignmentStatus} ·{" "}
+                {formatWhen(row.updatedAt)}
               </span>
               <button
                 type="button"
@@ -385,22 +408,18 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
       ) : null}
 
       {!history && active ? (
-        <div data-testid="collector-detail" className="mt-6 grid max-w-xl gap-6">
+        <div
+          data-testid="collector-detail"
+          className="mt-6 grid max-w-xl gap-6"
+        >
           <p className="text-sm text-slate-700">
-            Assignment {active.assignmentId} is {active.assignmentStatus}. New
-            selection is already accepted. Legacy accept remains for an older
-            assignment that is not yet accepted.
+            Assignment {active.assignmentId} is {active.assignmentStatus}.
+            Selection already accepts the assignment.
           </p>
-          <button
-            type="button"
-            data-testid="collector-legacy-accept-button"
-            disabled={pending}
-            className="w-fit text-sm font-medium text-teal-800"
-            onClick={() => void onAccept(active)}
+          <form
+            onSubmit={(event) => void onReject(event)}
+            className="grid gap-2"
           >
-            Accept (legacy)
-          </button>
-          <form onSubmit={(event) => void onReject(event)} className="grid gap-2">
             <h3 className="font-semibold text-slate-900">Reject</h3>
             <input
               data-testid="collector-rejection-reason"
@@ -409,7 +428,12 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
               placeholder="Rejection reason"
               className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
-            <button type="submit" data-testid="collector-reject" disabled={pending} className="w-fit text-sm font-medium text-teal-800">
+            <button
+              type="submit"
+              data-testid="collector-reject"
+              disabled={pending}
+              className="w-fit text-sm font-medium text-teal-800"
+            >
               Reject assignment
             </button>
           </form>
@@ -429,18 +453,63 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
               placeholder="What you observed"
               className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
             />
-            <button type="submit" data-testid="collector-fail" disabled={pending} className="w-fit text-sm font-medium text-teal-800">
+            <button
+              type="submit"
+              data-testid="collector-fail"
+              disabled={pending}
+              className="w-fit text-sm font-medium text-teal-800"
+            >
               Report failed pickup
             </button>
           </form>
-          <form onSubmit={(event) => void onHandoff(event)} className="grid gap-2">
+          <form
+            onSubmit={(event) => void onHandoff(event)}
+            className="grid gap-2"
+          >
             <h3 className="font-semibold text-slate-900">Handoff</h3>
-            <input data-testid="collector-pickup-at" type="datetime-local" value={pickupAt} onChange={(event) => setPickupAt(event.target.value)} className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-            <input data-testid="collector-representative" value={representative} onChange={(event) => setRepresentative(event.target.value)} placeholder="Donor representative" className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-            <input data-testid="collector-actual-count" type="number" min={0} value={actualCount} onChange={(event) => setActualCount(event.target.value)} placeholder="Actual item count" className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-            <input data-testid="collector-hash" value={verificationHash} onChange={(event) => setVerificationHash(event.target.value)} placeholder="64-character verification hash" className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-            <textarea data-testid="collector-handoff-notes" value={handoffNotes} onChange={(event) => setHandoffNotes(event.target.value)} placeholder="Notes" className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm" />
-            <button type="submit" data-testid="collector-handoff-submit" disabled={pending} className="w-fit rounded-md bg-teal-800 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">
+            <input
+              data-testid="collector-pickup-at"
+              type="datetime-local"
+              value={pickupAt}
+              onChange={(event) => setPickupAt(event.target.value)}
+              className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <input
+              data-testid="collector-representative"
+              value={representative}
+              onChange={(event) => setRepresentative(event.target.value)}
+              placeholder="Donor representative"
+              className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <input
+              data-testid="collector-actual-count"
+              type="number"
+              min={0}
+              value={actualCount}
+              onChange={(event) => setActualCount(event.target.value)}
+              placeholder="Actual item count"
+              className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <input
+              data-testid="collector-hash"
+              value={verificationHash}
+              onChange={(event) => setVerificationHash(event.target.value)}
+              placeholder="64-character verification hash"
+              className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <textarea
+              data-testid="collector-handoff-notes"
+              value={handoffNotes}
+              onChange={(event) => setHandoffNotes(event.target.value)}
+              placeholder="Notes"
+              className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2 text-sm"
+            />
+            <button
+              type="submit"
+              data-testid="collector-handoff-submit"
+              disabled={pending}
+              className="w-fit rounded-md bg-teal-800 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+            >
               Record handoff
             </button>
           </form>

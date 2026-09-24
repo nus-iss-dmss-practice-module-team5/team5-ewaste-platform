@@ -6,6 +6,8 @@ import {
   createBatchDraft,
   draftBody,
   listBatches,
+  recordHandoff,
+  rejectAssignment,
   reportFailedPickup,
   selectAssignment,
   submitBatch,
@@ -90,19 +92,26 @@ describe("workflow api", () => {
 
   it("submits with If-Match-Version and an empty body", async () => {
     post.mockResolvedValue({
-      data: { data: { ...batch, status: "SUBMITTED", version: 3 }, correlationId: "corr-2" },
+      data: {
+        data: { ...batch, status: "SUBMITTED", version: 3 },
+        correlationId: "corr-2",
+      },
     });
 
     const submitted = await submitBatch("token", "batch-1", 2, "idem-submit");
 
     expect(submitted.status).toBe("SUBMITTED");
-    expect(post).toHaveBeenCalledWith("/api/v1/batches/batch-1/submit", undefined, {
-      headers: {
-        Authorization: "Bearer token",
-        "Idempotency-Key": "idem-submit",
-        "If-Match-Version": "2",
+    expect(post).toHaveBeenCalledWith(
+      "/api/v1/batches/batch-1/submit",
+      undefined,
+      {
+        headers: {
+          Authorization: "Bearer token",
+          "Idempotency-Key": "idem-submit",
+          "If-Match-Version": "2",
+        },
       },
-    });
+    );
   });
 
   it("lists batches with camelCase page parameters", async () => {
@@ -188,9 +197,54 @@ describe("workflow api", () => {
     );
 
     expect(post.mock.calls[0]?.[1]).toEqual({
-      expectedVersion: 4,
-      claimEpoch: "1",
-      collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
+      expected_version: 4,
+      claim_epoch: "1",
+      collector_scope_id: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
+    });
+  });
+
+  it("serializes reject and handoff fields as snake_case", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          assignmentId: "asg-1",
+          batchId: "batch-1",
+          assignmentStatus: "ACCEPTED",
+          assignmentSequence: 1,
+          version: 2,
+        },
+        correlationId: "corr-asg",
+      },
+    });
+
+    await rejectAssignment(
+      "token",
+      "asg-1",
+      1,
+      " outside scope ",
+      "idem-reject",
+    );
+    expect(post.mock.calls[0]?.[1]).toEqual({
+      rejection_reason: "outside scope",
+    });
+
+    await recordHandoff(
+      "token",
+      "asg-1",
+      1,
+      {
+        pickupOccurredAt: "2026-09-23T02:00:00.000Z",
+        donorRepresentativeName: " Representative ",
+        actualItemCount: 4,
+        verificationHash: "a".repeat(64),
+      },
+      "idem-handoff",
+    );
+    expect(post.mock.calls[1]?.[1]).toEqual({
+      pickup_occurred_at: "2026-09-23T02:00:00.000Z",
+      donor_representative_name: "Representative",
+      actual_item_count: 4,
+      verification_hash: "a".repeat(64),
     });
   });
 
@@ -207,13 +261,27 @@ describe("workflow api", () => {
       correlationId: "corr-conflict",
     });
 
-    get.mockRejectedValueOnce(axiosError(404, { code: "NOT_FOUND", message: "missing", correlationId: "corr-404" }));
-    await expect(listBatches("token")).rejects.toMatchObject({ kind: "not_found" });
+    get.mockRejectedValueOnce(
+      axiosError(404, {
+        code: "NOT_FOUND",
+        message: "missing",
+        correlationId: "corr-404",
+      }),
+    );
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "not_found",
+    });
 
     get.mockRejectedValueOnce(
-      axiosError(409, { code: "DUPLICATE_CLAIM", message: "already sent", correlationId: "corr-dup" }),
+      axiosError(409, {
+        code: "DUPLICATE_CLAIM",
+        message: "already sent",
+        correlationId: "corr-dup",
+      }),
     );
-    await expect(listBatches("token")).rejects.toMatchObject({ kind: "duplicate" });
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "duplicate",
+    });
 
     get.mockRejectedValueOnce(axiosError(undefined));
     await expect(listBatches("token")).rejects.toMatchObject({
@@ -246,8 +314,8 @@ describe("workflow api", () => {
 
     const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(body).toEqual({
-      failureReason: "collector absent",
-      observedDetails: "No recipient",
+      failure_reason: "collector absent",
+      observed_details: "No recipient",
     });
     expect(body).not.toHaveProperty("version");
   });

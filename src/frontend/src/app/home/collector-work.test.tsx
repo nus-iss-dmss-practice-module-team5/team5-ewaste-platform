@@ -8,7 +8,6 @@ import { CollectorWork } from "./collector-work";
 const listBatches = vi.fn();
 const listAssignments = vi.fn();
 const selectAssignment = vi.fn();
-const acceptAssignment = vi.fn();
 const rejectAssignment = vi.fn();
 const recordHandoff = vi.fn();
 const reportFailedPickup = vi.fn();
@@ -17,7 +16,7 @@ vi.mock("@/lib/auth/session-context", () => ({
   useSession: () => ({
     session: {
       tokens: { accessToken: "access-token" },
-      user: { organisationId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99" },
+      user: { collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99" },
     },
   }),
 }));
@@ -26,7 +25,6 @@ vi.mock("@/lib/workflow/api", () => ({
   listBatches: (...args: unknown[]) => listBatches(...args),
   listAssignments: (...args: unknown[]) => listAssignments(...args),
   selectAssignment: (...args: unknown[]) => selectAssignment(...args),
-  acceptAssignment: (...args: unknown[]) => acceptAssignment(...args),
   rejectAssignment: (...args: unknown[]) => rejectAssignment(...args),
   recordHandoff: (...args: unknown[]) => recordHandoff(...args),
   reportFailedPickup: (...args: unknown[]) => reportFailedPickup(...args),
@@ -51,7 +49,13 @@ const accepted: Assignment = {
 };
 
 function page<T>(data: T[]) {
-  return { data, page: 1, pageSize: 20, totalCount: data.length, correlationId: "c" };
+  return {
+    data,
+    page: 1,
+    pageSize: 20,
+    totalCount: data.length,
+    correlationId: "c",
+  };
 }
 
 describe("collector work", () => {
@@ -59,7 +63,6 @@ describe("collector work", () => {
     listBatches.mockReset();
     listAssignments.mockReset();
     selectAssignment.mockReset();
-    acceptAssignment.mockReset();
     rejectAssignment.mockReset();
     recordHandoff.mockReset();
     reportFailedPickup.mockReset();
@@ -69,7 +72,10 @@ describe("collector work", () => {
 
   it("selects an approved batch into an accepted assignment", async () => {
     const user = userEvent.setup();
-    selectAssignment.mockResolvedValue({ ...accepted, assignmentStatus: "ACCEPTED" });
+    selectAssignment.mockResolvedValue({
+      ...accepted,
+      assignmentStatus: "ACCEPTED",
+    });
     render(<CollectorWork />);
     await user.click(await screen.findByTestId("collector-select-batch-1"));
     expect(selectAssignment).toHaveBeenCalledWith(
@@ -82,15 +88,33 @@ describe("collector work", () => {
       },
       "idem-collector",
     );
-    expect(await screen.findByTestId("collector-accepted")).toHaveTextContent("ACCEPTED");
+    expect(await screen.findByTestId("collector-accepted")).toHaveTextContent(
+      "ACCEPTED",
+    );
+  });
+
+  it("does not offer legacy accept for an accepted assignment", async () => {
+    const user = userEvent.setup();
+    render(<CollectorWork />);
+    await user.click(await screen.findByTestId("collector-open-asg-1"));
+    expect(
+      screen.queryByRole("button", { name: /accept/i }),
+    ).not.toBeInTheDocument();
   });
 
   it("explains that a failed pickup returns the batch to APPROVED", async () => {
     const user = userEvent.setup();
-    reportFailedPickup.mockResolvedValue({ ...accepted, assignmentStatus: "FAILED", version: 2 });
+    reportFailedPickup.mockResolvedValue({
+      ...accepted,
+      assignmentStatus: "FAILED",
+      version: 2,
+    });
     render(<CollectorWork />);
     await user.click(await screen.findByTestId("collector-open-asg-1"));
-    await user.type(screen.getByTestId("collector-failure-reason"), "collector absent");
+    await user.type(
+      screen.getByTestId("collector-failure-reason"),
+      "collector absent",
+    );
     await user.click(screen.getByTestId("collector-fail"));
     expect(await screen.findByTestId("collector-failed")).toHaveTextContent(
       "returns to APPROVED",
@@ -111,7 +135,9 @@ describe("collector work", () => {
     );
     render(<CollectorWork />);
     await user.click(await screen.findByTestId("collector-select-batch-1"));
-    expect(await screen.findByTestId("collector-action-conflict")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("collector-action-conflict"),
+    ).toBeInTheDocument();
     expect(screen.getByTestId("collector-retry")).toBeInTheDocument();
   });
 
@@ -119,14 +145,20 @@ describe("collector work", () => {
     const user = userEvent.setup();
     render(<CollectorWork />);
     await user.click(await screen.findByTestId("collector-open-asg-1"));
-    await user.type(screen.getByTestId("collector-pickup-at"), "2026-09-23T10:00");
-    await user.type(screen.getByTestId("collector-representative"), "Representative");
+    await user.type(
+      screen.getByTestId("collector-pickup-at"),
+      "2026-09-23T10:00",
+    );
+    await user.type(
+      screen.getByTestId("collector-representative"),
+      "Representative",
+    );
     await user.type(screen.getByTestId("collector-actual-count"), "10");
     await user.type(screen.getByTestId("collector-hash"), "abcd");
     await user.click(screen.getByTestId("collector-handoff-submit"));
-    expect(await screen.findByTestId("collector-action-validation")).toHaveTextContent(
-      "64 hexadecimal",
-    );
+    expect(
+      await screen.findByTestId("collector-action-validation"),
+    ).toHaveTextContent("64 hexadecimal");
     expect(recordHandoff).not.toHaveBeenCalled();
   });
 
@@ -135,9 +167,9 @@ describe("collector work", () => {
       page([{ ...accepted, assignmentStatus: "FAILED" }]),
     );
     render(<CollectorWork history />);
-    expect(await screen.findByTestId("collector-reassignment-asg-1")).toHaveTextContent(
-      "APPROVED again",
-    );
+    expect(
+      await screen.findByTestId("collector-reassignment-asg-1"),
+    ).toHaveTextContent("APPROVED again");
   });
 
   it("shows a forbidden state for another collector scope", async () => {
@@ -145,8 +177,8 @@ describe("collector work", () => {
       new WorkflowError("denied", "forbidden", "FORBIDDEN", "c", 403),
     );
     render(<CollectorWork />);
-    expect(await screen.findByTestId("collector-list-forbidden")).toHaveTextContent(
-      "organisation",
-    );
+    expect(
+      await screen.findByTestId("collector-list-forbidden"),
+    ).toHaveTextContent("organisation");
   });
 });

@@ -71,7 +71,11 @@ async function load(): Promise<Store> {
   return store;
 }
 
-function requireAssignment(rows: Assignment[], assignmentId: string, version: number): Assignment {
+function requireAssignment(
+  rows: Assignment[],
+  assignmentId: string,
+  version: number,
+): Assignment {
   const match = rows.find((row) => row.assignmentId === assignmentId);
   if (!match) {
     throw new WorkflowError(
@@ -88,9 +92,13 @@ function requireAssignment(rows: Assignment[], assignmentId: string, version: nu
   return match;
 }
 
-export async function mockListBatches(status?: BatchStatus): Promise<Page<Batch>> {
+export async function mockListBatches(
+  status?: BatchStatus,
+): Promise<Page<Batch>> {
   const data = await load();
-  const rows = status ? data.batches.filter((row) => row.status === status) : data.batches;
+  const rows = status
+    ? data.batches.filter((row) => row.status === status)
+    : data.batches;
   return page(rows);
 }
 
@@ -106,7 +114,9 @@ export async function mockSelectAssignment(
   const data = await load();
   const batch = data.batches.find((row) => row.batchId === batchId);
   if (!batch || batch.status !== "APPROVED" || !batch.claimEpoch) {
-    throw conflict("Only an APPROVED batch with a claim epoch can be selected.");
+    throw conflict(
+      "Only an APPROVED batch with a claim epoch can be selected.",
+    );
   }
   if (batchId === STALE_BATCH_ID || batch.version !== command.expectedVersion) {
     throw conflict("This record changed. Refresh and try again.");

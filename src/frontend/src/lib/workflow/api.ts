@@ -54,13 +54,14 @@ function commandHeaders(
 ) {
   return authHeaders(accessToken, {
     "Idempotency-Key": idempotencyKey,
-    ...(version === undefined
-      ? {}
-      : { "If-Match-Version": String(version) }),
+    ...(version === undefined ? {} : { "If-Match-Version": String(version) }),
   });
 }
 
-async function call<T>(request: Promise<{ data: unknown }>, parse: (data: unknown) => T): Promise<T> {
+async function call<T>(
+  request: Promise<{ data: unknown }>,
+  parse: (data: unknown) => T,
+): Promise<T> {
   try {
     const response = await request;
     return parse(response.data);
@@ -227,9 +228,9 @@ export async function selectAssignment(
     api.post(
       `/api/v1/batches/${batchId}/assignments`,
       {
-        expectedVersion: command.expectedVersion,
-        claimEpoch: command.claimEpoch,
-        collectorScopeId: command.collectorScopeId,
+        expected_version: command.expectedVersion,
+        claim_epoch: command.claimEpoch,
+        collector_scope_id: command.collectorScopeId,
       },
       commandHeaders(accessToken, idempotencyKey, command.expectedVersion),
     ),
@@ -239,7 +240,11 @@ export async function selectAssignment(
 
 export async function listAssignments(
   accessToken: string,
-  query: { status?: Assignment["assignmentStatus"]; page?: number; pageSize?: number } = {},
+  query: {
+    status?: Assignment["assignmentStatus"];
+    page?: number;
+    pageSize?: number;
+  } = {},
 ): Promise<Page<Assignment>> {
   if (USE_LOCAL_COLLECTOR_MOCK) {
     return mockListAssignments();
@@ -289,7 +294,7 @@ export async function rejectAssignment(
   return call(
     api.post(
       `/api/v1/assignments/${assignmentId}/reject`,
-      { rejectionReason: rejectionReason.trim() },
+      { rejection_reason: rejectionReason.trim() },
       commandHeaders(accessToken, idempotencyKey, version),
     ),
     (data) => parseData(data, parseAssignment, "Assignment"),
@@ -306,11 +311,17 @@ export async function recordHandoff(
   if (USE_LOCAL_COLLECTOR_MOCK) {
     return mockRecordHandoff(assignmentId, version);
   }
-  const body: HandoffCommand = {
-    pickupOccurredAt: command.pickupOccurredAt,
-    donorRepresentativeName: command.donorRepresentativeName.trim(),
-    actualItemCount: command.actualItemCount,
-    verificationHash: command.verificationHash.trim(),
+  const body: {
+    pickup_occurred_at: string;
+    donor_representative_name: string;
+    actual_item_count: number;
+    verification_hash: string;
+    notes?: string;
+  } = {
+    pickup_occurred_at: command.pickupOccurredAt,
+    donor_representative_name: command.donorRepresentativeName.trim(),
+    actual_item_count: command.actualItemCount,
+    verification_hash: command.verificationHash.trim(),
   };
   const notes = command.notes?.trim();
   if (notes) {
@@ -336,12 +347,15 @@ export async function reportFailedPickup(
   if (USE_LOCAL_COLLECTOR_MOCK) {
     return mockReportFailedPickup(assignmentId, version);
   }
-  const body: FailPickupCommand = {
-    failureReason: command.failureReason.trim(),
+  const body: {
+    failure_reason: string;
+    observed_details?: string;
+  } = {
+    failure_reason: command.failureReason.trim(),
   };
   const observedDetails = command.observedDetails?.trim();
   if (observedDetails) {
-    body.observedDetails = observedDetails;
+    body.observed_details = observedDetails;
   }
   return call(
     api.post(
