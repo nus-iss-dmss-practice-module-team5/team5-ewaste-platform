@@ -121,11 +121,7 @@ export function userFromAccessToken(
     fallbacks.name ??
     seed?.name ??
     nameFromEmail(email);
-  const collectorScopeId = readString(
-    payload,
-    "collectorScopeId",
-    "collector_scope_id",
-  );
+  const collectorScopeId = readString(payload, "collector_scope_id");
 
   return {
     id,
