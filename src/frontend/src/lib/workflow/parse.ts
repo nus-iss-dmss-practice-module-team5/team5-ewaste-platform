@@ -169,25 +169,25 @@ export function parseAssignment(value: unknown): Assignment {
     throw contractError("Assignment response is not an object.");
   }
   const assignmentStatus = oneOf(
-    requireString(value, "assignmentStatus", "Assignment"),
+    requireString(value, "assignment_status", "Assignment"),
     ASSIGNMENT_STATUSES,
     "Assignment",
   ) as AssignmentStatus;
   const assignment: Assignment = {
-    assignmentId: requireString(value, "assignmentId", "Assignment"),
-    batchId: requireString(value, "batchId", "Assignment"),
+    assignmentId: requireString(value, "assignment_id", "Assignment"),
+    batchId: requireString(value, "batch_id", "Assignment"),
     assignmentStatus,
     assignmentSequence: requireNumber(
       value,
-      "assignmentSequence",
+      "assignment_sequence",
       "Assignment",
     ),
     version: requireNumber(value, "version", "Assignment"),
   };
-  const claimId = readString(value, "claimId");
-  const collectorScopeId = readString(value, "collectorScopeId");
-  const createdAt = readString(value, "createdAt");
-  const updatedAt = readString(value, "updatedAt");
+  const claimId = readString(value, "claim_id");
+  const collectorScopeId = readString(value, "collector_scope_id");
+  const createdAt = readString(value, "created_at");
+  const updatedAt = readString(value, "updated_at");
   if (claimId) assignment.claimId = claimId;
   if (collectorScopeId) assignment.collectorScopeId = collectorScopeId;
   if (createdAt) assignment.createdAt = createdAt;

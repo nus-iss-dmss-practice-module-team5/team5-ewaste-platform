@@ -175,10 +175,10 @@ describe("workflow api", () => {
     post.mockResolvedValue({
       data: {
         data: {
-          assignmentId: "asg-1",
-          batchId: "batch-1",
-          assignmentStatus: "ACCEPTED",
-          assignmentSequence: 1,
+          assignment_id: "asg-1",
+          batch_id: "batch-1",
+          assignment_status: "ACCEPTED",
+          assignment_sequence: 1,
           version: 1,
         },
         correlationId: "corr-asg",
@@ -207,10 +207,10 @@ describe("workflow api", () => {
     post.mockResolvedValue({
       data: {
         data: {
-          assignmentId: "asg-1",
-          batchId: "batch-1",
-          assignmentStatus: "ACCEPTED",
-          assignmentSequence: 1,
+          assignment_id: "asg-1",
+          batch_id: "batch-1",
+          assignment_status: "ACCEPTED",
+          assignment_sequence: 1,
           version: 2,
         },
         correlationId: "corr-asg",
@@ -294,10 +294,10 @@ describe("workflow api", () => {
     post.mockResolvedValue({
       data: {
         data: {
-          assignmentId: "asg-1",
-          batchId: "batch-1",
-          assignmentStatus: "FAILED",
-          assignmentSequence: 1,
+          assignment_id: "asg-1",
+          batch_id: "batch-1",
+          assignment_status: "FAILED",
+          assignment_sequence: 1,
           version: 2,
         },
         correlationId: "corr-fail",
