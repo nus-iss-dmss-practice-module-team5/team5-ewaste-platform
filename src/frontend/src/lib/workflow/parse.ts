@@ -122,21 +122,25 @@ export function parseOpportunity(value: unknown): Opportunity {
     "Opportunity",
   ) as OpportunityStatus;
   const opportunity: Opportunity = {
-    batchId: requireString(value, "batchId", "Opportunity"),
+    batchId: requireString(value, "batch_id", "Opportunity"),
     status,
     category: requireString(value, "category", "Opportunity"),
     quantity: requireNumber(value, "quantity", "Opportunity"),
     zone: requireString(value, "zone", "Opportunity"),
     collectionDeadline: requireString(
       value,
-      "collectionDeadline",
+      "collection_deadline",
       "Opportunity",
     ),
-    eligibilityReason: requireString(value, "eligibilityReason", "Opportunity"),
+    eligibilityReason: requireString(
+      value,
+      "eligibility_reason",
+      "Opportunity",
+    ),
   };
-  const estimatedWeightKg = readNumber(value, "estimatedWeightKg");
+  const estimatedWeightKg = readNumber(value, "estimated_weight_kg");
   const version = readNumber(value, "version");
-  const claimEpoch = readString(value, "claimEpoch");
+  const claimEpoch = readString(value, "claim_epoch");
   if (estimatedWeightKg !== undefined) {
     opportunity.estimatedWeightKg = estimatedWeightKg;
   }
@@ -154,13 +158,13 @@ export function parseClaimResult(value: unknown): ClaimResult {
     throw contractError("Claim did not end at APPROVED.");
   }
   return {
-    batchId: requireString(value, "batchId", "Claim"),
+    batchId: requireString(value, "batch_id", "Claim"),
     status: "APPROVED",
     version: requireNumber(value, "version", "Claim"),
-    claimEpoch: requireString(value, "claimEpoch", "Claim"),
-    claimId: requireString(value, "claimId", "Claim"),
-    reservationId: requireString(value, "reservationId", "Claim"),
-    correlationId: requireString(value, "correlationId", "Claim"),
+    claimEpoch: requireString(value, "claim_epoch", "Claim"),
+    claimId: requireString(value, "claim_id", "Claim"),
+    reservationId: requireString(value, "reservation_id", "Claim"),
+    correlationId: requireString(value, "correlation_id", "Claim"),
   };
 }
 
@@ -169,25 +173,25 @@ export function parseAssignment(value: unknown): Assignment {
     throw contractError("Assignment response is not an object.");
   }
   const assignmentStatus = oneOf(
-    requireString(value, "assignmentStatus", "Assignment"),
+    requireString(value, "assignment_status", "Assignment"),
     ASSIGNMENT_STATUSES,
     "Assignment",
   ) as AssignmentStatus;
   const assignment: Assignment = {
-    assignmentId: requireString(value, "assignmentId", "Assignment"),
-    batchId: requireString(value, "batchId", "Assignment"),
+    assignmentId: requireString(value, "assignment_id", "Assignment"),
+    batchId: requireString(value, "batch_id", "Assignment"),
     assignmentStatus,
     assignmentSequence: requireNumber(
       value,
-      "assignmentSequence",
+      "assignment_sequence",
       "Assignment",
     ),
     version: requireNumber(value, "version", "Assignment"),
   };
-  const claimId = readString(value, "claimId");
-  const collectorScopeId = readString(value, "collectorScopeId");
-  const createdAt = readString(value, "createdAt");
-  const updatedAt = readString(value, "updatedAt");
+  const claimId = readString(value, "claim_id");
+  const collectorScopeId = readString(value, "collector_scope_id");
+  const createdAt = readString(value, "created_at");
+  const updatedAt = readString(value, "updated_at");
   if (claimId) assignment.claimId = claimId;
   if (collectorScopeId) assignment.collectorScopeId = collectorScopeId;
   if (createdAt) assignment.createdAt = createdAt;
