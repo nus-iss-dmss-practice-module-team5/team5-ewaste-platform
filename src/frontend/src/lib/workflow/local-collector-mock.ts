@@ -1,4 +1,5 @@
 import { WorkflowError } from "./errors";
+import { parseAssignment, parseBatch } from "./parse";
 import type {
   Assignment,
   Batch,
@@ -54,12 +55,11 @@ async function load(): Promise<Store> {
     );
   }
   const data: unknown = await response.json();
-  if (
-    typeof data !== "object" ||
-    data === null ||
-    !Array.isArray((data as Store).batches) ||
-    !Array.isArray((data as Store).assignments)
-  ) {
+  const raw =
+    typeof data === "object" && data !== null
+      ? (data as { batches?: unknown; assignments?: unknown })
+      : {};
+  if (!Array.isArray(raw.batches) || !Array.isArray(raw.assignments)) {
     throw new WorkflowError(
       "Local mock collector file is not a collector store.",
       "error",
@@ -67,7 +67,10 @@ async function load(): Promise<Store> {
       "corr-local-mock",
     );
   }
-  store = data as Store;
+  store = {
+    batches: raw.batches.map(parseBatch),
+    assignments: raw.assignments.map(parseAssignment),
+  };
   return store;
 }
 
