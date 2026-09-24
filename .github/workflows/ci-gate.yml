@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
   push:
-    branches: [dev, main, security-testing-v2]
+    branches: [dev, main]
 
 permissions:
   contents: read
@@ -152,7 +152,8 @@ jobs:
             --config p/typescript \
             --config p/javascript \
             --sarif \
-            --output semgrep.sarif
+            --output semgrep.sarif \
+            --error
 
       - name: Retain Semgrep Report
         if: always() && hashFiles('semgrep.sarif') != ''
@@ -197,10 +198,6 @@ jobs:
         run: |
           echo "Terraform implementation is not available yet."
           echo "Checkov will scan terraform/ once infrastructure code is added."
-
-
-
-
 
   # ============================================================================
   # PHASE 3: AUTOMATED UNIT VERIFICATION
@@ -371,6 +368,7 @@ jobs:
     name: Container Build, SBOM & Vulnerability Scan
 
     needs:
+      - pre-commit-checks
       - backend-tests
       - analytics-tests
       - frontend-checks
