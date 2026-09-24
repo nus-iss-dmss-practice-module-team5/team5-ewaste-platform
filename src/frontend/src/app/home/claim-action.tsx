@@ -8,7 +8,7 @@ import {
 } from "@/lib/workflow/api";
 import { USE_LOCAL_CLAIM_MOCK } from "@/lib/workflow/local-claim-mock";
 import type { ClaimResult, Opportunity } from "@/lib/workflow/types";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Banner, LoadingLine, bannerForError, formatWhen } from "./workflow-ui";
 
 function claimBlockReason(opportunity: Opportunity): string | null {
@@ -32,6 +32,11 @@ export function ClaimAction() {
     typeof bannerForError
   > | null>(null);
   const [result, setResult] = useState<ClaimResult | null>(null);
+  // Kept until the claim succeeds or its payload changes, so retrying after a
+  // timeout replays the same command instead of sending a new one.
+  const claimAttempt = useRef<{ fingerprint: string; key: string } | null>(
+    null,
+  );
 
   const selected = rows?.find((row) => row.batchId === selectedId) ?? null;
   const blockReason = selected ? claimBlockReason(selected) : null;
@@ -68,6 +73,16 @@ export function ClaimAction() {
     ) {
       return;
     }
+    const fingerprint = JSON.stringify([
+      selected.batchId,
+      selected.version,
+      selected.claimEpoch,
+      notes.trim(),
+    ]);
+    if (claimAttempt.current?.fingerprint !== fingerprint) {
+      claimAttempt.current = { fingerprint, key: newIdempotencyKey() };
+    }
+    const idempotencyKey = claimAttempt.current.key;
     setPending(true);
     setResult(null);
     setActionError(null);
@@ -80,8 +95,9 @@ export function ClaimAction() {
           claimEpoch: selected.claimEpoch,
           notes,
         },
-        newIdempotencyKey(),
+        idempotencyKey,
       );
+      claimAttempt.current = null;
       setResult(claimed);
     } catch (error) {
       setActionError(bannerForError(error, "claim"));
