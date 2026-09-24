@@ -32,7 +32,8 @@ resource "azurerm_resource_group" "shared" {
 }
 
 # Centralized Azure Container Registry.
-# Premium is required for Private Link. Public access and admin credentials are disabled.
+# Premium SKU required for Private Link. Public access disabled; CI pushes via az acr build
+# (ACR Tasks trusted-service bypass). ACA runtime pulls via per-environment private endpoints + UAMI AcrPull.
 resource "azurerm_container_registry" "acr" {
   name                          = "acrewasteplatform"
   resource_group_name           = azurerm_resource_group.shared.name
@@ -40,11 +41,11 @@ resource "azurerm_container_registry" "acr" {
   sku                           = "Premium"
   admin_enabled                 = false
   anonymous_pull_enabled        = false
-  public_network_access_enabled = true
+  public_network_access_enabled = false
   network_rule_bypass_option    = "AzureServices"
 
   network_rule_set {
-    default_action = "Allow"                  # Allow public traffic to authenticate
+    default_action = "Deny"
   }
 
   tags = {

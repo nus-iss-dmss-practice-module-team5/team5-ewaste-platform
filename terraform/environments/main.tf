@@ -162,6 +162,7 @@ resource "azurerm_private_endpoint" "acr" {
 
 resource "azurerm_key_vault" "kv" {
   # checkov:skip=CKV_AZURE_110:Sprint 1 baseline permits clean environment teardown/recreation.
+  # checkov:skip=CKV_AZURE_42:Purge protection is intentionally disabled (see CKV_AZURE_110); recoverability requires purge protection which blocks name reuse during iterative dev teardowns.
   name                          = "kv-${local.name_prefix}"
   location                      = azurerm_resource_group.env_rg.location
   resource_group_name           = azurerm_resource_group.env_rg.name
