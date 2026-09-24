@@ -1,4 +1,5 @@
 import { WorkflowError } from "./errors";
+import { parseOpportunity } from "./parse";
 import type { ClaimCommand, ClaimResult, Opportunity } from "./types";
 
 export const USE_LOCAL_CLAIM_MOCK =
@@ -31,7 +32,7 @@ async function load(): Promise<Opportunity[]> {
       "corr-local-mock",
     );
   }
-  rows = data as Opportunity[];
+  rows = data.map(parseOpportunity);
   return rows;
 }
 
