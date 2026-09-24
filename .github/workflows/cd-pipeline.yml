@@ -35,6 +35,7 @@ concurrency:
 env:
   IMAGE_NAME_API: 'workflow-api'
   IMAGE_NAME_UI: 'workflow-ui'
+  IMAGE_NAME_ANALYTICS: 'workflow-analytics'
 
 jobs:
   # ============================================================================
@@ -99,16 +100,17 @@ jobs:
           echo "========================================================"
 
   # ============================================================================
-  # STAGE 1: MULTI-CONTAINER RELEASE (API + UI), COSIGN SIGNING & ACA DEPLOYMENT
+  # STAGE 1: MULTI-CONTAINER RELEASE (API, UI & ANALYTICS) & ACA DEPLOYMENT
   # ============================================================================
   deploy-application:
-    name: Package & Deploy (API + UI - ${{ needs.resolve-environment.outputs.environment }})
+    name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
     runs-on: [ubuntu-latest]
     environment: ${{ needs.resolve-environment.outputs.environment }}
     outputs:
       aca_api_fqdn: ${{ steps.api_deploy.outputs.aca_api_fqdn }}
       aca_ui_fqdn: ${{ steps.ui_deploy.outputs.aca_ui_fqdn }}
+      aca_analytics_fqdn: ${{ steps.analytics_deploy.outputs.aca_analytics_fqdn }}
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
@@ -370,7 +372,7 @@ jobs:
             echo "API FQDN: https://$API_FQDN"
 
       # ------------------------------------------------------------------------
-      # 1.2 FRONTEND UI CONTAINER (Build via SP, Sign & Deploy)
+      # 1.2 FRONTEND UI CONTAINER
       # ------------------------------------------------------------------------
       - name: Build & Publish Frontend UI Container
         run: |
@@ -509,12 +511,158 @@ jobs:
             echo "UI FQDN: https://$UI_FQDN"
 
       # ------------------------------------------------------------------------
-      # 1.3 LIVE CONTAINER READINESS PROBES (API & UI)
+      # 1.3 ANALYTICS WORKER CONTAINER
       # ------------------------------------------------------------------------
-      - name: Verify Live ACA Health Readiness Probes (API & UI)
+      - name: Build and Push Analytics Worker Image to ACR
+        run: |
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_ENV}-${SHORT_SHA}"
+
+          echo "Building Analytics Worker image: $IMAGE_TAG"
+          docker build -t "$IMAGE_TAG" -f src/analytics/Dockerfile src/analytics/
+
+          echo "Pushing Analytics Worker image to ACR..."
+          docker push "$IMAGE_TAG"
+
+          ANALYTICS_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
+          echo "ANALYTICS_IMMUTABLE_DIGEST=$ANALYTICS_DIGEST" >> $GITHUB_ENV
+
+      - name: Deploy Analytics Worker to Azure Container Apps
+        id: analytics_deploy
+        uses: azure/cli@v2
+        with:
+          inlineScript: |
+            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+            RG="${{ needs.resolve-environment.outputs.resource_group }}"
+            CAE="${{ needs.resolve-environment.outputs.aca_env_name }}"
+            ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
+            APP_NAME="aca-ewaste-${TARGET_ENV}-analytics"
+            IDENTITY=$(az identity show --name "id-ewaste-${TARGET_ENV}" --resource-group "$RG" --query id -o tsv 2>/dev/null || true)
+
+            # Discover Event Hubs Namespace and Connection String dynamically
+            EVH_NAME=$(az eventhubs namespace list --resource-group "$RG" --query "[0].name" -o tsv 2>/dev/null || true)
+            if [ -z "$EVH_NAME" ]; then
+              EVH_NAME="evh-ewaste-${TARGET_ENV}"
+            fi
+
+            if [ "$TARGET_ENV" == "dev" ]; then
+              ENABLE_TESTS="true"
+            else
+              ENABLE_TESTS="false"
+            fi
+
+            BOOTSTRAP_SERVERS="${EVH_NAME}.servicebus.windows.net:9093"
+            EVH_CONN_STR=$(az eventhubs namespace authorization-rule keys list \
+              --resource-group "$RG" \
+              --namespace-name "$EVH_NAME" \
+              --name "auth-ewaste-workload" \
+              --query primaryConnectionString -o tsv 2>/dev/null || true)
+
+            echo "Deploying Analytics Container App ($APP_NAME) with Bootstrap: $BOOTSTRAP_SERVERS..."
+
+            if az containerapp show --name "$APP_NAME" --resource-group "$RG" >/dev/null 2>&1; then
+              echo "Container App $APP_NAME exists. Updating image and environment..."
+
+              if [ -n "$IDENTITY" ]; then
+                az containerapp identity assign \
+                  --name "$APP_NAME" \
+                  --resource-group "$RG" \
+                  --user-assigned "$IDENTITY" || true
+
+                az containerapp registry set \
+                  --name "$APP_NAME" \
+                  --resource-group "$RG" \
+                  --server "$ACR_SERVER" \
+                  --identity "$IDENTITY" || true
+              fi
+
+              az containerapp ingress enable \
+                --name "$APP_NAME" \
+                --resource-group "$RG" \
+                --type external \
+                --target-port 8000 || true
+
+              if [ -n "$EVH_CONN_STR" ]; then
+                az containerapp secret set \
+                  --name "$APP_NAME" \
+                  --resource-group "$RG" \
+                  --secrets kafka-conn="$EVH_CONN_STR" || true
+              fi
+
+              az containerapp update \
+                --name "$APP_NAME" \
+                --resource-group "$RG" \
+                --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
+                --set-env-vars KAFKA_BOOTSTRAP_SERVERS="$BOOTSTRAP_SERVERS" \
+                               KAFKA_CONNECTION_STRING=secretref:kafka-conn \
+                               KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
+                               KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
+                               KAFKA_CONSUMER_GROUP="matching-worker" \
+                               ENABLE_TEST_ENDPOINTS="$ENABLE_TESTS" \
+                               LOG_LEVEL="INFO"
+            else
+              echo "Container App $APP_NAME does not exist. Creating new container app with ACR identity..."
+              if [ -n "$IDENTITY" ]; then
+                az containerapp create \
+                  --name "$APP_NAME" \
+                  --resource-group "$RG" \
+                  --environment "$CAE" \
+                  --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
+                  --target-port 8000 \
+                  --ingress external \
+                  --min-replicas 1 \
+                  --max-replicas 2 \
+                  --cpu 0.5 \
+                  --memory 1.0Gi \
+                  --user-assigned "$IDENTITY" \
+                  --registry-server "$ACR_SERVER" \
+                  --registry-identity "$IDENTITY" \
+                  --secrets kafka-conn="$EVH_CONN_STR" \
+                  --env-vars KAFKA_BOOTSTRAP_SERVERS="$BOOTSTRAP_SERVERS" \
+                             KAFKA_CONNECTION_STRING=secretref:kafka-conn \
+                             KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
+                             KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
+                             KAFKA_CONSUMER_GROUP="matching-worker" \
+                             ENABLE_TEST_ENDPOINTS="$ENABLE_TESTS" \
+                             LOG_LEVEL="INFO"
+              else
+                az containerapp create \
+                  --name "$APP_NAME" \
+                  --resource-group "$RG" \
+                  --environment "$CAE" \
+                  --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
+                  --target-port 8000 \
+                  --ingress external \
+                  --min-replicas 1 \
+                  --max-replicas 2 \
+                  --cpu 0.5 \
+                  --memory 1.0Gi \
+                  --registry-server "$ACR_SERVER" \
+                  --secrets kafka-conn="$EVH_CONN_STR" \
+                  --env-vars KAFKA_BOOTSTRAP_SERVERS="$BOOTSTRAP_SERVERS" \
+                             KAFKA_CONNECTION_STRING=secretref:kafka-conn \
+                             KAFKA_TOPIC_BATCH_EVENTS="ewaste.batch.events" \
+                             KAFKA_TOPIC_DLQ="ewaste.batch.events.matching.dlq.v1" \
+                             KAFKA_CONSUMER_GROUP="matching-worker" \
+                             ENABLE_TEST_ENDPOINTS="$ENABLE_TESTS" \
+                             LOG_LEVEL="INFO"
+              fi
+            fi
+
+            ANALYTICS_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
+            echo "aca_analytics_fqdn=$ANALYTICS_FQDN" >> $GITHUB_OUTPUT
+            echo "Analytics Worker deployed at: https://${ANALYTICS_FQDN}"
+
+      # ------------------------------------------------------------------------
+      # 1.4 LIVE CONTAINER READINESS PROBES (API, UI & ANALYTICS)
+      # ------------------------------------------------------------------------
+      - name: Verify Live ACA Health Readiness Probes (API, UI & Analytics)
         run: |
           API_FQDN="${{ steps.api_deploy.outputs.aca_api_fqdn }}"
           UI_FQDN="${{ steps.ui_deploy.outputs.aca_ui_fqdn }}"
+          ANALYTICS_FQDN="${{ steps.analytics_deploy.outputs.aca_analytics_fqdn }}"
 
           if [ -n "$API_FQDN" ]; then
             echo "Verifying API ingress accessibility at: https://$API_FQDN"
@@ -542,8 +690,21 @@ jobs:
             done
           fi
 
+          if [ -n "$ANALYTICS_FQDN" ]; then
+            echo "Verifying Analytics ingress accessibility at: https://$ANALYTICS_FQDN/healthz"
+            for i in {1..12}; do
+              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$ANALYTICS_FQDN/healthz" || true)
+              echo "Analytics Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
+              if [ "$STATUS_CODE" == "200" ]; then
+                echo "Analytics Worker verified successfully (HTTP 200)."
+                break
+              fi
+              sleep 10
+            done
+          fi
+
       # ------------------------------------------------------------------------
-      # 1.4 PRUNE OLD ACR IMAGES (Retain Last 3 for Rollback Safety)
+      # 1.5 PRUNE OLD ACR IMAGES (Retain Last 3 for Rollback Safety)
       # ------------------------------------------------------------------------
       - name: Prune Stale Container Images in ACR (Keep Last 3)
         if: ${{ inputs.rollback_tag == '' }}
@@ -551,7 +712,7 @@ jobs:
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
 
-          for REPO in "${{ env.IMAGE_NAME_API }}" "${{ env.IMAGE_NAME_UI }}"; do
+          for REPO in "${{ env.IMAGE_NAME_API }}" "${{ env.IMAGE_NAME_UI }}" "${{ env.IMAGE_NAME_ANALYTICS }}"; do
             echo "Checking image tags for repository: $REPO"
 
             # Fetch tags sorted by creation time (newest first), skip top 3, and delete the rest
@@ -614,6 +775,9 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------------------------
+      # 3.1 BACKEND API AUTHENTICATION SMOKE TEST
+      # ------------------------------------------------------------------------
       - name: Execute Seeded-User Login API Smoke Test
         run: |
           API_FQDN="${{ needs.deploy-application.outputs.aca_api_fqdn }}"
@@ -636,6 +800,9 @@ jobs:
             echo "API smoke test skipped: FQDN not yet assigned."
           fi
 
+      # ------------------------------------------------------------------------
+      # 3.2 FRONTEND UI ACCESSIBILITY SMOKE TEST
+      # ------------------------------------------------------------------------
       - name: Execute Frontend UI Endpoint Smoke Test
         run: |
           UI_FQDN="${{ needs.deploy-application.outputs.aca_ui_fqdn }}"
@@ -648,6 +815,71 @@ jobs:
             echo "UI smoke test skipped: FQDN not yet assigned."
           fi
 
+      # ------------------------------------------------------------------------
+      # 3.3 ANALYTICS WORKER & EVENT HUBS INTEGRATION SMOKE TEST
+      # ------------------------------------------------------------------------
+      - name: Verify Live Kafka Event Publish and Consumer Loop
+        run: |
+          ANALYTICS_FQDN="${{ needs.deploy-application.outputs.aca_analytics_fqdn }}"
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+
+          if [ -n "$ANALYTICS_FQDN" ]; then
+            echo "=========================================================="
+            echo " Testing Event Hubs Connectivity via Analytics ACA"
+            echo " Endpoint: https://${ANALYTICS_FQDN}"
+            echo " Environment: ${TARGET_ENV}"
+            echo "=========================================================="
+
+            # Step 1: Healthcheck & Broker Verification (Zero Dummy Events)
+            echo "1. Probing /healthz..."
+            HEALTH_RESP=$(curl -s -f "https://${ANALYTICS_FQDN}/healthz" || (echo "Healthcheck failed" && exit 1))
+            echo "Health Response: $HEALTH_RESP"
+
+            # Step 2: In DEV, run the live pub/sub verification loop
+            if [ "$TARGET_ENV" == "dev" ]; then
+              TEST_BATCH_ID="test-batch-$(date +%s)"
+              echo -e "\n2. Publishing test event with batch_id: $TEST_BATCH_ID..."
+
+              PUB_RESP=$(curl -s -f -X POST "https://${ANALYTICS_FQDN}/api/v1/publish-test" \
+                -H "Content-Type: application/json" \
+                -d "{\"batch_id\": \"$TEST_BATCH_ID\", \"category\": \"ICT_EQUIPMENT\", \"quantity\": 5, \"zone\": \"NORTH\"}")
+
+              echo "Publish Response: $PUB_RESP"
+
+              echo -e "\n3. Polling /api/v1/events for batch_id: $TEST_BATCH_ID..."
+              CONSUMED=false
+              for attempt in {1..10}; do
+                echo "Polling attempt $attempt/10..."
+                EVENTS_RESP=$(curl -s -f "https://${ANALYTICS_FQDN}/api/v1/events" || true)
+                if echo "$EVENTS_RESP" | grep -q "$TEST_BATCH_ID"; then
+                  echo "SUCCESS: Event '$TEST_BATCH_ID' was consumed and verified from Event Hubs!"
+                  CONSUMED=true
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$CONSUMED" = false ]; then
+                echo "::error::Consumer did not record event '$TEST_BATCH_ID' within 30 seconds."
+                echo "Last /api/v1/events output: $EVENTS_RESP"
+                exit 1
+              fi
+            else
+              echo "Production/Staging deployment detected: test endpoints are disabled to preserve stream purity."
+              if echo "$HEALTH_RESP" | grep -q '"event_hubs_connected":true'; then
+                echo "SUCCESS: Analytics broker handshake verified for $TARGET_ENV."
+              else
+                echo "::error::Event Hubs broker connection not healthy."
+                exit 1
+              fi
+            fi
+          else
+            echo "Analytics smoke test skipped: FQDN not yet assigned."
+          fi
+
+      # ------------------------------------------------------------------------
+      # 3.4 DEPLOYMENT SUMMARY & ARCHIVAL BANNER
+      # ------------------------------------------------------------------------
       - name: Confirm Deployment & Archival State
         run: |
           echo "======================================================================"
@@ -655,7 +887,8 @@ jobs:
           echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
           echo "  - Deployment Scope: ${{ needs.resolve-environment.outputs.deployment_desc }}"
           echo "  - Database Status: Liquibase Migrations Applied"
-          echo "  - Container Release: Multi-Container Verified & Deployed (API & UI)"
-          echo "  - Runtime Health: ACA Ingress Probes Verified (Port 8080 API & Port 3000 UI)"
+          echo "  - Container Release: Multi-Container Verified (API, UI, & Analytics)"
+          echo "  - Event Streaming: Azure Event Hubs (Kafka) Integration Tested"
+          echo "  - Runtime Health: ACA Ingress Probes Verified (:8080, :3000, :8000)"
           echo "  - DAST Scan: OWASP ZAP Report Retained for Academic Review"
           echo "======================================================================"
