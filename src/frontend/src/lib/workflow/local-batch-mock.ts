@@ -1,4 +1,5 @@
 import { WorkflowError } from "./errors";
+import { parseBatch } from "./parse";
 import type { Batch, BatchDraftRequest, BatchStatus, Page } from "./types";
 
 function draftBody(input: BatchDraftRequest): BatchDraftRequest {
@@ -49,7 +50,7 @@ async function load(): Promise<Batch[]> {
       "corr-local-mock",
     );
   }
-  batches = data as Batch[];
+  batches = data.map(parseBatch);
   return batches;
 }
 
