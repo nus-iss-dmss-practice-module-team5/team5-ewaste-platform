@@ -79,8 +79,8 @@ function readErrorBody(data: unknown): {
   const message =
     typeof data.message === "string" ? data.message : "The request failed.";
   const correlationId =
-    typeof data.correlationId === "string"
-      ? data.correlationId
+    typeof data.correlation_id === "string"
+      ? data.correlation_id
       : "corr-unknown";
   return { code, message, correlationId };
 }

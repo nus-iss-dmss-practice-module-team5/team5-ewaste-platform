@@ -28,13 +28,13 @@ export const ASSIGNMENT_STATUSES = [
 export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
 export type BatchDraftRequest = {
-  category: string;
-  quantity: number;
-  estimatedWeightKg: number;
-  conditionRating: string;
-  isDataBearing: boolean;
-  zone: string;
-  collectionDeadline: string;
+  category?: string;
+  quantity?: number;
+  estimatedWeightKg?: number;
+  conditionRating?: string;
+  isDataBearing?: boolean;
+  zone?: string;
+  collectionDeadline?: string;
   notes?: string;
 };
 
