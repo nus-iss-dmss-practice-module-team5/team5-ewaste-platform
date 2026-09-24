@@ -55,7 +55,9 @@ describe("claim action", () => {
     render(<ClaimAction />);
     await user.click(await screen.findByTestId("claim-select-batch-1"));
     await user.click(screen.getByTestId("claim-submit"));
-    expect(screen.getByTestId("claim-pending")).toHaveTextContent("Claim in progress");
+    expect(screen.getByTestId("claim-pending")).toHaveTextContent(
+      "Claim in progress",
+    );
     expect(screen.queryByTestId("claim-success")).not.toBeInTheDocument();
     resolveClaim({
       batchId: "batch-1",
@@ -66,7 +68,9 @@ describe("claim action", () => {
       reservationId: "res-1",
       correlationId: "corr-claim",
     });
-    expect(await screen.findByTestId("claim-success")).toHaveTextContent("Claim confirmed");
+    expect(await screen.findByTestId("claim-success")).toHaveTextContent(
+      "Claim confirmed",
+    );
     expect(claimOpportunity).toHaveBeenCalledWith(
       "access-token",
       "batch-1",
@@ -86,17 +90,37 @@ describe("claim action", () => {
     });
     render(<ClaimAction />);
     await user.click(await screen.findByTestId("claim-select-batch-1"));
-    expect(screen.getByTestId("claim-blocked")).toHaveTextContent("no claim version");
+    expect(screen.getByTestId("claim-blocked")).toHaveTextContent(
+      "no claim version",
+    );
     expect(screen.queryByTestId("claim-submit")).not.toBeInTheDocument();
   });
 
   it("shows conflict, expired, duplicate, and network states", async () => {
     const user = userEvent.setup();
     const cases: Array<[WorkflowError, string]> = [
-      [new WorkflowError("changed", "conflict", "STALE_VERSION", "c", 409), "claim-conflict"],
-      [new WorkflowError("gone", "not_found", "NOT_FOUND", "c", 404), "claim-not_found"],
-      [new WorkflowError("already sent", "duplicate", "DUPLICATE_CLAIM", "c", 409), "claim-duplicate"],
-      [new WorkflowError("offline", "network", "NETWORK", "corr-network"), "claim-network"],
+      [
+        new WorkflowError("changed", "conflict", "STALE_VERSION", "c", 409),
+        "claim-conflict",
+      ],
+      [
+        new WorkflowError("gone", "not_found", "NOT_FOUND", "c", 404),
+        "claim-not_found",
+      ],
+      [
+        new WorkflowError(
+          "already sent",
+          "duplicate",
+          "DUPLICATE_CLAIM",
+          "c",
+          409,
+        ),
+        "claim-duplicate",
+      ],
+      [
+        new WorkflowError("offline", "network", "NETWORK", "corr-network"),
+        "claim-network",
+      ],
     ];
     for (const [error, testId] of cases) {
       claimOpportunity.mockRejectedValueOnce(error);

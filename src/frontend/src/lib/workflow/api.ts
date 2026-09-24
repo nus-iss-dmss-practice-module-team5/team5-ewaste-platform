@@ -1,10 +1,11 @@
 import { api } from "@/lib/auth/api-client";
 import { toWorkflowError } from "./errors";
+import { USE_LOCAL_CLAIM_MOCK, mockClaimOpportunity } from "./local-claim-mock";
 import {
-  USE_LOCAL_CLAIM_MOCK,
-  mockClaimOpportunity,
-  mockListClaimOpportunities,
-} from "./local-claim-mock";
+  USE_LOCAL_OPPORTUNITY_MOCK,
+  mockGetOpportunity,
+  mockListOpportunities,
+} from "./local-opportunity-mock";
 import {
   parseAssignment,
   parseAssignmentPage,
@@ -49,13 +50,14 @@ function commandHeaders(
 ) {
   return authHeaders(accessToken, {
     "Idempotency-Key": idempotencyKey,
-    ...(version === undefined
-      ? {}
-      : { "If-Match-Version": String(version) }),
+    ...(version === undefined ? {} : { "If-Match-Version": String(version) }),
   });
 }
 
-async function call<T>(request: Promise<{ data: unknown }>, parse: (data: unknown) => T): Promise<T> {
+async function call<T>(
+  request: Promise<{ data: unknown }>,
+  parse: (data: unknown) => T,
+): Promise<T> {
   try {
     const response = await request;
     return parse(response.data);
@@ -160,8 +162,8 @@ export async function listOpportunities(
   accessToken: string,
   query: { page?: number; pageSize?: number } = {},
 ): Promise<Page<Opportunity>> {
-  if (USE_LOCAL_CLAIM_MOCK) {
-    return mockListClaimOpportunities();
+  if (USE_LOCAL_OPPORTUNITY_MOCK) {
+    return mockListOpportunities();
   }
   return call(
     api.get("/api/v1/opportunities", {
@@ -179,6 +181,9 @@ export async function getOpportunity(
   accessToken: string,
   batchId: string,
 ): Promise<Opportunity> {
+  if (USE_LOCAL_OPPORTUNITY_MOCK) {
+    return mockGetOpportunity(batchId);
+  }
   return call(
     api.get(`/api/v1/opportunities/${batchId}`, authHeaders(accessToken)),
     (data) => parseData(data, parseOpportunity, "Opportunity"),
@@ -194,9 +199,13 @@ export async function claimOpportunity(
   if (USE_LOCAL_CLAIM_MOCK) {
     return mockClaimOpportunity(batchId, command);
   }
-  const body: ClaimCommand = {
-    expectedVersion: command.expectedVersion,
-    claimEpoch: command.claimEpoch,
+  const body: {
+    expected_version: number;
+    claim_epoch: string;
+    notes?: string;
+  } = {
+    expected_version: command.expectedVersion,
+    claim_epoch: command.claimEpoch,
   };
   const notes = command.notes?.trim();
   if (notes) {
@@ -234,7 +243,11 @@ export async function selectAssignment(
 
 export async function listAssignments(
   accessToken: string,
-  query: { status?: Assignment["assignmentStatus"]; page?: number; pageSize?: number } = {},
+  query: {
+    status?: Assignment["assignmentStatus"];
+    page?: number;
+    pageSize?: number;
+  } = {},
 ): Promise<Page<Assignment>> {
   return call(
     api.get("/api/v1/assignments", {

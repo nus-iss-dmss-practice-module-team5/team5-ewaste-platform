@@ -116,5 +116,10 @@ export function toWorkflowError(error: unknown): WorkflowError {
 }
 
 export function contractError(message: string): WorkflowError {
-  return new WorkflowError(message, "error", "INVALID_RESPONSE", "corr-contract");
+  return new WorkflowError(
+    message,
+    "error",
+    "INVALID_RESPONSE",
+    "corr-contract",
+  );
 }

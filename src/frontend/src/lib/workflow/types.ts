@@ -10,7 +10,11 @@ export const BATCH_STATUSES = [
 
 export type BatchStatus = (typeof BATCH_STATUSES)[number];
 
-export const OPPORTUNITY_STATUSES = ["MATCHED", "APPROVED", "ASSIGNED"] as const;
+export const OPPORTUNITY_STATUSES = [
+  "MATCHED",
+  "APPROVED",
+  "ASSIGNED",
+] as const;
 
 export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
 

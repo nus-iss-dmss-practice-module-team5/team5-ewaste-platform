@@ -1,5 +1,5 @@
 import { WorkflowError } from "./errors";
-import type { ClaimCommand, ClaimResult, Opportunity, Page } from "./types";
+import type { ClaimCommand, ClaimResult, Opportunity } from "./types";
 
 export const USE_LOCAL_CLAIM_MOCK =
   process.env.NEXT_PUBLIC_USE_MOCK_CLAIMS === "true";
@@ -33,17 +33,6 @@ async function load(): Promise<Opportunity[]> {
   }
   rows = data as Opportunity[];
   return rows;
-}
-
-export async function mockListClaimOpportunities(): Promise<Page<Opportunity>> {
-  const data = await load();
-  return {
-    data,
-    page: 1,
-    pageSize: 20,
-    totalCount: data.length,
-    correlationId: "corr-local-mock",
-  };
 }
 
 export async function mockClaimOpportunity(

@@ -17,14 +17,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function readString(record: Record<string, unknown>, key: string): string | undefined {
+function readString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const value = record[key];
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function readNumber(record: Record<string, unknown>, key: string): number | undefined {
+function readNumber(
+  record: Record<string, unknown>,
+  key: string,
+): number | undefined {
   const value = record[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function requireString(
@@ -89,7 +97,8 @@ export function parseBatch(value: unknown): Batch {
   const updatedAt = readString(value, "updatedAt");
   if (category) batch.category = category;
   if (quantity !== undefined) batch.quantity = quantity;
-  if (estimatedWeightKg !== undefined) batch.estimatedWeightKg = estimatedWeightKg;
+  if (estimatedWeightKg !== undefined)
+    batch.estimatedWeightKg = estimatedWeightKg;
   if (conditionRating) batch.conditionRating = conditionRating;
   if (typeof value.isDataBearing === "boolean") {
     batch.isDataBearing = value.isDataBearing;
@@ -118,7 +127,11 @@ export function parseOpportunity(value: unknown): Opportunity {
     category: requireString(value, "category", "Opportunity"),
     quantity: requireNumber(value, "quantity", "Opportunity"),
     zone: requireString(value, "zone", "Opportunity"),
-    collectionDeadline: requireString(value, "collectionDeadline", "Opportunity"),
+    collectionDeadline: requireString(
+      value,
+      "collectionDeadline",
+      "Opportunity",
+    ),
     eligibilityReason: requireString(value, "eligibilityReason", "Opportunity"),
   };
   const estimatedWeightKg = readNumber(value, "estimatedWeightKg");
@@ -141,13 +154,13 @@ export function parseClaimResult(value: unknown): ClaimResult {
     throw contractError("Claim did not end at APPROVED.");
   }
   return {
-    batchId: requireString(value, "batchId", "Claim"),
+    batchId: requireString(value, "batch_id", "Claim"),
     status: "APPROVED",
     version: requireNumber(value, "version", "Claim"),
-    claimEpoch: requireString(value, "claimEpoch", "Claim"),
-    claimId: requireString(value, "claimId", "Claim"),
-    reservationId: requireString(value, "reservationId", "Claim"),
-    correlationId: requireString(value, "correlationId", "Claim"),
+    claimEpoch: requireString(value, "claim_epoch", "Claim"),
+    claimId: requireString(value, "claim_id", "Claim"),
+    reservationId: requireString(value, "reservation_id", "Claim"),
+    correlationId: requireString(value, "correlation_id", "Claim"),
   };
 }
 
@@ -164,7 +177,11 @@ export function parseAssignment(value: unknown): Assignment {
     assignmentId: requireString(value, "assignmentId", "Assignment"),
     batchId: requireString(value, "batchId", "Assignment"),
     assignmentStatus,
-    assignmentSequence: requireNumber(value, "assignmentSequence", "Assignment"),
+    assignmentSequence: requireNumber(
+      value,
+      "assignmentSequence",
+      "Assignment",
+    ),
     version: requireNumber(value, "version", "Assignment"),
   };
   const claimId = readString(value, "claimId");
@@ -178,7 +195,11 @@ export function parseAssignment(value: unknown): Assignment {
   return assignment;
 }
 
-function parsePage<T>(value: unknown, parseItem: (item: unknown) => T, label: string): Page<T> {
+function parsePage<T>(
+  value: unknown,
+  parseItem: (item: unknown) => T,
+  label: string,
+): Page<T> {
   if (!isRecord(value) || !Array.isArray(value.data)) {
     throw contractError(`${label} list is missing data.`);
   }
@@ -203,7 +224,11 @@ export function parseAssignmentPage(value: unknown): Page<Assignment> {
   return parsePage(value, parseAssignment, "Assignment");
 }
 
-export function parseData<T>(value: unknown, parseItem: (item: unknown) => T, label: string): T {
+export function parseData<T>(
+  value: unknown,
+  parseItem: (item: unknown) => T,
+  label: string,
+): T {
   if (!isRecord(value) || !("data" in value)) {
     throw contractError(`${label} response is missing data.`);
   }

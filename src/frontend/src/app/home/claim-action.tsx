@@ -1,7 +1,11 @@
 "use client";
 
 import { useSession } from "@/lib/auth/session-context";
-import { claimOpportunity, listOpportunities, newIdempotencyKey } from "@/lib/workflow/api";
+import {
+  claimOpportunity,
+  listOpportunities,
+  newIdempotencyKey,
+} from "@/lib/workflow/api";
 import { USE_LOCAL_CLAIM_MOCK } from "@/lib/workflow/local-claim-mock";
 import type { ClaimResult, Opportunity } from "@/lib/workflow/types";
 import { useEffect, useState } from "react";
@@ -24,7 +28,9 @@ export function ClaimAction() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
   const [pending, setPending] = useState(false);
-  const [actionError, setActionError] = useState<ReturnType<typeof bannerForError> | null>(null);
+  const [actionError, setActionError] = useState<ReturnType<
+    typeof bannerForError
+  > | null>(null);
   const [result, setResult] = useState<ClaimResult | null>(null);
 
   const selected = rows?.find((row) => row.batchId === selectedId) ?? null;
@@ -54,7 +60,12 @@ export function ClaimAction() {
   }, [session?.tokens.accessToken]);
 
   async function onClaim() {
-    if (!session || !selected || selected.version === undefined || !selected.claimEpoch) {
+    if (
+      !session ||
+      !selected ||
+      selected.version === undefined ||
+      !selected.claimEpoch
+    ) {
       return;
     }
     setPending(true);
@@ -95,16 +106,22 @@ export function ClaimAction() {
           </Banner>
         </div>
       ) : null}
-      {rows === null ? <LoadingLine testId="claim-loading">Loading opportunities…</LoadingLine> : null}
+      {rows === null ? (
+        <LoadingLine testId="claim-loading">Loading opportunities…</LoadingLine>
+      ) : null}
       {loadBanner ? (
-        <Banner testId={loadBanner.testId} tone={loadBanner.tone}>{loadBanner.text}</Banner>
+        <Banner testId={loadBanner.testId} tone={loadBanner.tone}>
+          {loadBanner.text}
+        </Banner>
       ) : null}
       {rows && rows.length === 0 && !loadError ? (
         <Banner testId="claim-empty" tone="info">
           No opportunities are available to claim.
         </Banner>
       ) : null}
-      {pending ? <LoadingLine testId="claim-pending">Claim in progress…</LoadingLine> : null}
+      {pending ? (
+        <LoadingLine testId="claim-pending">Claim in progress…</LoadingLine>
+      ) : null}
       {result ? (
         <Banner testId="claim-success" tone="success">
           Claim confirmed. Batch {result.batchId} is {result.status}. It leaves
@@ -112,16 +129,22 @@ export function ClaimAction() {
         </Banner>
       ) : null}
       {actionError ? (
-        <Banner testId={actionError.testId} tone={actionError.tone}>{actionError.text}</Banner>
+        <Banner testId={actionError.testId} tone={actionError.tone}>
+          {actionError.text}
+        </Banner>
       ) : null}
       {rows && rows.length > 0 ? (
         <ul className="mt-2 divide-y divide-slate-200 border-y border-slate-200 text-sm">
           {rows.map((row) => {
             const reason = claimBlockReason(row);
             return (
-              <li key={row.batchId} className="flex items-center justify-between gap-4 py-3">
+              <li
+                key={row.batchId}
+                className="flex items-center justify-between gap-4 py-3"
+              >
                 <span>
-                  {row.category} · {row.status} · {row.zone} · {formatWhen(row.collectionDeadline)}
+                  {row.category} · {row.status} · {row.zone} ·{" "}
+                  {formatWhen(row.collectionDeadline)}
                 </span>
                 <button
                   type="button"
@@ -144,7 +167,9 @@ export function ClaimAction() {
       {selected ? (
         <div className="mt-4 max-w-xl" data-testid="claim-detail">
           {blockReason ? (
-            <Banner testId="claim-blocked" tone="warning">{blockReason}</Banner>
+            <Banner testId="claim-blocked" tone="warning">
+              {blockReason}
+            </Banner>
           ) : (
             <>
               <label className="grid gap-1 text-sm text-slate-700">

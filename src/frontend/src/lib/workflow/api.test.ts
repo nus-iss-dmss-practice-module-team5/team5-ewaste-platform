@@ -90,19 +90,26 @@ describe("workflow api", () => {
 
   it("submits with If-Match-Version and an empty body", async () => {
     post.mockResolvedValue({
-      data: { data: { ...batch, status: "SUBMITTED", version: 3 }, correlationId: "corr-2" },
+      data: {
+        data: { ...batch, status: "SUBMITTED", version: 3 },
+        correlationId: "corr-2",
+      },
     });
 
     const submitted = await submitBatch("token", "batch-1", 2, "idem-submit");
 
     expect(submitted.status).toBe("SUBMITTED");
-    expect(post).toHaveBeenCalledWith("/api/v1/batches/batch-1/submit", undefined, {
-      headers: {
-        Authorization: "Bearer token",
-        "Idempotency-Key": "idem-submit",
-        "If-Match-Version": "2",
+    expect(post).toHaveBeenCalledWith(
+      "/api/v1/batches/batch-1/submit",
+      undefined,
+      {
+        headers: {
+          Authorization: "Bearer token",
+          "Idempotency-Key": "idem-submit",
+          "If-Match-Version": "2",
+        },
       },
-    });
+    );
   });
 
   it("lists batches with camelCase page parameters", async () => {
@@ -125,19 +132,19 @@ describe("workflow api", () => {
     });
   });
 
-  it("claims with the version header and expectedVersion body", async () => {
+  it("claims with snake_case fields and the version header", async () => {
     post.mockResolvedValue({
       data: {
         data: {
-          batchId: "batch-1",
+          batch_id: "batch-1",
           status: "APPROVED",
           version: 4,
-          claimEpoch: "1",
-          claimId: "claim-1",
-          reservationId: "res-1",
-          correlationId: "corr-claim",
+          claim_epoch: "1",
+          claim_id: "claim-1",
+          reservation_id: "res-1",
+          correlation_id: "corr-claim",
         },
-        correlationId: "corr-claim",
+        correlation_id: "corr-claim",
       },
     });
 
@@ -148,10 +155,17 @@ describe("workflow api", () => {
       "idem-claim",
     );
 
-    expect(result.status).toBe("APPROVED");
+    expect(result).toMatchObject({
+      status: "APPROVED",
+      batchId: "batch-1",
+      claimEpoch: "1",
+      claimId: "claim-1",
+      reservationId: "res-1",
+      correlationId: "corr-claim",
+    });
     expect(post).toHaveBeenCalledWith(
       "/api/v1/batches/batch-1/claim",
-      { expectedVersion: 3, claimEpoch: "1", notes: "Ready" },
+      { expected_version: 3, claim_epoch: "1", notes: "Ready" },
       {
         headers: {
           Authorization: "Bearer token",
@@ -207,13 +221,27 @@ describe("workflow api", () => {
       correlationId: "corr-conflict",
     });
 
-    get.mockRejectedValueOnce(axiosError(404, { code: "NOT_FOUND", message: "missing", correlationId: "corr-404" }));
-    await expect(listBatches("token")).rejects.toMatchObject({ kind: "not_found" });
+    get.mockRejectedValueOnce(
+      axiosError(404, {
+        code: "NOT_FOUND",
+        message: "missing",
+        correlationId: "corr-404",
+      }),
+    );
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "not_found",
+    });
 
     get.mockRejectedValueOnce(
-      axiosError(409, { code: "DUPLICATE_CLAIM", message: "already sent", correlationId: "corr-dup" }),
+      axiosError(409, {
+        code: "DUPLICATE_CLAIM",
+        message: "already sent",
+        correlationId: "corr-dup",
+      }),
     );
-    await expect(listBatches("token")).rejects.toMatchObject({ kind: "duplicate" });
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "duplicate",
+    });
 
     get.mockRejectedValueOnce(axiosError(undefined));
     await expect(listBatches("token")).rejects.toMatchObject({
