@@ -18,7 +18,7 @@ func TestNewWritesJSONToRotatingFile(t *testing.T) {
 		t.Fatalf("create logger: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := Close(log); err != nil {
+		if err := log.Close(); err != nil {
 			t.Errorf("close logger: %v", err)
 		}
 	})

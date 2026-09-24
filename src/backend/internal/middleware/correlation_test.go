@@ -16,7 +16,7 @@ func TestCorrelationIDGeneratesAndEchoesID(t *testing.T) {
 	r := gin.New()
 	r.Use(CorrelationID())
 	r.GET("/test", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"correlationId": GetCorrelationID(c)})
+		c.JSON(http.StatusOK, gin.H{"correlation_id": GetCorrelationID(c)})
 	})
 
 	res := httptest.NewRecorder()
@@ -30,7 +30,7 @@ func TestCorrelationIDGeneratesAndEchoesID(t *testing.T) {
 	}
 }
 
-func TestCorrelationIDRejectsValuesLongerThan100Characters(t *testing.T) {
+func TestCorrelationIDRejectsValuesLongerThan128Characters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(CorrelationID())
@@ -38,7 +38,7 @@ func TestCorrelationIDRejectsValuesLongerThan100Characters(t *testing.T) {
 
 	res := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/test", nil)
-	req.Header.Set("X-Correlation-ID", string(make([]byte, 101)))
+	req.Header.Set("X-Correlation-ID", string(make([]byte, 129)))
 	r.ServeHTTP(res, req)
 
 	if res.Code != http.StatusBadRequest {
@@ -48,7 +48,7 @@ func TestCorrelationIDRejectsValuesLongerThan100Characters(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if response.Code != "AUTH_INVALID_REQUEST" {
+	if response.Code != "INVALID_REQUEST" {
 		t.Fatalf("unexpected error code: %q", response.Code)
 	}
 }
