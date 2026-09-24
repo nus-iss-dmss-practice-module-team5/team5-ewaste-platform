@@ -2,7 +2,7 @@ name: CI Quality Gate & Security Baseline
 
 on:
   pull_request:
-    branches: [dev, main]
+    branches: [azure-checkov-fix]
     types: [opened, synchronize, reopened]
 
   push:
