@@ -48,15 +48,29 @@ describe("donor batches", () => {
   });
 
   it("shows a loading state and then an empty list", async () => {
-    listBatches.mockResolvedValue({ data: [], page: 1, pageSize: 20, totalCount: 0, correlationId: "c" });
+    listBatches.mockResolvedValue({
+      data: [],
+      page: 1,
+      pageSize: 20,
+      totalCount: 0,
+      correlationId: "c",
+    });
     render(<DonorBatchList />);
     expect(screen.getByTestId("donor-loading")).toBeInTheDocument();
-    expect(await screen.findByTestId("donor-empty")).toHaveTextContent("No batches yet");
+    expect(await screen.findByTestId("donor-empty")).toHaveTextContent(
+      "No batches yet",
+    );
   });
 
   it("shows a permission error without another organisation's batch", async () => {
     listBatches.mockRejectedValue(
-      new WorkflowError("access denied", "forbidden", "FORBIDDEN", "corr-403", 403),
+      new WorkflowError(
+        "access denied",
+        "forbidden",
+        "FORBIDDEN",
+        "corr-403",
+        403,
+      ),
     );
     render(<DonorBatchList />);
     expect(await screen.findByTestId("donor-list-forbidden")).toHaveTextContent(
@@ -74,19 +88,75 @@ describe("donor batches", () => {
       totalCount: 1,
       correlationId: "c",
     });
-    submitBatch.mockResolvedValue({ ...draft(), status: "SUBMITTED", version: 3 });
+    submitBatch.mockResolvedValue({
+      ...draft(),
+      status: "SUBMITTED",
+      version: 3,
+    });
     render(<DonorBatchList />);
     await user.click(await screen.findByTestId("donor-submit-batch-1"));
     await waitFor(() => {
-      expect(submitBatch).toHaveBeenCalledWith("access-token", "batch-1", 2, "idem-test");
+      expect(submitBatch).toHaveBeenCalledWith(
+        "access-token",
+        "batch-1",
+        2,
+        "idem-test",
+      );
     });
-    expect(await screen.findByTestId("donor-notice")).toHaveTextContent("SUBMITTED");
+    expect(await screen.findByTestId("donor-notice")).toHaveTextContent(
+      "SUBMITTED",
+    );
   });
 
-  it("creates a draft with camelCase fields and shows validation from the API", async () => {
+  it("saves a partial draft without requiring every field", async () => {
+    const user = userEvent.setup();
+    createBatchDraft.mockResolvedValue(draft());
+    render(<DonorBatchForm />);
+    await user.type(screen.getByTestId("donor-category"), "laptops");
+    await user.click(screen.getByTestId("donor-save"));
+
+    await waitFor(() => expect(createBatchDraft).toHaveBeenCalled());
+    const body = createBatchDraft.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(body.category).toBe("laptops");
+    expect(body).not.toHaveProperty("quantity");
+    expect(body).not.toHaveProperty("estimatedWeightKg");
+    expect(body).not.toHaveProperty("collectionDeadline");
+  });
+
+  it("blocks submit until the draft is complete", async () => {
+    const user = userEvent.setup();
+    listBatches.mockResolvedValue({
+      data: [
+        {
+          batchId: "batch-1",
+          status: "DRAFT",
+          version: 2,
+          category: "laptops",
+        },
+      ],
+      page: 1,
+      pageSize: 20,
+      totalCount: 1,
+      correlationId: "c",
+    });
+    render(<DonorBatchList />);
+    await user.click(await screen.findByTestId("donor-submit-batch-1"));
+    expect(await screen.findByTestId("donor-action-error")).toHaveTextContent(
+      "required before submit",
+    );
+    expect(submitBatch).not.toHaveBeenCalled();
+  });
+
+  it("creates a draft with internal field names and shows validation from the API", async () => {
     const user = userEvent.setup();
     createBatchDraft.mockRejectedValue(
-      new WorkflowError("quantity is invalid", "validation", "VALIDATION_ERROR", "corr-422", 422),
+      new WorkflowError(
+        "quantity is invalid",
+        "validation",
+        "VALIDATION_ERROR",
+        "corr-422",
+        422,
+      ),
     );
     render(<DonorBatchForm />);
     await user.type(screen.getByTestId("donor-category"), "laptops");
@@ -103,6 +173,8 @@ describe("donor batches", () => {
     expect(body.conditionRating).toBe("reusable");
     expect(body.isDataBearing).toBe(false);
     expect(body).not.toHaveProperty("version");
-    expect(await screen.findByTestId("donor-form-error")).toHaveTextContent("quantity is invalid");
+    expect(await screen.findByTestId("donor-form-error")).toHaveTextContent(
+      "quantity is invalid",
+    );
   });
 });

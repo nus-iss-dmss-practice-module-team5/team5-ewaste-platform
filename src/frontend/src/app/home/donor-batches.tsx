@@ -48,7 +48,9 @@ function fieldsFromBatch(batch: Batch): DraftFields {
     category: batch.category ?? "",
     quantity: batch.quantity === undefined ? "" : String(batch.quantity),
     estimatedWeightKg:
-      batch.estimatedWeightKg === undefined ? "" : String(batch.estimatedWeightKg),
+      batch.estimatedWeightKg === undefined
+        ? ""
+        : String(batch.estimatedWeightKg),
     conditionRating: batch.conditionRating ?? "",
     isDataBearing: batch.isDataBearing ?? false,
     zone: batch.zone ?? "",
@@ -57,34 +59,68 @@ function fieldsFromBatch(batch: Batch): DraftFields {
   };
 }
 
-function parseDraft(fields: DraftFields): { body: BatchDraftRequest } | { error: string } {
-  const quantity = Number(fields.quantity);
-  const estimatedWeightKg = Number(fields.estimatedWeightKg);
-  const collectionDeadline = toUtcIso(fields.collectionDeadline);
-  if (!fields.category.trim() || !fields.conditionRating.trim() || !fields.zone.trim()) {
-    return { error: "Category, condition, and zone are required." };
+function parseDraft(
+  fields: DraftFields,
+): { body: BatchDraftRequest } | { error: string } {
+  const body: BatchDraftRequest = { isDataBearing: fields.isDataBearing };
+  const category = fields.category.trim();
+  if (category) body.category = category;
+  if (fields.quantity.trim()) {
+    const quantity = Number(fields.quantity);
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      return { error: "Quantity must be a whole number of at least 1." };
+    }
+    body.quantity = quantity;
   }
-  if (!Number.isInteger(quantity) || quantity < 1) {
-    return { error: "Quantity must be a whole number of at least 1." };
+  if (fields.estimatedWeightKg.trim()) {
+    const estimatedWeightKg = Number(fields.estimatedWeightKg);
+    if (!Number.isFinite(estimatedWeightKg) || estimatedWeightKg < 0.1) {
+      return { error: "Estimated weight must be at least 0.1 kg." };
+    }
+    body.estimatedWeightKg = estimatedWeightKg;
   }
-  if (!Number.isFinite(estimatedWeightKg) || estimatedWeightKg < 0.1) {
-    return { error: "Estimated weight must be at least 0.1 kg." };
+  const conditionRating = fields.conditionRating.trim();
+  if (conditionRating) body.conditionRating = conditionRating;
+  const zone = fields.zone.trim();
+  if (zone) body.zone = zone;
+  if (fields.collectionDeadline.trim()) {
+    const collectionDeadline = toUtcIso(fields.collectionDeadline);
+    if (!collectionDeadline) {
+      return { error: "Collection deadline is invalid." };
+    }
+    body.collectionDeadline = collectionDeadline;
   }
-  if (!collectionDeadline) {
-    return { error: "Collection deadline is required." };
+  const notes = fields.notes.trim();
+  if (notes) body.notes = notes;
+  return { body };
+}
+
+function completenessError(batch: Batch): string | null {
+  if (
+    !batch.category?.trim() ||
+    !batch.conditionRating?.trim() ||
+    !batch.zone?.trim()
+  ) {
+    return "Category, condition, and zone are required before submit.";
   }
-  return {
-    body: {
-      category: fields.category,
-      quantity,
-      estimatedWeightKg,
-      conditionRating: fields.conditionRating,
-      isDataBearing: fields.isDataBearing,
-      zone: fields.zone,
-      collectionDeadline,
-      notes: fields.notes,
-    },
-  };
+  if (
+    batch.quantity === undefined ||
+    !Number.isInteger(batch.quantity) ||
+    batch.quantity < 1
+  ) {
+    return "Quantity must be a whole number of at least 1 before submit.";
+  }
+  if (
+    batch.estimatedWeightKg === undefined ||
+    !Number.isFinite(batch.estimatedWeightKg) ||
+    batch.estimatedWeightKg < 0.1
+  ) {
+    return "Estimated weight must be at least 0.1 kg before submit.";
+  }
+  if (!batch.collectionDeadline) {
+    return "Collection deadline is required before submit.";
+  }
+  return null;
 }
 
 function DraftForm({
@@ -105,17 +141,28 @@ function DraftForm({
   error: string | null;
 }) {
   return (
-    <form onSubmit={onSubmit} className="mt-4 grid w-full min-w-0 max-w-xl gap-3" data-testid="donor-form">
-      <h2 className="break-words text-lg font-semibold text-slate-900">{title}</h2>
-      {error ? <Banner testId="donor-form-error" tone="warning">{error}</Banner> : null}
+    <form
+      onSubmit={onSubmit}
+      className="mt-4 grid w-full min-w-0 max-w-xl gap-3"
+      data-testid="donor-form"
+    >
+      <h2 className="break-words text-lg font-semibold text-slate-900">
+        {title}
+      </h2>
+      {error ? (
+        <Banner testId="donor-form-error" tone="warning">
+          {error}
+        </Banner>
+      ) : null}
       <label className="grid min-w-0 gap-1 text-sm text-slate-700">
         Category
         <input
           data-testid="donor-category"
           value={fields.category}
-          onChange={(event) => setFields({ ...fields, category: event.target.value })}
+          onChange={(event) =>
+            setFields({ ...fields, category: event.target.value })
+          }
           className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2"
-          required
         />
       </label>
       <label className="grid min-w-0 gap-1 text-sm text-slate-700">
@@ -125,9 +172,10 @@ function DraftForm({
           type="number"
           min={1}
           value={fields.quantity}
-          onChange={(event) => setFields({ ...fields, quantity: event.target.value })}
+          onChange={(event) =>
+            setFields({ ...fields, quantity: event.target.value })
+          }
           className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2"
-          required
         />
       </label>
       <label className="grid min-w-0 gap-1 text-sm text-slate-700">
@@ -142,7 +190,6 @@ function DraftForm({
             setFields({ ...fields, estimatedWeightKg: event.target.value })
           }
           className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2"
-          required
         />
       </label>
       <label className="grid min-w-0 gap-1 text-sm text-slate-700">
@@ -154,7 +201,6 @@ function DraftForm({
             setFields({ ...fields, conditionRating: event.target.value })
           }
           className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2"
-          required
         />
       </label>
       <label className="flex items-center gap-2 text-sm text-slate-700">
@@ -173,9 +219,10 @@ function DraftForm({
         <input
           data-testid="donor-zone"
           value={fields.zone}
-          onChange={(event) => setFields({ ...fields, zone: event.target.value })}
+          onChange={(event) =>
+            setFields({ ...fields, zone: event.target.value })
+          }
           className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2"
-          required
         />
       </label>
       <label className="grid min-w-0 gap-1 text-sm text-slate-700">
@@ -188,7 +235,6 @@ function DraftForm({
             setFields({ ...fields, collectionDeadline: event.target.value })
           }
           className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2"
-          required
         />
       </label>
       <label className="grid min-w-0 gap-1 text-sm text-slate-700">
@@ -196,7 +242,9 @@ function DraftForm({
         <textarea
           data-testid="donor-notes"
           value={fields.notes}
-          onChange={(event) => setFields({ ...fields, notes: event.target.value })}
+          onChange={(event) =>
+            setFields({ ...fields, notes: event.target.value })
+          }
           className="w-full min-w-0 rounded-md border border-slate-300 px-3 py-2"
           maxLength={500}
         />
@@ -267,12 +315,16 @@ export function DonorBatchList() {
         parsed.body,
         newIdempotencyKey(),
       );
-      setNotice(`Draft ${updated.batchId} saved at version ${updated.version}.`);
+      setNotice(
+        `Draft ${updated.batchId} saved at version ${updated.version}.`,
+      );
       setEditing(null);
       await reload();
     } catch (error) {
       setActionError(
-        isWorkflowError(error) ? error.message : "The draft could not be saved.",
+        isWorkflowError(error)
+          ? error.message
+          : "The draft could not be saved.",
       );
     } finally {
       setPending(false);
@@ -281,6 +333,12 @@ export function DonorBatchList() {
 
   async function onSubmit(batch: Batch) {
     if (!session) {
+      return;
+    }
+    const incomplete = completenessError(batch);
+    if (incomplete) {
+      setActionError(incomplete);
+      setNotice(null);
       return;
     }
     setPending(true);
@@ -313,17 +371,27 @@ export function DonorBatchList() {
       </p>
       {USE_LOCAL_BATCH_MOCK ? (
         <Banner testId="donor-local-mock" tone="info">
-          Local mock data. The draft row can be edited and submitted. The
-          other rows stay read only.
+          Local mock data. The draft row can be edited and submitted. The other
+          rows stay read only.
         </Banner>
       ) : null}
-      {notice ? <Banner testId="donor-notice" tone="success">{notice}</Banner> : null}
-      {actionError ? (
-        <Banner testId="donor-action-error" tone="warning">{actionError}</Banner>
+      {notice ? (
+        <Banner testId="donor-notice" tone="success">
+          {notice}
+        </Banner>
       ) : null}
-      {batches === null ? <LoadingLine testId="donor-loading">Loading batches…</LoadingLine> : null}
+      {actionError ? (
+        <Banner testId="donor-action-error" tone="warning">
+          {actionError}
+        </Banner>
+      ) : null}
+      {batches === null ? (
+        <LoadingLine testId="donor-loading">Loading batches…</LoadingLine>
+      ) : null}
       {loadBanner ? (
-        <Banner testId={loadBanner.testId} tone={loadBanner.tone}>{loadBanner.text}</Banner>
+        <Banner testId={loadBanner.testId} tone={loadBanner.tone}>
+          {loadBanner.text}
+        </Banner>
       ) : null}
       {batches && batches.length === 0 && !loadError ? (
         <Banner testId="donor-empty" tone="info">
@@ -332,55 +400,61 @@ export function DonorBatchList() {
       ) : null}
       {batches && batches.length > 0 ? (
         <div className="mt-4 min-w-0 overflow-x-auto">
-        <table className="w-full text-left text-sm">
-          <thead className="text-slate-500">
-            <tr>
-              <th className="py-2 pr-3">Category</th>
-              <th className="py-2 pr-3">Status</th>
-              <th className="py-2 pr-3">Zone</th>
-              <th className="py-2 pr-3">Deadline</th>
-              <th className="py-2">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {batches.map((batch) => (
-              <tr key={batch.batchId} className="border-t border-slate-200" data-testid={`donor-row-${batch.batchId}`}>
-                <td className="py-2 pr-3">{batch.category ?? "—"}</td>
-                <td className="py-2 pr-3">{batch.status}</td>
-                <td className="py-2 pr-3">{batch.zone ?? "—"}</td>
-                <td className="py-2 pr-3">{formatWhen(batch.collectionDeadline)}</td>
-                <td className="py-2">
-                  {batch.status === "DRAFT" ? (
-                    <span className="flex gap-3">
-                      <button
-                        type="button"
-                        className="font-medium text-teal-800"
-                        onClick={() => {
-                          setEditing(batch);
-                          setFields(fieldsFromBatch(batch));
-                          setActionError(null);
-                        }}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        data-testid={`donor-submit-${batch.batchId}`}
-                        className="font-medium text-teal-800"
-                        disabled={pending}
-                        onClick={() => void onSubmit(batch)}
-                      >
-                        Submit
-                      </button>
-                    </span>
-                  ) : (
-                    <span className="text-slate-500">Read only</span>
-                  )}
-                </td>
+          <table className="w-full text-left text-sm">
+            <thead className="text-slate-500">
+              <tr>
+                <th className="py-2 pr-3">Category</th>
+                <th className="py-2 pr-3">Status</th>
+                <th className="py-2 pr-3">Zone</th>
+                <th className="py-2 pr-3">Deadline</th>
+                <th className="py-2">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {batches.map((batch) => (
+                <tr
+                  key={batch.batchId}
+                  className="border-t border-slate-200"
+                  data-testid={`donor-row-${batch.batchId}`}
+                >
+                  <td className="py-2 pr-3">{batch.category ?? "—"}</td>
+                  <td className="py-2 pr-3">{batch.status}</td>
+                  <td className="py-2 pr-3">{batch.zone ?? "—"}</td>
+                  <td className="py-2 pr-3">
+                    {formatWhen(batch.collectionDeadline)}
+                  </td>
+                  <td className="py-2">
+                    {batch.status === "DRAFT" ? (
+                      <span className="flex gap-3">
+                        <button
+                          type="button"
+                          className="font-medium text-teal-800"
+                          onClick={() => {
+                            setEditing(batch);
+                            setFields(fieldsFromBatch(batch));
+                            setActionError(null);
+                          }}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`donor-submit-${batch.batchId}`}
+                          className="font-medium text-teal-800"
+                          disabled={pending}
+                          onClick={() => void onSubmit(batch)}
+                        >
+                          Submit
+                        </button>
+                      </span>
+                    ) : (
+                      <span className="text-slate-500">Read only</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : null}
       {editing ? (
@@ -428,7 +502,11 @@ export function DonorBatchForm() {
       setFields(EMPTY_FIELDS);
     } catch (caught) {
       setCreated(null);
-      setError(isWorkflowError(caught) ? caught.message : "The draft could not be created.");
+      setError(
+        isWorkflowError(caught)
+          ? caught.message
+          : "The draft could not be created.",
+      );
     } finally {
       setPending(false);
     }

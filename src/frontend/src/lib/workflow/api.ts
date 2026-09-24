@@ -52,13 +52,14 @@ function commandHeaders(
 ) {
   return authHeaders(accessToken, {
     "Idempotency-Key": idempotencyKey,
-    ...(version === undefined
-      ? {}
-      : { "If-Match-Version": String(version) }),
+    ...(version === undefined ? {} : { "If-Match-Version": String(version) }),
   });
 }
 
-async function call<T>(request: Promise<{ data: unknown }>, parse: (data: unknown) => T): Promise<T> {
+async function call<T>(
+  request: Promise<{ data: unknown }>,
+  parse: (data: unknown) => T,
+): Promise<T> {
   try {
     const response = await request;
     return parse(response.data);
@@ -79,7 +80,7 @@ export async function listBatches(
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
         ...(query.status ? { status: query.status } : {}),
       },
     }),
@@ -100,20 +101,35 @@ export async function getBatch(
   );
 }
 
-export function draftBody(input: BatchDraftRequest): BatchDraftRequest {
-  const body: BatchDraftRequest = {
-    category: input.category.trim(),
-    quantity: input.quantity,
-    estimatedWeightKg: input.estimatedWeightKg,
-    conditionRating: input.conditionRating.trim(),
-    isDataBearing: input.isDataBearing,
-    zone: input.zone.trim(),
-    collectionDeadline: input.collectionDeadline,
-  };
-  const notes = input.notes?.trim();
-  if (notes) {
-    body.notes = notes;
+type BatchDraftWire = {
+  category?: string;
+  quantity?: number;
+  estimated_weight_kg?: number;
+  condition_rating?: string;
+  is_data_bearing?: boolean;
+  zone?: string;
+  collection_deadline?: string;
+  notes?: string;
+};
+
+export function draftBody(input: BatchDraftRequest): BatchDraftWire {
+  const body: BatchDraftWire = {};
+  const category = input.category?.trim();
+  if (category) body.category = category;
+  if (input.quantity !== undefined) body.quantity = input.quantity;
+  if (input.estimatedWeightKg !== undefined) {
+    body.estimated_weight_kg = input.estimatedWeightKg;
   }
+  const conditionRating = input.conditionRating?.trim();
+  if (conditionRating) body.condition_rating = conditionRating;
+  if (input.isDataBearing !== undefined)
+    body.is_data_bearing = input.isDataBearing;
+  const zone = input.zone?.trim();
+  if (zone) body.zone = zone;
+  if (input.collectionDeadline)
+    body.collection_deadline = input.collectionDeadline;
+  const notes = input.notes?.trim();
+  if (notes) body.notes = notes;
   return body;
 }
 
@@ -183,7 +199,7 @@ export async function listOpportunities(
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
       },
     }),
     parseOpportunityPage,
@@ -246,14 +262,18 @@ export async function selectAssignment(
 
 export async function listAssignments(
   accessToken: string,
-  query: { status?: Assignment["assignmentStatus"]; page?: number; pageSize?: number } = {},
+  query: {
+    status?: Assignment["assignmentStatus"];
+    page?: number;
+    pageSize?: number;
+  } = {},
 ): Promise<Page<Assignment>> {
   return call(
     api.get("/api/v1/assignments", {
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
         ...(query.status ? { status: query.status } : {}),
       },
     }),

@@ -10,7 +10,11 @@ export const BATCH_STATUSES = [
 
 export type BatchStatus = (typeof BATCH_STATUSES)[number];
 
-export const OPPORTUNITY_STATUSES = ["MATCHED", "APPROVED", "ASSIGNED"] as const;
+export const OPPORTUNITY_STATUSES = [
+  "MATCHED",
+  "APPROVED",
+  "ASSIGNED",
+] as const;
 
 export type OpportunityStatus = (typeof OPPORTUNITY_STATUSES)[number];
 
@@ -24,13 +28,13 @@ export const ASSIGNMENT_STATUSES = [
 export type AssignmentStatus = (typeof ASSIGNMENT_STATUSES)[number];
 
 export type BatchDraftRequest = {
-  category: string;
-  quantity: number;
-  estimatedWeightKg: number;
-  conditionRating: string;
-  isDataBearing: boolean;
-  zone: string;
-  collectionDeadline: string;
+  category?: string;
+  quantity?: number;
+  estimatedWeightKg?: number;
+  conditionRating?: string;
+  isDataBearing?: boolean;
+  zone?: string;
+  collectionDeadline?: string;
   notes?: string;
 };
 

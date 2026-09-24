@@ -36,10 +36,11 @@ function axiosError(status: number | undefined, data?: unknown) {
 }
 
 const batch = {
-  batchId: "batch-1",
+  batch_id: "batch-1",
   status: "DRAFT",
   version: 2,
   category: "laptops",
+  created_at: "2026-09-22T08:00:00.000Z",
 };
 
 describe("workflow api", () => {
@@ -48,9 +49,9 @@ describe("workflow api", () => {
     post.mockReset();
   });
 
-  it("sends camelCase draft fields and no version in the body", async () => {
+  it("sends snake_case draft fields and no version in the body", async () => {
     post.mockResolvedValue({
-      data: { data: batch, correlationId: "corr-1" },
+      data: { data: batch, correlation_id: "corr-1" },
     });
 
     await createBatchDraft(
@@ -72,11 +73,11 @@ describe("workflow api", () => {
     expect(body).toEqual({
       category: "laptops",
       quantity: 10,
-      estimatedWeightKg: 25.5,
-      conditionRating: "reusable",
-      isDataBearing: true,
+      estimated_weight_kg: 25.5,
+      condition_rating: "reusable",
+      is_data_bearing: true,
       zone: "central",
-      collectionDeadline: "2026-09-23T02:00:00.000Z",
+      collection_deadline: "2026-09-23T02:00:00.000Z",
     });
     expect(body).not.toHaveProperty("version");
     expect(body).not.toHaveProperty("notes");
@@ -90,38 +91,47 @@ describe("workflow api", () => {
 
   it("submits with If-Match-Version and an empty body", async () => {
     post.mockResolvedValue({
-      data: { data: { ...batch, status: "SUBMITTED", version: 3 }, correlationId: "corr-2" },
+      data: {
+        data: { ...batch, status: "SUBMITTED", version: 3 },
+        correlation_id: "corr-2",
+      },
     });
 
     const submitted = await submitBatch("token", "batch-1", 2, "idem-submit");
 
     expect(submitted.status).toBe("SUBMITTED");
-    expect(post).toHaveBeenCalledWith("/api/v1/batches/batch-1/submit", undefined, {
-      headers: {
-        Authorization: "Bearer token",
-        "Idempotency-Key": "idem-submit",
-        "If-Match-Version": "2",
+    expect(post).toHaveBeenCalledWith(
+      "/api/v1/batches/batch-1/submit",
+      undefined,
+      {
+        headers: {
+          Authorization: "Bearer token",
+          "Idempotency-Key": "idem-submit",
+          "If-Match-Version": "2",
+        },
       },
-    });
+    );
   });
 
-  it("lists batches with camelCase page parameters", async () => {
+  it("lists batches with page_size and maps snake_case fields", async () => {
     get.mockResolvedValue({
       data: {
         data: [batch],
         page: 1,
-        pageSize: 20,
-        totalCount: 1,
-        correlationId: "corr-list",
+        page_size: 20,
+        total_count: 1,
+        correlation_id: "corr-list",
       },
     });
 
     const page = await listBatches("token", { status: "DRAFT" });
 
     expect(page.data[0]?.batchId).toBe("batch-1");
+    expect(page.data[0]?.createdAt).toBe("2026-09-22T08:00:00.000Z");
+    expect(page.correlationId).toBe("corr-list");
     expect(get).toHaveBeenCalledWith("/api/v1/batches", {
       headers: { Authorization: "Bearer token" },
-      params: { page: 1, pageSize: 20, status: "DRAFT" },
+      params: { page: 1, page_size: 20, status: "DRAFT" },
     });
   });
 
@@ -199,7 +209,7 @@ describe("workflow api", () => {
       axiosError(409, {
         code: "STALE_VERSION",
         message: "The resource has changed. Refresh and retry.",
-        correlationId: "corr-conflict",
+        correlation_id: "corr-conflict",
       }),
     );
     await expect(listBatches("token")).rejects.toMatchObject({
@@ -207,13 +217,27 @@ describe("workflow api", () => {
       correlationId: "corr-conflict",
     });
 
-    get.mockRejectedValueOnce(axiosError(404, { code: "NOT_FOUND", message: "missing", correlationId: "corr-404" }));
-    await expect(listBatches("token")).rejects.toMatchObject({ kind: "not_found" });
+    get.mockRejectedValueOnce(
+      axiosError(404, {
+        code: "NOT_FOUND",
+        message: "missing",
+        correlation_id: "corr-404",
+      }),
+    );
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "not_found",
+    });
 
     get.mockRejectedValueOnce(
-      axiosError(409, { code: "DUPLICATE_CLAIM", message: "already sent", correlationId: "corr-dup" }),
+      axiosError(409, {
+        code: "DUPLICATE_CLAIM",
+        message: "already sent",
+        correlation_id: "corr-dup",
+      }),
     );
-    await expect(listBatches("token")).rejects.toMatchObject({ kind: "duplicate" });
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "duplicate",
+    });
 
     get.mockRejectedValueOnce(axiosError(undefined));
     await expect(listBatches("token")).rejects.toMatchObject({

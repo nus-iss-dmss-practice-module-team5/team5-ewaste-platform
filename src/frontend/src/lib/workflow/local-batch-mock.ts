@@ -2,19 +2,22 @@ import { WorkflowError } from "./errors";
 import type { Batch, BatchDraftRequest, BatchStatus, Page } from "./types";
 
 function draftBody(input: BatchDraftRequest): BatchDraftRequest {
-  const body: BatchDraftRequest = {
-    category: input.category.trim(),
-    quantity: input.quantity,
-    estimatedWeightKg: input.estimatedWeightKg,
-    conditionRating: input.conditionRating.trim(),
-    isDataBearing: input.isDataBearing,
-    zone: input.zone.trim(),
-    collectionDeadline: input.collectionDeadline,
-  };
+  const body: BatchDraftRequest = {};
+  const category = input.category?.trim();
+  if (category) body.category = category;
+  if (input.quantity !== undefined) body.quantity = input.quantity;
+  if (input.estimatedWeightKg !== undefined)
+    body.estimatedWeightKg = input.estimatedWeightKg;
+  const conditionRating = input.conditionRating?.trim();
+  if (conditionRating) body.conditionRating = conditionRating;
+  if (input.isDataBearing !== undefined)
+    body.isDataBearing = input.isDataBearing;
+  const zone = input.zone?.trim();
+  if (zone) body.zone = zone;
+  if (input.collectionDeadline)
+    body.collectionDeadline = input.collectionDeadline;
   const notes = input.notes?.trim();
-  if (notes) {
-    body.notes = notes;
-  }
+  if (notes) body.notes = notes;
   return body;
 }
 
@@ -74,7 +77,9 @@ function requireBatch(rows: Batch[], batchId: string): Batch {
   return batch;
 }
 
-export async function mockListBatches(status?: BatchStatus): Promise<Page<Batch>> {
+export async function mockListBatches(
+  status?: BatchStatus,
+): Promise<Page<Batch>> {
   const rows = await load();
   const data = status ? rows.filter((row) => row.status === status) : rows;
   return pageOf(data);
@@ -84,7 +89,9 @@ export async function mockGetBatch(batchId: string): Promise<Batch> {
   return requireBatch(await load(), batchId);
 }
 
-export async function mockCreateBatchDraft(input: BatchDraftRequest): Promise<Batch> {
+export async function mockCreateBatchDraft(
+  input: BatchDraftRequest,
+): Promise<Batch> {
   const rows = await load();
   const body = draftBody(input);
   const created: Batch = {
@@ -124,7 +131,10 @@ export async function mockEditBatchDraft(
   return next;
 }
 
-export async function mockSubmitBatch(batchId: string, version: number): Promise<Batch> {
+export async function mockSubmitBatch(
+  batchId: string,
+  version: number,
+): Promise<Batch> {
   const rows = await load();
   const current = requireBatch(rows, batchId);
   if (current.version !== version || current.status !== "DRAFT") {

@@ -17,14 +17,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function readString(record: Record<string, unknown>, key: string): string | undefined {
+function readString(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
   const value = record[key];
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
-function readNumber(record: Record<string, unknown>, key: string): number | undefined {
+function readNumber(
+  record: Record<string, unknown>,
+  key: string,
+): number | undefined {
   const value = record[key];
-  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function requireString(
@@ -73,26 +81,27 @@ export function parseBatch(value: unknown): Batch {
     "Batch",
   ) as BatchStatus;
   const batch: Batch = {
-    batchId: requireString(value, "batchId", "Batch"),
+    batchId: requireString(value, "batch_id", "Batch"),
     status,
     version: requireNumber(value, "version", "Batch"),
   };
   const category = readString(value, "category");
   const quantity = readNumber(value, "quantity");
-  const estimatedWeightKg = readNumber(value, "estimatedWeightKg");
-  const conditionRating = readString(value, "conditionRating");
+  const estimatedWeightKg = readNumber(value, "estimated_weight_kg");
+  const conditionRating = readString(value, "condition_rating");
   const zone = readString(value, "zone");
-  const collectionDeadline = readString(value, "collectionDeadline");
+  const collectionDeadline = readString(value, "collection_deadline");
   const notes = readString(value, "notes");
-  const claimEpoch = readString(value, "claimEpoch");
-  const createdAt = readString(value, "createdAt");
-  const updatedAt = readString(value, "updatedAt");
+  const claimEpoch = readString(value, "claim_epoch");
+  const createdAt = readString(value, "created_at");
+  const updatedAt = readString(value, "updated_at");
   if (category) batch.category = category;
   if (quantity !== undefined) batch.quantity = quantity;
-  if (estimatedWeightKg !== undefined) batch.estimatedWeightKg = estimatedWeightKg;
+  if (estimatedWeightKg !== undefined)
+    batch.estimatedWeightKg = estimatedWeightKg;
   if (conditionRating) batch.conditionRating = conditionRating;
-  if (typeof value.isDataBearing === "boolean") {
-    batch.isDataBearing = value.isDataBearing;
+  if (typeof value.is_data_bearing === "boolean") {
+    batch.isDataBearing = value.is_data_bearing;
   }
   if (zone) batch.zone = zone;
   if (collectionDeadline) batch.collectionDeadline = collectionDeadline;
@@ -118,7 +127,11 @@ export function parseOpportunity(value: unknown): Opportunity {
     category: requireString(value, "category", "Opportunity"),
     quantity: requireNumber(value, "quantity", "Opportunity"),
     zone: requireString(value, "zone", "Opportunity"),
-    collectionDeadline: requireString(value, "collectionDeadline", "Opportunity"),
+    collectionDeadline: requireString(
+      value,
+      "collectionDeadline",
+      "Opportunity",
+    ),
     eligibilityReason: requireString(value, "eligibilityReason", "Opportunity"),
   };
   const estimatedWeightKg = readNumber(value, "estimatedWeightKg");
@@ -164,7 +177,11 @@ export function parseAssignment(value: unknown): Assignment {
     assignmentId: requireString(value, "assignmentId", "Assignment"),
     batchId: requireString(value, "batchId", "Assignment"),
     assignmentStatus,
-    assignmentSequence: requireNumber(value, "assignmentSequence", "Assignment"),
+    assignmentSequence: requireNumber(
+      value,
+      "assignmentSequence",
+      "Assignment",
+    ),
     version: requireNumber(value, "version", "Assignment"),
   };
   const claimId = readString(value, "claimId");
@@ -178,16 +195,20 @@ export function parseAssignment(value: unknown): Assignment {
   return assignment;
 }
 
-function parsePage<T>(value: unknown, parseItem: (item: unknown) => T, label: string): Page<T> {
+function parsePage<T>(
+  value: unknown,
+  parseItem: (item: unknown) => T,
+  label: string,
+): Page<T> {
   if (!isRecord(value) || !Array.isArray(value.data)) {
     throw contractError(`${label} list is missing data.`);
   }
   return {
     data: value.data.map(parseItem),
     page: requireNumber(value, "page", label),
-    pageSize: requireNumber(value, "pageSize", label),
-    totalCount: requireNumber(value, "totalCount", label),
-    correlationId: requireString(value, "correlationId", label),
+    pageSize: requireNumber(value, "page_size", label),
+    totalCount: requireNumber(value, "total_count", label),
+    correlationId: requireString(value, "correlation_id", label),
   };
 }
 
@@ -203,7 +224,11 @@ export function parseAssignmentPage(value: unknown): Page<Assignment> {
   return parsePage(value, parseAssignment, "Assignment");
 }
 
-export function parseData<T>(value: unknown, parseItem: (item: unknown) => T, label: string): T {
+export function parseData<T>(
+  value: unknown,
+  parseItem: (item: unknown) => T,
+  label: string,
+): T {
   if (!isRecord(value) || !("data" in value)) {
     throw contractError(`${label} response is missing data.`);
   }
