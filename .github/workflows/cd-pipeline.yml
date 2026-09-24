@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/27-28-merge-conflict-fix]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
