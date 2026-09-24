@@ -2,7 +2,7 @@ name: "IaC - Create Cloud Resources (Dev, Stg, Prod)"
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/27-28-merge-conflict-fix]
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform-infra-create.yml'
