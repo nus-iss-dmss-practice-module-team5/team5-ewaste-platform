@@ -14,10 +14,8 @@ import {
   ACCESS_REFRESH_SKEW_MS,
   EXPIRED_LOGIN_PATH,
   LOGIN_PATH,
-  USE_MOCK_AUTH,
 } from "./config";
 import { logoutSession, refreshSession } from "./login";
-import { mockRestoreRefresh, mockRevokeRefresh } from "./mock-auth";
 import {
   readStoredSession,
   replaceLocation,
@@ -31,8 +29,6 @@ type SessionContextValue = {
   justRenewed: boolean;
   setSession: (session: Session) => void;
   logout: () => Promise<void>;
-  simulateAccessExpiry: () => void;
-  simulateSessionExpiry: () => void;
 };
 
 const SessionContext = createContext<SessionContextValue | null>(null);
@@ -51,9 +47,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     const timer = window.setTimeout(() => {
       const stored = readStoredSession();
       if (stored && stored.refreshExpiresAt > Date.now()) {
-        if (USE_MOCK_AUTH) {
-          mockRestoreRefresh(stored);
-        }
         setSessionState(stored);
       } else if (stored) {
         writeStoredSession(null);
@@ -80,10 +73,6 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const expireSession = useCallback(() => {
-    const current = sessionRef.current;
-    if (USE_MOCK_AUTH && current) {
-      mockRevokeRefresh(current.tokens.refreshToken);
-    }
     setJustRenewed(false);
     setSessionState(null);
     writeStoredSession(null);
@@ -96,36 +85,13 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       try {
         await logoutSession(current.tokens.accessToken);
       } catch {
-        if (USE_MOCK_AUTH) {
-          mockRevokeRefresh(current.tokens.refreshToken);
-        }
+        // Signing out locally still ends the session if the API is unreachable.
       }
     }
     setJustRenewed(false);
     setSessionState(null);
     writeStoredSession(null);
     replaceLocation(LOGIN_PATH);
-  }, []);
-
-  const simulateAccessExpiry = useCallback(() => {
-    setSessionState((current) =>
-      current ? { ...current, accessExpiresAt: Date.now() - 1 } : current,
-    );
-  }, []);
-
-  const simulateSessionExpiry = useCallback(() => {
-    const current = sessionRef.current;
-    if (!current) {
-      return;
-    }
-    if (USE_MOCK_AUTH) {
-      mockRevokeRefresh(current.tokens.refreshToken);
-    }
-    setSessionState({
-      ...current,
-      accessExpiresAt: Date.now() - 1,
-      refreshExpiresAt: Date.now() - 1,
-    });
   }, []);
 
   useEffect(() => {
@@ -203,18 +169,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       justRenewed,
       setSession,
       logout,
-      simulateAccessExpiry,
-      simulateSessionExpiry,
     }),
-    [
-      session,
-      ready,
-      justRenewed,
-      setSession,
-      logout,
-      simulateAccessExpiry,
-      simulateSessionExpiry,
-    ],
+    [session, ready, justRenewed, setSession, logout],
   );
 
   return (
