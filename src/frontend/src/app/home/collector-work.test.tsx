@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkflowError } from "@/lib/workflow/errors";
@@ -11,6 +11,7 @@ const selectAssignment = vi.fn();
 const rejectAssignment = vi.fn();
 const recordHandoff = vi.fn();
 const reportFailedPickup = vi.fn();
+const newIdempotencyKey = vi.fn();
 
 vi.mock("@/lib/auth/session-context", () => ({
   useSession: () => ({
@@ -28,7 +29,7 @@ vi.mock("@/lib/workflow/api", () => ({
   rejectAssignment: (...args: unknown[]) => rejectAssignment(...args),
   recordHandoff: (...args: unknown[]) => recordHandoff(...args),
   reportFailedPickup: (...args: unknown[]) => reportFailedPickup(...args),
-  newIdempotencyKey: () => "idem-collector",
+  newIdempotencyKey: () => newIdempotencyKey(),
 }));
 
 const approved: Batch = {
@@ -66,6 +67,8 @@ describe("collector work", () => {
     rejectAssignment.mockReset();
     recordHandoff.mockReset();
     reportFailedPickup.mockReset();
+    newIdempotencyKey.mockReset();
+    newIdempotencyKey.mockReturnValue("idem-collector");
     listBatches.mockResolvedValue(page([approved]));
     listAssignments.mockResolvedValue(page([accepted]));
   });
@@ -90,6 +93,65 @@ describe("collector work", () => {
     );
     expect(await screen.findByTestId("collector-accepted")).toHaveTextContent(
       "ACCEPTED",
+    );
+  });
+
+  it("reuses the idempotency key when the same selection is retried", async () => {
+    const user = userEvent.setup();
+    newIdempotencyKey
+      .mockReturnValueOnce("idem-1")
+      .mockReturnValueOnce("idem-2");
+    selectAssignment
+      .mockRejectedValueOnce(
+        new WorkflowError("offline", "network", "NETWORK", "c"),
+      )
+      .mockResolvedValueOnce(accepted)
+      .mockResolvedValueOnce(accepted);
+    const keysSent = () => selectAssignment.mock.calls.map((call) => call[3]);
+    render(<CollectorWork />);
+
+    await user.click(await screen.findByTestId("collector-select-batch-1"));
+    await screen.findByTestId("collector-action-network");
+    await user.click(await screen.findByTestId("collector-select-batch-1"));
+    await screen.findByTestId("collector-accepted");
+    expect(keysSent()).toEqual(["idem-1", "idem-1"]);
+
+    await user.click(await screen.findByTestId("collector-select-batch-1"));
+    await waitFor(() => expect(keysSent()[2]).toBe("idem-2"));
+  });
+
+  it("uses a new idempotency key when the handoff payload changes", async () => {
+    const user = userEvent.setup();
+    newIdempotencyKey
+      .mockReturnValueOnce("idem-1")
+      .mockReturnValueOnce("idem-2");
+    recordHandoff.mockRejectedValue(
+      new WorkflowError("offline", "network", "NETWORK", "c"),
+    );
+    const keysSent = () => recordHandoff.mock.calls.map((call) => call[4]);
+    render(<CollectorWork />);
+    await user.click(await screen.findByTestId("collector-open-asg-1"));
+    await user.type(
+      screen.getByTestId("collector-pickup-at"),
+      "2026-09-23T10:00",
+    );
+    await user.type(
+      screen.getByTestId("collector-representative"),
+      "Representative",
+    );
+    await user.type(screen.getByTestId("collector-actual-count"), "10");
+    await user.type(screen.getByTestId("collector-hash"), "a".repeat(64));
+
+    await user.click(screen.getByTestId("collector-handoff-submit"));
+    await waitFor(() => expect(keysSent()).toEqual(["idem-1"]));
+    await user.click(screen.getByTestId("collector-handoff-submit"));
+    await waitFor(() => expect(keysSent()).toEqual(["idem-1", "idem-1"]));
+
+    await user.clear(screen.getByTestId("collector-actual-count"));
+    await user.type(screen.getByTestId("collector-actual-count"), "9");
+    await user.click(screen.getByTestId("collector-handoff-submit"));
+    await waitFor(() =>
+      expect(keysSent()).toEqual(["idem-1", "idem-1", "idem-2"]),
     );
   });
 

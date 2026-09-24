@@ -16,7 +16,7 @@ import {
   type Batch,
   type FailureReason,
 } from "@/lib/workflow/types";
-import { FormEvent, Fragment, useEffect, useState } from "react";
+import { FormEvent, Fragment, useEffect, useRef, useState } from "react";
 import { USE_LOCAL_COLLECTOR_MOCK } from "@/lib/workflow/local-collector-mock";
 import {
   Banner,
@@ -37,6 +37,23 @@ const FAILURE_REASON_LABELS: Record<FailureReason, string> = {
 };
 
 const MAX_ACTUAL_ITEM_COUNT = 100000;
+
+// Kept until the command succeeds or its payload changes, so retrying after a
+// timeout replays the same command instead of sending a new one.
+function useRetryKey() {
+  const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
+  return {
+    keyFor(fingerprint: string): string {
+      if (attempt.current?.fingerprint !== fingerprint) {
+        attempt.current = { fingerprint, key: newIdempotencyKey() };
+      }
+      return attempt.current.key;
+    },
+    clear() {
+      attempt.current = null;
+    },
+  };
+}
 
 function selectBlockReason(
   batch: Batch,
@@ -73,6 +90,10 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
   const [pickupAt, setPickupAt] = useState("");
   const [verificationHash, setVerificationHash] = useState("");
   const [handoffNotes, setHandoffNotes] = useState("");
+  const selectKey = useRetryKey();
+  const rejectKey = useRetryKey();
+  const failKey = useRetryKey();
+  const handoffKey = useRetryKey();
 
   const active =
     assignments?.find((row) => row.assignmentId === selectedAssignment) ?? null;
@@ -140,8 +161,11 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
           claimEpoch,
           collectorScopeId: scopeId,
         },
-        newIdempotencyKey(),
+        selectKey.keyFor(
+          JSON.stringify([batch.batchId, batch.version, claimEpoch, scopeId]),
+        ),
       );
+      selectKey.clear();
       setNotice({
         testId: "collector-accepted",
         text: `Batch selected. Assignment ${created.assignmentId} is ${created.assignmentStatus}.`,
@@ -160,8 +184,15 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
         active.assignmentId,
         active.version,
         rejectionReason,
-        newIdempotencyKey(),
+        rejectKey.keyFor(
+          JSON.stringify([
+            active.assignmentId,
+            active.version,
+            rejectionReason.trim(),
+          ]),
+        ),
       );
+      rejectKey.clear();
       setNotice({
         testId: "collector-rejected",
         text: `Assignment rejected because ${rejectionReason.trim()}. The batch returns to APPROVED for another collector.`,
@@ -189,8 +220,16 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
         active.assignmentId,
         active.version,
         { failureReason, observedDetails },
-        newIdempotencyKey(),
+        failKey.keyFor(
+          JSON.stringify([
+            active.assignmentId,
+            active.version,
+            failureReason,
+            observedDetails.trim(),
+          ]),
+        ),
       );
+      failKey.clear();
       setNotice({
         testId: "collector-failed",
         text: `Pickup failed: ${FAILURE_REASON_LABELS[failureReason]}. The batch returns to APPROVED so another collector can select it.`,
@@ -235,20 +274,32 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
       });
       return;
     }
+    const handoff = {
+      pickupOccurredAt,
+      donorRepresentativeName: representative,
+      actualItemCount,
+      verificationHash,
+      notes: handoffNotes,
+    };
     await finish(async () => {
       const updated = await recordHandoff(
         session.tokens.accessToken,
         active.assignmentId,
         active.version,
-        {
-          pickupOccurredAt,
-          donorRepresentativeName: representative,
-          actualItemCount,
-          verificationHash,
-          notes: handoffNotes,
-        },
-        newIdempotencyKey(),
+        handoff,
+        handoffKey.keyFor(
+          JSON.stringify([
+            active.assignmentId,
+            active.version,
+            pickupOccurredAt,
+            representative.trim(),
+            actualItemCount,
+            verificationHash.trim(),
+            handoffNotes.trim(),
+          ]),
+        ),
       );
+      handoffKey.clear();
       setNotice({
         testId: "collector-handoff",
         text: `Handoff recorded. Assignment status is ${updated.assignmentStatus}.`,
