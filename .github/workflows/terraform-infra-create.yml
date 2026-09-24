@@ -106,6 +106,9 @@ jobs:
       redis_password: ${{ steps.tf_outputs.outputs.redis_password }}
       aca_identity_id: ${{ steps.tf_outputs.outputs.aca_identity_id }}
       key_vault_uri: ${{ steps.tf_outputs.outputs.key_vault_uri }}
+      aca_api_fqdn: ${{ steps.tf_outputs.outputs.aca_api_fqdn }}
+      aca_ui_fqdn: ${{ steps.tf_outputs.outputs.aca_ui_fqdn }}
+      aca_analytics_fqdn: ${{ steps.tf_outputs.outputs.aca_analytics_fqdn }}
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
@@ -124,19 +127,20 @@ jobs:
 
       - name: Set ARM Credentials for Terraform
         run: |
+          CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
           CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
-          echo "::add-mask::$CLIENT_SECRET"
+          SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)
+          TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)
+
+          echo "ARM_CLIENT_ID=$CLIENT_ID" >> $GITHUB_ENV
           echo "ARM_CLIENT_SECRET=$CLIENT_SECRET" >> $GITHUB_ENV
-          echo "ARM_CLIENT_ID=${{ secrets.AZURE_CLIENT_ID }}" >> $GITHUB_ENV
-          echo "ARM_TENANT_ID=${{ secrets.AZURE_TENANT_ID }}" >> $GITHUB_ENV
-          echo "ARM_SUBSCRIPTION_ID=${{ secrets.AZURE_SUBSCRIPTION_ID }}" >> $GITHUB_ENV
-          echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$SUBSCRIPTION_ID" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$TENANT_ID" >> $GITHUB_ENV
 
       - name: Setup Terraform CLI
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.8.0
-          terraform_wrapper: false
 
       # ------------------------------------------------------------------------
       # 1.1 SHARED INFRASTRUCTURE (ACR & Log Analytics Workspace)
@@ -157,7 +161,7 @@ jobs:
           fi
 
       # ------------------------------------------------------------------------
-      # 1.2 ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, ACA)
+      # 1.2 ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, Event Hubs, ACA)
       # ------------------------------------------------------------------------
       - name: Apply Target Environment Infrastructure
         run: |
@@ -174,18 +178,73 @@ jobs:
             TF_VARS_FILE="environments/dev.tfvars"
           fi
 
-          if [ "${{ inputs.action }}" == "plan" ]; then
-            terraform plan \
-              -var-file="$TF_VARS_FILE" \
-              -var="environment=$TARGET_ENV" \
-              -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-              -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+          AUTH_ACCESS="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
+          AUTH_REFRESH="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
+          AUTH_HASH="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
+
+          if [ "$TARGET_ENV" != "dev" ]; then
+            if [ -z "$AUTH_ACCESS" ] || [ -z "$AUTH_REFRESH" ] || [ -z "$AUTH_HASH" ]; then
+              echo "::error::Missing required JWT authentication secrets for environment '$TARGET_ENV'. EWASTE_AUTH_ACCESS_SECRET, EWASTE_AUTH_REFRESH_SECRET, and EWASTE_AUTH_REFRESH_HASH_SECRET must be configured in GitHub Secrets."
+              exit 1
+            fi
+            if [ "$AUTH_ACCESS" == "default-dev-access-secret-minimum-32-chars-long" ] || \
+               [ "$AUTH_REFRESH" == "default-dev-refresh-secret-minimum-32-chars-long" ] || \
+               [ "$AUTH_HASH" == "default-dev-refresh-hash-secret-32-chars" ]; then
+              echo "::error::Insecure default JWT secrets detected for environment '$TARGET_ENV'. Staging and production require non-default, dedicated secrets."
+              exit 1
+            fi
           else
-            terraform apply -auto-approve \
-              -var-file="$TF_VARS_FILE" \
-              -var="environment=$TARGET_ENV" \
-              -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}" \
-              -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+            # Local dev environment fallback only
+            AUTH_ACCESS="${AUTH_ACCESS:-default-dev-access-secret-minimum-32-chars-long}"
+            AUTH_REFRESH="${AUTH_REFRESH:-default-dev-refresh-secret-minimum-32-chars-long}"
+            AUTH_HASH="${AUTH_HASH:-default-dev-refresh-hash-secret-32-chars}"
+          fi
+
+          TF_VAR_ARGS=(
+            -var-file="$TF_VARS_FILE"
+            -var="environment=$TARGET_ENV"
+            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}"
+            -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+            -var="auth_access_secret=$AUTH_ACCESS"
+            -var="auth_refresh_secret=$AUTH_REFRESH"
+            -var="auth_refresh_hash_secret=$AUTH_HASH"
+          )
+
+          # ----------------------------------------------------------------
+          # Idempotent import: adopt Container Apps that exist in Azure but
+          # are missing from Terraform state (one-time migration from the
+          # old CLI-based CD provisioning model).
+          # ----------------------------------------------------------------
+          RG="rg-ewaste-${TARGET_ENV}"
+          for APP_SUFFIX in api ui analytics; do
+            RESOURCE_ADDR="azurerm_container_app.${APP_SUFFIX}"
+            APP_NAME="aca-ewaste-${TARGET_ENV}-${APP_SUFFIX}"
+
+            if terraform state show "$RESOURCE_ADDR" &>/dev/null; then
+              echo "[import] $RESOURCE_ADDR already in state — skipping."
+              continue
+            fi
+
+            APP_ID=$(az containerapp show \
+              --name "$APP_NAME" \
+              --resource-group "$RG" \
+              --query id -o tsv 2>/dev/null || true)
+
+            if [ -n "$APP_ID" ]; then
+              # Azure CLI returns '/containerapps/' (lowercase), but Terraform
+              # AzureRM provider strictly requires '/containerApps/' with capital 'A'.
+              APP_ID=$(echo "$APP_ID" | sed -e 's|/providers/microsoft.app/|/providers/Microsoft.App/|I' -e 's|/containerapps/|/containerApps/|I')
+              echo "[import] Importing $APP_NAME into $RESOURCE_ADDR ($APP_ID)..."
+              terraform import "${TF_VAR_ARGS[@]}" "$RESOURCE_ADDR" "$APP_ID"
+            else
+              echo "[import] $APP_NAME does not exist in Azure — nothing to import."
+            fi
+          done
+
+          if [ "${{ inputs.action }}" == "plan" ]; then
+            terraform plan "${TF_VAR_ARGS[@]}"
+          else
+            terraform apply -auto-approve "${TF_VAR_ARGS[@]}"
           fi
 
       # ------------------------------------------------------------------------
@@ -212,6 +271,9 @@ jobs:
           if [ -z "$REDIS_PASS" ]; then
             REDIS_PASS=$(terraform output -raw redis_primary_access_key 2>/dev/null || echo "")
           fi
+          ACA_API_FQDN=$(terraform output -raw aca_api_fqdn 2>/dev/null || echo "")
+          ACA_UI_FQDN=$(terraform output -raw aca_ui_fqdn 2>/dev/null || echo "")
+          ACA_ANALYTICS_FQDN=$(terraform output -raw aca_analytics_fqdn 2>/dev/null || echo "")
 
           if [ -n "$MYSQL_PASS" ]; then
             echo "::add-mask::$MYSQL_PASS"
@@ -232,4 +294,7 @@ jobs:
             echo "redis_address=${REDIS_ADDR}"
             echo "redis_password=${REDIS_PASS}"
             echo "aca_identity_id=${ACA_IDENTITY_ID}"
+            echo "aca_api_fqdn=${ACA_API_FQDN}"
+            echo "aca_ui_fqdn=${ACA_UI_FQDN}"
+            echo "aca_analytics_fqdn=${ACA_ANALYTICS_FQDN}"
           } >> "$GITHUB_OUTPUT"
