@@ -199,10 +199,6 @@ jobs:
           echo "Terraform implementation is not available yet."
           echo "Checkov will scan terraform/ once infrastructure code is added."
 
-
-
-
-
   # ============================================================================
   # PHASE 3: AUTOMATED UNIT VERIFICATION
   # ============================================================================
@@ -372,6 +368,7 @@ jobs:
     name: Container Build, SBOM & Vulnerability Scan
 
     needs:
+      - pre-commit-checks
       - backend-tests
       - analytics-tests
       - frontend-checks
