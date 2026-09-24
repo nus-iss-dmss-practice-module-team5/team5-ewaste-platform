@@ -9,6 +9,7 @@ const listBatches = vi.fn();
 const createBatchDraft = vi.fn();
 const editBatchDraft = vi.fn();
 const submitBatch = vi.fn();
+const newIdempotencyKey = vi.fn();
 
 vi.mock("@/lib/auth/session-context", () => ({
   useSession: () => ({
@@ -21,8 +22,11 @@ vi.mock("@/lib/workflow/api", () => ({
   createBatchDraft: (...args: unknown[]) => createBatchDraft(...args),
   editBatchDraft: (...args: unknown[]) => editBatchDraft(...args),
   submitBatch: (...args: unknown[]) => submitBatch(...args),
-  newIdempotencyKey: () => "idem-test",
+  newIdempotencyKey: () => newIdempotencyKey(),
 }));
+
+const offline = () =>
+  new WorkflowError("offline", "network", "NETWORK", "corr-network");
 
 function draft(): Batch {
   return {
@@ -45,6 +49,8 @@ describe("donor batches", () => {
     createBatchDraft.mockReset();
     editBatchDraft.mockReset();
     submitBatch.mockReset();
+    newIdempotencyKey.mockReset();
+    newIdempotencyKey.mockReturnValue("idem-test");
   });
 
   it("shows a loading state and then an empty list", async () => {
@@ -106,6 +112,60 @@ describe("donor batches", () => {
     expect(await screen.findByTestId("donor-notice")).toHaveTextContent(
       "SUBMITTED",
     );
+  });
+
+  it("reuses the submit idempotency key when a failed submit is retried", async () => {
+    const user = userEvent.setup();
+    newIdempotencyKey
+      .mockReturnValueOnce("idem-1")
+      .mockReturnValueOnce("idem-2");
+    listBatches.mockResolvedValue({
+      data: [draft()],
+      page: 1,
+      pageSize: 20,
+      totalCount: 1,
+      correlationId: "c",
+    });
+    submitBatch
+      .mockRejectedValueOnce(offline())
+      .mockResolvedValueOnce({ ...draft(), status: "SUBMITTED", version: 3 });
+    render(<DonorBatchList />);
+
+    await user.click(await screen.findByTestId("donor-submit-batch-1"));
+    expect(await screen.findByTestId("donor-action-error")).toBeInTheDocument();
+    await user.click(screen.getByTestId("donor-submit-batch-1"));
+
+    expect(await screen.findByTestId("donor-notice")).toHaveTextContent(
+      "SUBMITTED",
+    );
+    expect(submitBatch.mock.calls.map((call) => call[3])).toEqual([
+      "idem-1",
+      "idem-1",
+    ]);
+  });
+
+  it("reuses the create idempotency key until the draft changes", async () => {
+    const user = userEvent.setup();
+    newIdempotencyKey
+      .mockReturnValueOnce("idem-1")
+      .mockReturnValueOnce("idem-2");
+    createBatchDraft.mockRejectedValue(offline());
+    render(<DonorBatchForm />);
+    await user.type(screen.getByTestId("donor-category"), "laptops");
+
+    await user.click(screen.getByTestId("donor-save"));
+    expect(await screen.findByTestId("donor-form-error")).toBeInTheDocument();
+    await user.click(screen.getByTestId("donor-save"));
+    await waitFor(() => expect(createBatchDraft).toHaveBeenCalledTimes(2));
+    await user.type(screen.getByTestId("donor-zone"), "central");
+    await user.click(screen.getByTestId("donor-save"));
+
+    await waitFor(() => expect(createBatchDraft).toHaveBeenCalledTimes(3));
+    expect(createBatchDraft.mock.calls.map((call) => call[2])).toEqual([
+      "idem-1",
+      "idem-1",
+      "idem-2",
+    ]);
   });
 
   it("saves a partial draft without requiring every field", async () => {

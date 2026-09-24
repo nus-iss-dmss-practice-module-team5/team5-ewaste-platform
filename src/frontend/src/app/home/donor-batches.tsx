@@ -11,7 +11,7 @@ import {
 import { USE_LOCAL_BATCH_MOCK } from "@/lib/workflow/local-batch-mock";
 import { isWorkflowError } from "@/lib/workflow/errors";
 import type { Batch, BatchDraftRequest } from "@/lib/workflow/types";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import {
   Banner,
   LoadingLine,
@@ -31,6 +31,23 @@ type DraftFields = {
   collectionDeadline: string;
   notes: string;
 };
+
+// Kept until the command succeeds or its payload changes, so retrying after a
+// timeout replays the same command instead of sending a new one.
+function useRetryKey() {
+  const attempt = useRef<{ fingerprint: string; key: string } | null>(null);
+  return {
+    keyFor(fingerprint: string): string {
+      if (attempt.current?.fingerprint !== fingerprint) {
+        attempt.current = { fingerprint, key: newIdempotencyKey() };
+      }
+      return attempt.current.key;
+    },
+    clear() {
+      attempt.current = null;
+    },
+  };
+}
 
 const EMPTY_FIELDS: DraftFields = {
   category: "",
@@ -270,6 +287,8 @@ export function DonorBatchList() {
   const [fields, setFields] = useState<DraftFields>(EMPTY_FIELDS);
   const [pending, setPending] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const editKey = useRetryKey();
+  const submitKey = useRetryKey();
 
   async function reload() {
     if (!session) {
@@ -313,8 +332,11 @@ export function DonorBatchList() {
         editing.batchId,
         editing.version,
         parsed.body,
-        newIdempotencyKey(),
+        editKey.keyFor(
+          JSON.stringify([editing.batchId, editing.version, parsed.body]),
+        ),
       );
+      editKey.clear();
       setNotice(
         `Draft ${updated.batchId} saved at version ${updated.version}.`,
       );
@@ -349,8 +371,9 @@ export function DonorBatchList() {
         session.tokens.accessToken,
         batch.batchId,
         batch.version,
-        newIdempotencyKey(),
+        submitKey.keyFor(JSON.stringify([batch.batchId, batch.version])),
       );
+      submitKey.clear();
       setNotice(`Batch submitted. Status is ${submitted.status}.`);
       await reload();
     } catch (error) {
@@ -478,6 +501,7 @@ export function DonorBatchForm() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<Batch | null>(null);
+  const createKey = useRetryKey();
 
   async function onCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -496,8 +520,9 @@ export function DonorBatchForm() {
       const batch = await createBatchDraft(
         session.tokens.accessToken,
         parsed.body,
-        newIdempotencyKey(),
+        createKey.keyFor(JSON.stringify(parsed.body)),
       );
+      createKey.clear();
       setCreated(batch);
       setFields(EMPTY_FIELDS);
     } catch (caught) {
