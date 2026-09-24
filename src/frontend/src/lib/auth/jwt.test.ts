@@ -62,12 +62,13 @@ describe("userFromAccessToken", () => {
   it("reads collector_scope_id without using the organisation id", () => {
     const token = jwtWithPayload({
       sub: "USR-005",
-      email: "collector1@ewaste.test",
       role: "COLLECTOR",
       org: "COL-001",
       collector_scope_id: "scope-collector-001",
     });
-    const user = userFromAccessToken(token);
+    const user = userFromAccessToken(token, {
+      email: "collector1@ewaste.test",
+    });
     expect(user.collectorScopeId).toBe("scope-collector-001");
     expect(user.organisationId).toBe("COL-001");
   });
@@ -75,12 +76,14 @@ describe("userFromAccessToken", () => {
   it("ignores a camelCase collectorScopeId claim", () => {
     const token = jwtWithPayload({
       sub: "USR-005",
-      email: "collector1@ewaste.test",
       role: "COLLECTOR",
       org: "COL-001",
       collectorScopeId: "scope-collector-001",
     });
-    expect(userFromAccessToken(token).collectorScopeId).toBeUndefined();
+    expect(
+      userFromAccessToken(token, { email: "collector1@ewaste.test" })
+        .collectorScopeId,
+    ).toBeUndefined();
   });
 
   it("rejects a token that has no role", () => {
