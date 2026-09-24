@@ -75,7 +75,7 @@ export async function listBatches(
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
         ...(query.status ? { status: query.status } : {}),
       },
     }),
@@ -93,15 +93,26 @@ export async function getBatch(
   );
 }
 
-export function draftBody(input: BatchDraftRequest): BatchDraftRequest {
-  const body: BatchDraftRequest = {
+type BatchDraftWire = {
+  category: string;
+  quantity: number;
+  estimated_weight_kg: number;
+  condition_rating: string;
+  is_data_bearing: boolean;
+  zone: string;
+  collection_deadline: string;
+  notes?: string;
+};
+
+export function draftBody(input: BatchDraftRequest): BatchDraftWire {
+  const body: BatchDraftWire = {
     category: input.category.trim(),
     quantity: input.quantity,
-    estimatedWeightKg: input.estimatedWeightKg,
-    conditionRating: input.conditionRating.trim(),
-    isDataBearing: input.isDataBearing,
+    estimated_weight_kg: input.estimatedWeightKg,
+    condition_rating: input.conditionRating.trim(),
+    is_data_bearing: input.isDataBearing,
     zone: input.zone.trim(),
-    collectionDeadline: input.collectionDeadline,
+    collection_deadline: input.collectionDeadline,
   };
   const notes = input.notes?.trim();
   if (notes) {
@@ -170,7 +181,7 @@ export async function listOpportunities(
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
       },
     }),
     parseOpportunityPage,
@@ -231,9 +242,9 @@ export async function selectAssignment(
     api.post(
       `/api/v1/batches/${batchId}/assignments`,
       {
-        expectedVersion: command.expectedVersion,
-        claimEpoch: command.claimEpoch,
-        collectorScopeId: command.collectorScopeId,
+        expected_version: command.expectedVersion,
+        claim_epoch: command.claimEpoch,
+        collector_scope_id: command.collectorScopeId,
       },
       commandHeaders(accessToken, idempotencyKey, command.expectedVersion),
     ),
@@ -254,7 +265,7 @@ export async function listAssignments(
       ...authHeaders(accessToken),
       params: {
         page: query.page ?? 1,
-        pageSize: query.pageSize ?? 20,
+        page_size: query.pageSize ?? 20,
         ...(query.status ? { status: query.status } : {}),
       },
     }),
@@ -288,7 +299,7 @@ export async function rejectAssignment(
   return call(
     api.post(
       `/api/v1/assignments/${assignmentId}/reject`,
-      { rejectionReason: rejectionReason.trim() },
+      { rejection_reason: rejectionReason.trim() },
       commandHeaders(accessToken, idempotencyKey, version),
     ),
     (data) => parseData(data, parseAssignment, "Assignment"),
@@ -302,11 +313,17 @@ export async function recordHandoff(
   command: HandoffCommand,
   idempotencyKey: string,
 ): Promise<Assignment> {
-  const body: HandoffCommand = {
-    pickupOccurredAt: command.pickupOccurredAt,
-    donorRepresentativeName: command.donorRepresentativeName.trim(),
-    actualItemCount: command.actualItemCount,
-    verificationHash: command.verificationHash.trim(),
+  const body: {
+    pickup_occurred_at: string;
+    donor_representative_name: string;
+    actual_item_count: number;
+    verification_hash: string;
+    notes?: string;
+  } = {
+    pickup_occurred_at: command.pickupOccurredAt,
+    donor_representative_name: command.donorRepresentativeName.trim(),
+    actual_item_count: command.actualItemCount,
+    verification_hash: command.verificationHash.trim(),
   };
   const notes = command.notes?.trim();
   if (notes) {
@@ -329,12 +346,15 @@ export async function reportFailedPickup(
   command: FailPickupCommand,
   idempotencyKey: string,
 ): Promise<Assignment> {
-  const body: FailPickupCommand = {
-    failureReason: command.failureReason.trim(),
+  const body: {
+    failure_reason: string;
+    observed_details?: string;
+  } = {
+    failure_reason: command.failureReason.trim(),
   };
   const observedDetails = command.observedDetails?.trim();
   if (observedDetails) {
-    body.observedDetails = observedDetails;
+    body.observed_details = observedDetails;
   }
   return call(
     api.post(

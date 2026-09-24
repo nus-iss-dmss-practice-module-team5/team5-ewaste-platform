@@ -5,7 +5,9 @@ import {
   claimOpportunity,
   createBatchDraft,
   draftBody,
+  getOpportunity,
   listBatches,
+  listOpportunities,
   reportFailedPickup,
   selectAssignment,
   submitBatch,
@@ -36,7 +38,7 @@ function axiosError(status: number | undefined, data?: unknown) {
 }
 
 const batch = {
-  batchId: "batch-1",
+  batch_id: "batch-1",
   status: "DRAFT",
   version: 2,
   category: "laptops",
@@ -48,7 +50,7 @@ describe("workflow api", () => {
     post.mockReset();
   });
 
-  it("sends camelCase draft fields and no version in the body", async () => {
+  it("sends snake_case draft fields and no version in the body", async () => {
     post.mockResolvedValue({
       data: { data: batch, correlationId: "corr-1" },
     });
@@ -72,11 +74,11 @@ describe("workflow api", () => {
     expect(body).toEqual({
       category: "laptops",
       quantity: 10,
-      estimatedWeightKg: 25.5,
-      conditionRating: "reusable",
-      isDataBearing: true,
+      estimated_weight_kg: 25.5,
+      condition_rating: "reusable",
+      is_data_bearing: true,
       zone: "central",
-      collectionDeadline: "2026-09-23T02:00:00.000Z",
+      collection_deadline: "2026-09-23T02:00:00.000Z",
     });
     expect(body).not.toHaveProperty("version");
     expect(body).not.toHaveProperty("notes");
@@ -112,14 +114,14 @@ describe("workflow api", () => {
     );
   });
 
-  it("lists batches with camelCase page parameters", async () => {
+  it("lists batches with page_size and maps snake_case fields", async () => {
     get.mockResolvedValue({
       data: {
         data: [batch],
         page: 1,
-        pageSize: 20,
-        totalCount: 1,
-        correlationId: "corr-list",
+        page_size: 20,
+        total_count: 1,
+        correlation_id: "corr-list",
       },
     });
 
@@ -128,7 +130,68 @@ describe("workflow api", () => {
     expect(page.data[0]?.batchId).toBe("batch-1");
     expect(get).toHaveBeenCalledWith("/api/v1/batches", {
       headers: { Authorization: "Bearer token" },
-      params: { page: 1, pageSize: 20, status: "DRAFT" },
+      params: { page: 1, page_size: 20, status: "DRAFT" },
+    });
+  });
+
+  it("loads an opportunity from snake_case fields", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: {
+          batch_id: "batch-1",
+          status: "MATCHED",
+          category: "laptops",
+          quantity: 10,
+          estimated_weight_kg: 25.5,
+          zone: "central",
+          collection_deadline: "2026-09-23T02:00:00.000Z",
+          eligibility_reason: "Zone and category match.",
+          claim_epoch: "1",
+          version: 3,
+        },
+        correlation_id: "corr-opp",
+      },
+    });
+
+    const opportunity = await getOpportunity("token", "batch-1");
+
+    expect(opportunity).toMatchObject({
+      batchId: "batch-1",
+      estimatedWeightKg: 25.5,
+      collectionDeadline: "2026-09-23T02:00:00.000Z",
+      eligibilityReason: "Zone and category match.",
+      claimEpoch: "1",
+    });
+  });
+
+  it("lists opportunities with page_size", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: [
+          {
+            batch_id: "batch-1",
+            status: "MATCHED",
+            category: "laptops",
+            quantity: 10,
+            zone: "central",
+            collection_deadline: "2026-09-23T02:00:00.000Z",
+            eligibility_reason: "Zone and category match.",
+          },
+        ],
+        page: 1,
+        page_size: 20,
+        total_count: 1,
+        correlation_id: "corr-opp-list",
+      },
+    });
+
+    const page = await listOpportunities("token");
+
+    expect(page.data[0]?.batchId).toBe("batch-1");
+    expect(page.correlationId).toBe("corr-opp-list");
+    expect(get).toHaveBeenCalledWith("/api/v1/opportunities", {
+      headers: { Authorization: "Bearer token" },
+      params: { page: 1, page_size: 20 },
     });
   });
 
@@ -180,10 +243,10 @@ describe("workflow api", () => {
     post.mockResolvedValue({
       data: {
         data: {
-          assignmentId: "asg-1",
-          batchId: "batch-1",
-          assignmentStatus: "ACCEPTED",
-          assignmentSequence: 1,
+          assignment_id: "asg-1",
+          batch_id: "batch-1",
+          assignment_status: "ACCEPTED",
+          assignment_sequence: 1,
           version: 1,
         },
         correlationId: "corr-asg",
@@ -202,9 +265,9 @@ describe("workflow api", () => {
     );
 
     expect(post.mock.calls[0]?.[1]).toEqual({
-      expectedVersion: 4,
-      claimEpoch: "1",
-      collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
+      expected_version: 4,
+      claim_epoch: "1",
+      collector_scope_id: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
     });
   });
 
@@ -254,10 +317,10 @@ describe("workflow api", () => {
     post.mockResolvedValue({
       data: {
         data: {
-          assignmentId: "asg-1",
-          batchId: "batch-1",
-          assignmentStatus: "FAILED",
-          assignmentSequence: 1,
+          assignment_id: "asg-1",
+          batch_id: "batch-1",
+          assignment_status: "FAILED",
+          assignment_sequence: 1,
           version: 2,
         },
         correlationId: "corr-fail",
@@ -274,8 +337,8 @@ describe("workflow api", () => {
 
     const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(body).toEqual({
-      failureReason: "collector absent",
-      observedDetails: "No recipient",
+      failure_reason: "collector absent",
+      observed_details: "No recipient",
     });
     expect(body).not.toHaveProperty("version");
   });
