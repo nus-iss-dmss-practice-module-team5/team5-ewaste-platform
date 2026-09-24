@@ -101,30 +101,34 @@ export async function getBatch(
 }
 
 type BatchDraftWire = {
-  category: string;
-  quantity: number;
-  estimated_weight_kg: number;
-  condition_rating: string;
-  is_data_bearing: boolean;
-  zone: string;
-  collection_deadline: string;
+  category?: string;
+  quantity?: number;
+  estimated_weight_kg?: number;
+  condition_rating?: string;
+  is_data_bearing?: boolean;
+  zone?: string;
+  collection_deadline?: string;
   notes?: string;
 };
 
 export function draftBody(input: BatchDraftRequest): BatchDraftWire {
-  const body: BatchDraftWire = {
-    category: input.category.trim(),
-    quantity: input.quantity,
-    estimated_weight_kg: input.estimatedWeightKg,
-    condition_rating: input.conditionRating.trim(),
-    is_data_bearing: input.isDataBearing,
-    zone: input.zone.trim(),
-    collection_deadline: input.collectionDeadline,
-  };
-  const notes = input.notes?.trim();
-  if (notes) {
-    body.notes = notes;
+  const body: BatchDraftWire = {};
+  const category = input.category?.trim();
+  if (category) body.category = category;
+  if (input.quantity !== undefined) body.quantity = input.quantity;
+  if (input.estimatedWeightKg !== undefined) {
+    body.estimated_weight_kg = input.estimatedWeightKg;
   }
+  const conditionRating = input.conditionRating?.trim();
+  if (conditionRating) body.condition_rating = conditionRating;
+  if (input.isDataBearing !== undefined)
+    body.is_data_bearing = input.isDataBearing;
+  const zone = input.zone?.trim();
+  if (zone) body.zone = zone;
+  if (input.collectionDeadline)
+    body.collection_deadline = input.collectionDeadline;
+  const notes = input.notes?.trim();
+  if (notes) body.notes = notes;
   return body;
 }
 

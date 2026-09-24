@@ -52,7 +52,7 @@ describe("workflow api", () => {
 
   it("sends snake_case draft fields and no version in the body", async () => {
     post.mockResolvedValue({
-      data: { data: batch, correlationId: "corr-1" },
+      data: { data: batch, correlation_id: "corr-1" },
     });
 
     await createBatchDraft(
@@ -94,7 +94,7 @@ describe("workflow api", () => {
     post.mockResolvedValue({
       data: {
         data: { ...batch, status: "SUBMITTED", version: 3 },
-        correlationId: "corr-2",
+        correlation_id: "corr-2",
       },
     });
 
@@ -181,7 +181,7 @@ describe("workflow api", () => {
           assignment_sequence: 1,
           version: 1,
         },
-        correlationId: "corr-asg",
+        correlation_id: "corr-asg",
       },
     });
 
@@ -213,7 +213,7 @@ describe("workflow api", () => {
           assignment_sequence: 1,
           version: 2,
         },
-        correlationId: "corr-asg",
+        correlation_id: "corr-asg",
       },
     });
 
@@ -253,7 +253,7 @@ describe("workflow api", () => {
       axiosError(409, {
         code: "STALE_VERSION",
         message: "The resource has changed. Refresh and retry.",
-        correlationId: "corr-conflict",
+        correlation_id: "corr-conflict",
       }),
     );
     await expect(listBatches("token")).rejects.toMatchObject({
@@ -265,22 +265,36 @@ describe("workflow api", () => {
       axiosError(404, {
         code: "NOT_FOUND",
         message: "missing",
-        correlationId: "corr-404",
+        correlation_id: "corr-404",
       }),
     );
     await expect(listBatches("token")).rejects.toMatchObject({
       kind: "not_found",
+      correlationId: "corr-404",
     });
 
     get.mockRejectedValueOnce(
       axiosError(409, {
         code: "DUPLICATE_CLAIM",
         message: "already sent",
-        correlationId: "corr-dup",
+        correlation_id: "corr-dup",
       }),
     );
     await expect(listBatches("token")).rejects.toMatchObject({
       kind: "duplicate",
+      correlationId: "corr-dup",
+    });
+
+    get.mockRejectedValueOnce(
+      axiosError(500, {
+        code: "INTERNAL",
+        message: "boom",
+        correlationId: "corr-camel",
+      }),
+    );
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "error",
+      correlationId: "corr-unknown",
     });
 
     get.mockRejectedValueOnce(axiosError(undefined));
@@ -300,7 +314,7 @@ describe("workflow api", () => {
           assignment_sequence: 1,
           version: 2,
         },
-        correlationId: "corr-fail",
+        correlation_id: "corr-fail",
       },
     });
 
@@ -333,5 +347,16 @@ describe("workflow api", () => {
         notes: " ",
       }),
     ).not.toHaveProperty("notes");
+  });
+
+  it("sends only the fields present in a partial draft", () => {
+    expect(draftBody({ category: " laptops ", quantity: 3 })).toEqual({
+      category: "laptops",
+      quantity: 3,
+    });
+    expect(draftBody({ zone: "  ", isDataBearing: false })).toEqual({
+      is_data_bearing: false,
+    });
+    expect(draftBody({})).toEqual({});
   });
 });
