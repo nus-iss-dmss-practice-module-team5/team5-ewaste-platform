@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
   push:
-    branches: [dev, main, feature/EWCSB-137-security-hardening]
+    branches: [dev, main]
 
 permissions:
   contents: read
