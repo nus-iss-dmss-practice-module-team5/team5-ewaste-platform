@@ -32,16 +32,18 @@ resource "azurerm_resource_group" "shared" {
 }
 
 # Centralized Azure Container Registry.
-# Premium SKU required for Private Link. Public access disabled; CI pushes via az acr build
-# (ACR Tasks trusted-service bypass). ACA runtime pulls via per-environment private endpoints + UAMI AcrPull.
+# Premium SKU required for Private Link. Firewall default-Deny with zero standing IP rules.
+# CI jobs ephemerally whitelist the GitHub runner IP for docker push and remove it post-job.
+# ACA runtime pulls via per-environment private endpoints + UAMI AcrPull.
 resource "azurerm_container_registry" "acr" {
+  # checkov:skip=CKV_AZURE_139:Public network enabled with default-Deny firewall and no standing IP rules. GitHub runner IPs are ephemerally whitelisted during CI builds and removed post-job. ACR Tasks unavailable on this subscription.
   name                          = "acrewasteplatform"
   resource_group_name           = azurerm_resource_group.shared.name
   location                      = "japaneast"
   sku                           = "Premium"
   admin_enabled                 = false
   anonymous_pull_enabled        = false
-  public_network_access_enabled = false
+  public_network_access_enabled = true
   network_rule_bypass_option    = "AzureServices"
 
   network_rule_set {
