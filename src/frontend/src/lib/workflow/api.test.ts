@@ -37,7 +37,7 @@ function axiosError(status: number | undefined, data?: unknown) {
 }
 
 const batch = {
-  batchId: "batch-1",
+  batch_id: "batch-1",
   status: "DRAFT",
   version: 2,
   category: "laptops",
@@ -49,7 +49,7 @@ describe("workflow api", () => {
     post.mockReset();
   });
 
-  it("sends camelCase draft fields and no version in the body", async () => {
+  it("sends snake_case draft fields and no version in the body", async () => {
     post.mockResolvedValue({
       data: { data: batch, correlationId: "corr-1" },
     });
@@ -73,11 +73,11 @@ describe("workflow api", () => {
     expect(body).toEqual({
       category: "laptops",
       quantity: 10,
-      estimatedWeightKg: 25.5,
-      conditionRating: "reusable",
-      isDataBearing: true,
+      estimated_weight_kg: 25.5,
+      condition_rating: "reusable",
+      is_data_bearing: true,
       zone: "central",
-      collectionDeadline: "2026-09-23T02:00:00.000Z",
+      collection_deadline: "2026-09-23T02:00:00.000Z",
     });
     expect(body).not.toHaveProperty("version");
     expect(body).not.toHaveProperty("notes");
@@ -113,14 +113,14 @@ describe("workflow api", () => {
     );
   });
 
-  it("lists batches with camelCase page parameters", async () => {
+  it("lists batches with page_size and maps snake_case fields", async () => {
     get.mockResolvedValue({
       data: {
         data: [batch],
         page: 1,
-        pageSize: 20,
-        totalCount: 1,
-        correlationId: "corr-list",
+        page_size: 20,
+        total_count: 1,
+        correlation_id: "corr-list",
       },
     });
 
@@ -129,7 +129,7 @@ describe("workflow api", () => {
     expect(page.data[0]?.batchId).toBe("batch-1");
     expect(get).toHaveBeenCalledWith("/api/v1/batches", {
       headers: { Authorization: "Bearer token" },
-      params: { page: 1, pageSize: 20, status: "DRAFT" },
+      params: { page: 1, page_size: 20, status: "DRAFT" },
     });
   });
 
@@ -170,19 +170,19 @@ describe("workflow api", () => {
     });
   });
 
-  it("claims with the version header and expectedVersion body", async () => {
+  it("claims with the version header and expected_version body", async () => {
     post.mockResolvedValue({
       data: {
         data: {
-          batchId: "batch-1",
+          batch_id: "batch-1",
           status: "APPROVED",
           version: 4,
-          claimEpoch: "1",
-          claimId: "claim-1",
-          reservationId: "res-1",
-          correlationId: "corr-claim",
+          claim_epoch: "1",
+          claim_id: "claim-1",
+          reservation_id: "res-1",
+          correlation_id: "corr-claim",
         },
-        correlationId: "corr-claim",
+        correlation_id: "corr-claim",
       },
     });
 
@@ -196,7 +196,7 @@ describe("workflow api", () => {
     expect(result.status).toBe("APPROVED");
     expect(post).toHaveBeenCalledWith(
       "/api/v1/batches/batch-1/claim",
-      { expectedVersion: 3, claimEpoch: "1", notes: "Ready" },
+      { expected_version: 3, claim_epoch: "1", notes: "Ready" },
       {
         headers: {
           Authorization: "Bearer token",
@@ -211,10 +211,10 @@ describe("workflow api", () => {
     post.mockResolvedValue({
       data: {
         data: {
-          assignmentId: "asg-1",
-          batchId: "batch-1",
-          assignmentStatus: "ACCEPTED",
-          assignmentSequence: 1,
+          assignment_id: "asg-1",
+          batch_id: "batch-1",
+          assignment_status: "ACCEPTED",
+          assignment_sequence: 1,
           version: 1,
         },
         correlationId: "corr-asg",
@@ -233,9 +233,9 @@ describe("workflow api", () => {
     );
 
     expect(post.mock.calls[0]?.[1]).toEqual({
-      expectedVersion: 4,
-      claimEpoch: "1",
-      collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
+      expected_version: 4,
+      claim_epoch: "1",
+      collector_scope_id: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
     });
   });
 
@@ -285,10 +285,10 @@ describe("workflow api", () => {
     post.mockResolvedValue({
       data: {
         data: {
-          assignmentId: "asg-1",
-          batchId: "batch-1",
-          assignmentStatus: "FAILED",
-          assignmentSequence: 1,
+          assignment_id: "asg-1",
+          batch_id: "batch-1",
+          assignment_status: "FAILED",
+          assignment_sequence: 1,
           version: 2,
         },
         correlationId: "corr-fail",
@@ -305,8 +305,8 @@ describe("workflow api", () => {
 
     const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(body).toEqual({
-      failureReason: "collector absent",
-      observedDetails: "No recipient",
+      failure_reason: "collector absent",
+      observed_details: "No recipient",
     });
     expect(body).not.toHaveProperty("version");
   });
