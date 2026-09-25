@@ -163,11 +163,7 @@ resource "azurerm_private_dns_a_record" "acr_login_record" {
   zone_name           = azurerm_private_dns_zone.acr_dns.name
   resource_group_name = azurerm_resource_group.env_rg.name
   ttl                 = 300
-  records             = [azurerm_private_endpoint.acr.private_network_interface_provisioned_ids[0] != "" ? azurerm_private_endpoint.acr.custom_dns_configs[0].ip_addresses[0] : "10.0.3.4"]
-
-  lifecycle {
-    ignore_changes = [records]
-  }
+  records             = [azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address]
 }
 
 # 2. Regional Data Layer Endpoint A Record (acrewasteplatform.japaneast.data.privatelink.azurecr.io)
@@ -178,11 +174,7 @@ resource "azurerm_private_dns_a_record" "acr_data_record" {
   zone_name           = azurerm_private_dns_zone.acr_dns.name
   resource_group_name = azurerm_resource_group.env_rg.name
   ttl                 = 300
-  records             = [azurerm_private_endpoint.acr.private_network_interface_provisioned_ids[0] != "" ? azurerm_private_endpoint.acr.custom_dns_configs[0].ip_addresses[0] : "10.0.3.4"]
-
-  lifecycle {
-    ignore_changes = [records]
-  }
+  records             = [azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address]
 }
 
 # ============================================================================
