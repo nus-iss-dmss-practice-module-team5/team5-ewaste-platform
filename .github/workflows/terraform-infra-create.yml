@@ -208,7 +208,12 @@ jobs:
             -var="auth_access_secret=$AUTH_ACCESS"
             -var="auth_refresh_secret=$AUTH_REFRESH"
             -var="auth_refresh_hash_secret=$AUTH_HASH"
+            -var="github_repository=${{ github.repository }}"
           )
+
+          if [ -n "${{ secrets.GH_RUNNER_PAT }}" ]; then
+            TF_VAR_ARGS+=(-var="github_pat=${{ secrets.GH_RUNNER_PAT }}")
+          fi
 
           # ----------------------------------------------------------------
           # Idempotent import: adopt Container Apps that exist in Azure but

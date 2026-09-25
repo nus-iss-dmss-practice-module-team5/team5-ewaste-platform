@@ -90,11 +90,12 @@ jobs:
 
   # ============================================================================
   # STAGE 1: MULTI-CONTAINER RELEASE (API, UI & ANALYTICS) & ACA DEPLOYMENT
+  # Runs on VNet-injected self-hosted runner with direct Private Link to ACR
   # ============================================================================
   deploy-application:
     name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
-    runs-on: [ubuntu-latest]
+    runs-on: [self-hosted, azure-vnet, "${{ needs.resolve-environment.outputs.environment }}"]
     environment: ${{ needs.resolve-environment.outputs.environment }}
     outputs:
       aca_api_fqdn: ${{ steps.api_deploy.outputs.aca_api_fqdn }}
@@ -112,49 +113,12 @@ jobs:
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      # ------------------------------------------------------------------------
-      # ZERO STANDING PRIVILEGE (ZSP): Ephemeral JIT ACR Firewall Pinholing
-      # ------------------------------------------------------------------------
-      - name: Ephemeral JIT Whitelist on ACR Firewall (Runner & ACA Outbound IPs)
-        run: |
-          ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-          RG="${{ needs.resolve-environment.outputs.resource_group }}"
-          RUNNER_IP=$(curl -s https://api.ipify.org)/32
-
-          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
-
-          echo "Adding CI/CD Runner IP $RUNNER_IP to ACR firewall..."
-          az acr network-rule add --name "$ACR_NAME" --ip-address "$RUNNER_IP" --output none
-
-          echo "Discovering Container App outbound egress IPs in $RG..."
-          ACA_IPS=$(az containerapp list \
-            --resource-group "$RG" \
-            --query "[].properties.outboundIpAddresses[]" \
-            -o tsv 2>/dev/null | sort -u || true)
-
-          CLEANUP_IPS=""
-          for ip in $ACA_IPS; do
-            if [ -n "$ip" ]; then
-              echo "Whitelisting ACA egress IP ${ip}/32 on ACR firewall..."
-              az acr network-rule add --name "$ACR_NAME" --ip-address "${ip}/32" --output none
-              CLEANUP_IPS="$CLEANUP_IPS $ip"
-            fi
-          done
-          echo "ACA_OUTBOUND_IPS=${CLEANUP_IPS# }" >> $GITHUB_ENV
-
       - name: Log in to Azure Container Registry
         run: |
-          echo "Verifying ACR firewall rule propagation..."
-          for i in {1..12}; do
-            if az acr login --name "${{ env.ACR_NAME }}" 2>/dev/null; then
-              echo "ACR firewall propagation complete. Login successful on attempt $i."
-              break
-            fi
-            echo "Waiting for ACR rule propagation (attempt $i/12)..."
-            sleep 10
-          done
+          ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
+          echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
+          echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
+          az acr login --name "$ACR_NAME"
 
       # ------------------------------------------------------------------------
       # 1.1 BACKEND API CONTAINER
@@ -180,24 +144,6 @@ jobs:
 
           API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
           echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
-
-#      - name: Sign API Container Image Digest with Cosign
-#        run: |
-#          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
-#          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-#            cosign sign --yes \
-#              --key env://COSIGN_PRIVATE_KEY \
-#              ${{ env.API_IMMUTABLE_DIGEST }}
-#          else
-#            echo "Generating ephemeral keypair for API signing..."
-#            if [ ! -f cosign.key ]; then
-#              cosign generate-key-pair
-#            fi
-#            cosign sign --yes --key cosign.key ${{ env.API_IMMUTABLE_DIGEST }}
-#          fi
-#        env:
-#          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-#          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
       - name: Deploy API Container to Azure Container Apps
         id: api_deploy
@@ -250,24 +196,6 @@ jobs:
 
           UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
           echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
-
-#      - name: Sign UI Container Image Digest with Cosign
-#        run: |
-#          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
-#          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-#            cosign sign --yes \
-#              --key env://COSIGN_PRIVATE_KEY \
-#              ${{ env.UI_IMMUTABLE_DIGEST }}
-#          else
-#            echo "Signing UI image with cosign key..."
-#            if [ ! -f cosign.key ]; then
-#              cosign generate-key-pair
-#            fi
-#            cosign sign --yes --key cosign.key ${{ env.UI_IMMUTABLE_DIGEST }}
-#          fi
-#        env:
-#          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-#          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
       - name: Deploy UI Container to Azure Container Apps
         id: ui_deploy
@@ -413,43 +341,11 @@ jobs:
             fi
           done
 
-      # ------------------------------------------------------------------------
-      # 1.6 GUARANTEED CLEANUP: Revoke All Ephemeral Rules (Zero Standing Access)
-      # ------------------------------------------------------------------------
-      - name: Revoke Ephemeral JIT Rules from ACR Firewall
-        if: always()
-        run: |
-          if [ -n "${{ env.ACR_NAME }}" ]; then
-            # 1. Revoke CI/CD Runner IP
-            if [ -n "${{ env.RUNNER_IP }}" ]; then
-              echo "Revoking runner IP ${{ env.RUNNER_IP }} from ACR firewall..."
-              az acr network-rule remove \
-                --name "${{ env.ACR_NAME }}" \
-                --ip-address "${{ env.RUNNER_IP }}" \
-                --output none || true
-            fi
-
-            # 2. Revoke ACA Outbound Egress IPs
-            if [ -n "${{ env.ACA_OUTBOUND_IPS }}" ]; then
-              for ip in ${{ env.ACA_OUTBOUND_IPS }}; do
-                echo "Revoking ACA egress IP ${ip}/32 from ACR firewall..."
-                az acr network-rule remove \
-                  --name "${{ env.ACR_NAME }}" \
-                  --ip-address "${ip}/32" \
-                  --output none || true
-              done
-            fi
-            echo "ACR firewall cleanup complete. Zero standing rules maintained."
-          else
-            echo "Skipping ACR firewall cleanup: ACR name not set."
-          fi
-
   # ============================================================================
   # STAGE 2: DYNAMIC APPLICATION SECURITY TESTING (OWASP ZAP)
   # ============================================================================
   dast-security-scan:
-    name: OWASP ZAP DAST Scan (${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment, deploy-application]
+    name: OWASP ZAP DAST Scan (${{ needs.resolve-environment.outputs.environment }})\n    needs: [resolve-environment, deploy-application]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code Repository

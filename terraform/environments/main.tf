@@ -75,11 +75,11 @@ resource "azurerm_subnet" "aca_subnet" {
 
 # Private endpoints must use a subnet separate from the delegated MySQL and ACA subnets.
 resource "azurerm_subnet" "private_endpoints_subnet" {
-  name                                      = "snet-private-endpoints"
-  resource_group_name                       = azurerm_resource_group.env_rg.name
-  virtual_network_name                      = azurerm_virtual_network.vnet.name
-  address_prefixes                          = ["10.0.3.0/24"]
-  private_endpoint_network_policies         = "Disabled"
+  name                              = "snet-private-endpoints"
+  resource_group_name               = azurerm_resource_group.env_rg.name
+  virtual_network_name              = azurerm_virtual_network.vnet.name
+  address_prefixes                  = ["10.0.3.0/24"]
+  private_endpoint_network_policies = "Disabled"
 }
 
 # Private DNS zone used by the private MySQL Flexible Server.
@@ -379,7 +379,6 @@ resource "azurerm_role_assignment" "eventhub_receiver" {
   role_definition_name = "Azure Event Hubs Data Receiver"
   principal_id         = azurerm_user_assigned_identity.aca_identity.principal_id
 }
-
 
 # ============================================================================
 # 6. COMPUTE: AZURE CONTAINER APPS
