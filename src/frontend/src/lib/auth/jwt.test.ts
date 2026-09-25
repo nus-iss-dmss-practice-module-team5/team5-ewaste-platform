@@ -10,27 +10,7 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
 }
 
 describe("userFromAccessToken", () => {
-  it("reads camelCase claims used by the workflow API mock", () => {
-    const token = jwtWithPayload({
-      sub: "usr-donor-001",
-      email: "donor1@ewaste.test",
-      name: "Alex Tan",
-      role: "donor",
-      organisationId: "org-donor-001",
-      organisationName: "Campus Labs",
-    });
-
-    expect(userFromAccessToken(token)).toEqual({
-      id: "usr-donor-001",
-      email: "donor1@ewaste.test",
-      name: "Alex Tan",
-      organisationId: "org-donor-001",
-      organisationName: "Campus Labs",
-      role: "DONOR",
-    });
-  });
-
-  it("maps Jiamin workflow JWTs that omit email and use org / SYSTEM_ADMIN", () => {
+  it("maps backend JWTs that omit email and use org / SYSTEM_ADMIN", () => {
     const donor = jwtWithPayload({
       sub: "USR-003",
       role: "DONOR",
@@ -86,11 +66,32 @@ describe("userFromAccessToken", () => {
     ).toBeUndefined();
   });
 
-  it("rejects a token that has no role", () => {
+  it("ignores camelCase claims the backend does not issue", () => {
     const token = jwtWithPayload({
-      sub: "usr-donor-001",
-      email: "donor1@ewaste.test",
+      userId: "usr-donor-001",
+      role: "DONOR",
+      organisationId: "org-donor-001",
+      organisationName: "Campus Labs",
     });
-    expect(() => userFromAccessToken(token)).toThrow(/role/);
+    expect(() =>
+      userFromAccessToken(token, { email: "donor1@ewaste.test" }),
+    ).toThrow(/subject/);
+
+    const withSub = jwtWithPayload({
+      sub: "USR-003",
+      role: "DONOR",
+      organisationId: "org-donor-001",
+      organisationName: "Campus Labs",
+    });
+    expect(
+      userFromAccessToken(withSub, { email: "donor1@ewaste.test" }),
+    ).toMatchObject({ organisationId: "", organisationName: "DON-001" });
+  });
+
+  it("rejects a token that has no role", () => {
+    const token = jwtWithPayload({ sub: "USR-003", org: "DON-001" });
+    expect(() =>
+      userFromAccessToken(token, { email: "donor1@ewaste.test" }),
+    ).toThrow(/role/);
   });
 });

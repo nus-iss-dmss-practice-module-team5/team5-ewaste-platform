@@ -5,9 +5,11 @@ import {
   claimOpportunity,
   createBatchDraft,
   draftBody,
+  getOpportunity,
   listBatches,
-  recordHandoff,
+  listOpportunities,
   rejectAssignment,
+  recordHandoff,
   reportFailedPickup,
   selectAssignment,
   submitBatch,
@@ -42,6 +44,7 @@ const batch = {
   status: "DRAFT",
   version: 2,
   category: "laptops",
+  created_at: "2026-09-22T08:00:00.000Z",
 };
 
 describe("workflow api", () => {
@@ -128,9 +131,75 @@ describe("workflow api", () => {
     const page = await listBatches("token", { status: "DRAFT" });
 
     expect(page.data[0]?.batchId).toBe("batch-1");
+    expect(page.data[0]?.createdAt).toBe("2026-09-22T08:00:00.000Z");
+    expect(page.correlationId).toBe("corr-list");
     expect(get).toHaveBeenCalledWith("/api/v1/batches", {
       headers: { Authorization: "Bearer token" },
       params: { page: 1, page_size: 20, status: "DRAFT" },
+    });
+  });
+
+  it("lists opportunities with page_size and maps snake_case fields", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: [
+          {
+            batch_id: "batch-1",
+            status: "MATCHED",
+            category: "laptops",
+            quantity: 10,
+            estimated_weight_kg: 25.5,
+            zone: "central",
+            collection_deadline: "2026-09-23T02:00:00.000Z",
+            eligibility_reason: "Zone and category match.",
+          },
+        ],
+        page: 1,
+        page_size: 20,
+        total_count: 1,
+        correlation_id: "corr-opp",
+      },
+    });
+
+    const page = await listOpportunities("token");
+
+    expect(page.data[0]).toMatchObject({
+      batchId: "batch-1",
+      estimatedWeightKg: 25.5,
+      collectionDeadline: "2026-09-23T02:00:00.000Z",
+      eligibilityReason: "Zone and category match.",
+    });
+    expect(page.correlationId).toBe("corr-opp");
+    expect(get).toHaveBeenCalledWith("/api/v1/opportunities", {
+      headers: { Authorization: "Bearer token" },
+      params: { page: 1, page_size: 20 },
+    });
+  });
+
+  it("loads an opportunity with its claim epoch", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: {
+          batch_id: "batch-1",
+          status: "MATCHED",
+          category: "laptops",
+          quantity: 10,
+          zone: "central",
+          collection_deadline: "2026-09-23T02:00:00.000Z",
+          eligibility_reason: "Zone and category match.",
+          claim_epoch: "1",
+          version: 3,
+        },
+        correlation_id: "corr-opp-1",
+      },
+    });
+
+    const opportunity = await getOpportunity("token", "batch-1");
+
+    expect(opportunity).toMatchObject({
+      batchId: "batch-1",
+      claimEpoch: "1",
+      version: 3,
     });
   });
 
@@ -157,7 +226,14 @@ describe("workflow api", () => {
       "idem-claim",
     );
 
-    expect(result.status).toBe("APPROVED");
+    expect(result).toMatchObject({
+      status: "APPROVED",
+      batchId: "batch-1",
+      claimEpoch: "1",
+      claimId: "claim-1",
+      reservationId: "res-1",
+      correlationId: "corr-claim",
+    });
     expect(post).toHaveBeenCalledWith(
       "/api/v1/batches/batch-1/claim",
       { expected_version: 3, claim_epoch: "1", notes: "Ready" },
@@ -179,13 +255,14 @@ describe("workflow api", () => {
           batch_id: "batch-1",
           assignment_status: "ACCEPTED",
           assignment_sequence: 1,
+          collector_scope_id: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
           version: 1,
         },
         correlation_id: "corr-asg",
       },
     });
 
-    await selectAssignment(
+    const assignment = await selectAssignment(
       "token",
       "batch-1",
       {
@@ -196,6 +273,13 @@ describe("workflow api", () => {
       "idem-select",
     );
 
+    expect(assignment).toMatchObject({
+      assignmentId: "asg-1",
+      batchId: "batch-1",
+      assignmentStatus: "ACCEPTED",
+      assignmentSequence: 1,
+      collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
+    });
     expect(post.mock.calls[0]?.[1]).toEqual({
       expected_version: 4,
       claim_epoch: "1",
@@ -203,7 +287,7 @@ describe("workflow api", () => {
     });
   });
 
-  it("serializes reject and handoff fields as snake_case", async () => {
+  it("sends reject and handoff fields as snake_case", async () => {
     post.mockResolvedValue({
       data: {
         data: {
@@ -217,13 +301,7 @@ describe("workflow api", () => {
       },
     });
 
-    await rejectAssignment(
-      "token",
-      "asg-1",
-      1,
-      " outside scope ",
-      "idem-reject",
-    );
+    await rejectAssignment("token", "asg-1", 1, " outside scope ", "idem-r");
     expect(post.mock.calls[0]?.[1]).toEqual({
       rejection_reason: "outside scope",
     });
@@ -234,17 +312,17 @@ describe("workflow api", () => {
       1,
       {
         pickupOccurredAt: "2026-09-23T02:00:00.000Z",
-        donorRepresentativeName: " Representative ",
-        actualItemCount: 4,
-        verificationHash: "a".repeat(64),
+        donorRepresentativeName: " Alex ",
+        actualItemCount: 10,
+        verificationHash: " abc123 ",
       },
-      "idem-handoff",
+      "idem-h",
     );
     expect(post.mock.calls[1]?.[1]).toEqual({
       pickup_occurred_at: "2026-09-23T02:00:00.000Z",
-      donor_representative_name: "Representative",
-      actual_item_count: 4,
-      verification_hash: "a".repeat(64),
+      donor_representative_name: "Alex",
+      actual_item_count: 10,
+      verification_hash: "abc123",
     });
   });
 

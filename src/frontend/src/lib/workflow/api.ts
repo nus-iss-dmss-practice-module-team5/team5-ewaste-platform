@@ -1,15 +1,29 @@
 import { api } from "@/lib/auth/api-client";
 import { toWorkflowError } from "./errors";
 import {
+  USE_LOCAL_BATCH_MOCK,
+  mockCreateBatchDraft,
+  mockEditBatchDraft,
+  mockGetBatch,
+  mockListBatches,
+  mockSubmitBatch,
+} from "./local-batch-mock";
+import { USE_LOCAL_CLAIM_MOCK, mockClaimOpportunity } from "./local-claim-mock";
+import {
   USE_LOCAL_COLLECTOR_MOCK,
   mockAcceptAssignment,
   mockListAssignments,
-  mockListBatches,
+  mockListBatches as mockListCollectorBatches,
   mockRecordHandoff,
   mockRejectAssignment,
   mockReportFailedPickup,
   mockSelectAssignment,
 } from "./local-collector-mock";
+import {
+  USE_LOCAL_OPPORTUNITY_MOCK,
+  mockGetOpportunity,
+  mockListOpportunities,
+} from "./local-opportunity-mock";
 import {
   parseAssignment,
   parseAssignmentPage,
@@ -75,8 +89,11 @@ export async function listBatches(
   accessToken: string,
   query: { status?: BatchStatus; page?: number; pageSize?: number } = {},
 ): Promise<Page<Batch>> {
-  if (USE_LOCAL_COLLECTOR_MOCK) {
+  if (USE_LOCAL_BATCH_MOCK) {
     return mockListBatches(query.status);
+  }
+  if (USE_LOCAL_COLLECTOR_MOCK) {
+    return mockListCollectorBatches(query.status);
   }
   return call(
     api.get("/api/v1/batches", {
@@ -95,6 +112,9 @@ export async function getBatch(
   accessToken: string,
   batchId: string,
 ): Promise<Batch> {
+  if (USE_LOCAL_BATCH_MOCK) {
+    return mockGetBatch(batchId);
+  }
   return call(
     api.get(`/api/v1/batches/${batchId}`, authHeaders(accessToken)),
     (data) => parseData(data, parseBatch, "Batch"),
@@ -138,6 +158,9 @@ export async function createBatchDraft(
   input: BatchDraftRequest,
   idempotencyKey: string,
 ): Promise<Batch> {
+  if (USE_LOCAL_BATCH_MOCK) {
+    return mockCreateBatchDraft(input);
+  }
   return call(
     api.post(
       "/api/v1/batches",
@@ -155,6 +178,9 @@ export async function editBatchDraft(
   input: BatchDraftRequest,
   idempotencyKey: string,
 ): Promise<Batch> {
+  if (USE_LOCAL_BATCH_MOCK) {
+    return mockEditBatchDraft(batchId, version, input);
+  }
   return call(
     api.patch(
       `/api/v1/batches/${batchId}`,
@@ -171,6 +197,9 @@ export async function submitBatch(
   version: number,
   idempotencyKey: string,
 ): Promise<Batch> {
+  if (USE_LOCAL_BATCH_MOCK) {
+    return mockSubmitBatch(batchId, version);
+  }
   return call(
     api.post(
       `/api/v1/batches/${batchId}/submit`,
@@ -185,6 +214,9 @@ export async function listOpportunities(
   accessToken: string,
   query: { page?: number; pageSize?: number } = {},
 ): Promise<Page<Opportunity>> {
+  if (USE_LOCAL_OPPORTUNITY_MOCK) {
+    return mockListOpportunities();
+  }
   return call(
     api.get("/api/v1/opportunities", {
       ...authHeaders(accessToken),
@@ -201,6 +233,9 @@ export async function getOpportunity(
   accessToken: string,
   batchId: string,
 ): Promise<Opportunity> {
+  if (USE_LOCAL_OPPORTUNITY_MOCK) {
+    return mockGetOpportunity(batchId);
+  }
   return call(
     api.get(`/api/v1/opportunities/${batchId}`, authHeaders(accessToken)),
     (data) => parseData(data, parseOpportunity, "Opportunity"),
@@ -213,6 +248,9 @@ export async function claimOpportunity(
   command: ClaimCommand,
   idempotencyKey: string,
 ): Promise<ClaimResult> {
+  if (USE_LOCAL_CLAIM_MOCK) {
+    return mockClaimOpportunity(batchId, command);
+  }
   const body: {
     expected_version: number;
     claim_epoch: string;

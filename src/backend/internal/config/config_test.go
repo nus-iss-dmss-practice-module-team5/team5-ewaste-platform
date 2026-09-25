@@ -27,6 +27,7 @@ auth:
 	t.Setenv("REDIS_PASSWORD", "redis-secret")
 	t.Setenv("EWASTE_MODE", "production")
 	t.Setenv("EWASTE_SERVER_PORT", ":8181")
+	t.Setenv("EWASTE_SERVER_ALLOWED_ORIGINS", "http://localhost:3000,https://example.com")
 	t.Setenv("EWASTE_DATABASE_HOST", "azure-mysql")
 	t.Setenv("EWASTE_DATABASE_PORT", "3306")
 	t.Setenv("EWASTE_DATABASE_NAME", "ewastedb")
@@ -39,6 +40,12 @@ auth:
 	t.Setenv("EWASTE_AUTH_REFRESH_TTL", "3h")
 	t.Setenv("EWASTE_RATE_LIMIT_REQUESTS", "25")
 	t.Setenv("EWASTE_RATE_LIMIT_WINDOW", "2m")
+	t.Setenv("EWASTE_KAFKA_ENABLED", "true")
+	t.Setenv("EWASTE_KAFKA_BROKERS", "evh-ewaste-dev.servicebus.windows.net:9093")
+	t.Setenv("EWASTE_KAFKA_TLS_ENABLED", "true")
+	t.Setenv("EWASTE_KAFKA_SASL_MECHANISM", "PLAIN")
+	t.Setenv("EWASTE_KAFKA_SASL_USERNAME", "$ConnectionString")
+	t.Setenv("KAFKA_CONNECTION_STRING", "Endpoint=sb://evh-ewaste-dev.servicebus.windows.net/;SharedAccessKeyName=auth-ewaste-workload;SharedAccessKey=redacted")
 
 	cfg, err := Load(configPath)
 	if err != nil {
@@ -46,6 +53,9 @@ auth:
 	}
 	if cfg.Server.Port != ":8181" {
 		t.Fatalf("expected server port from environment, got %q", cfg.Server.Port)
+	}
+	if len(cfg.Server.AllowedOrigins) != 2 || cfg.Server.AllowedOrigins[0] != "http://localhost:3000" || cfg.Server.AllowedOrigins[1] != "https://example.com" {
+		t.Fatalf("expected configured CORS origins, got %#v", cfg.Server.AllowedOrigins)
 	}
 	if cfg.Mode != ModeProduction || cfg.Database.Host != "azure-mysql" || cfg.Database.Port != 3306 || cfg.Database.Name != "ewastedb" || cfg.Database.User != "ewasteadmin" {
 		t.Fatalf("expected database and mode environment values, got mode=%q database=%+v", cfg.Mode, cfg.Database)
@@ -58,6 +68,12 @@ auth:
 	}
 	if cfg.RateLimit.Requests != 25 || cfg.RateLimit.Window.Minutes() != 2 {
 		t.Fatalf("expected rate limit environment values, got requests=%d window=%s", cfg.RateLimit.Requests, cfg.RateLimit.Window)
+	}
+	if !cfg.Kafka.Enabled || len(cfg.Kafka.Brokers) != 1 || cfg.Kafka.Brokers[0] != "evh-ewaste-dev.servicebus.windows.net:9093" || !cfg.Kafka.TLSEnabled || cfg.Kafka.SASLMechanism != "PLAIN" || cfg.Kafka.SASLUsername != "$ConnectionString" {
+		t.Fatalf("expected Event Hubs Kafka connection settings, got %+v", cfg.Kafka)
+	}
+	if cfg.Kafka.SASLPassword == "" {
+		t.Fatal("expected Kafka connection string from KAFKA_CONNECTION_STRING")
 	}
 }
 

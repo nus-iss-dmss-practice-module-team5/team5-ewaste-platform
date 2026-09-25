@@ -1,19 +1,15 @@
 "use client";
 
 import { ROLE_HOME_TITLE, ROLE_LABEL, ROLE_NAV } from "@/lib/auth/roles";
-import { USE_MOCK_AUTH } from "@/lib/auth/config";
 import { useSession } from "@/lib/auth/session-context";
 import { useState } from "react";
+import { ClaimAction } from "./claim-action";
 import { CollectorWork } from "./collector-work";
+import { DonorBatchForm, DonorBatchList } from "./donor-batches";
+import { OpportunityView } from "./opportunities";
 
 export function HomeShell() {
-  const {
-    session,
-    justRenewed,
-    logout,
-    simulateAccessExpiry,
-    simulateSessionExpiry,
-  } = useSession();
+  const { session, justRenewed, logout } = useSession();
   const [activeNav, setActiveNav] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
 
@@ -26,7 +22,15 @@ export function HomeShell() {
   const current = activeNav ?? nav[0]?.id;
   const title = ROLE_HOME_TITLE[user.role];
   const workflow =
-    user.role === "COLLECTOR" && current === "assignments" ? (
+    user.role === "DONOR" && current === "requests" ? (
+      <DonorBatchList />
+    ) : user.role === "DONOR" && current === "new-request" ? (
+      <DonorBatchForm />
+    ) : user.role === "RECYCLER" && current === "opportunities" ? (
+      <OpportunityView />
+    ) : user.role === "RECYCLER" && current === "claim" ? (
+      <ClaimAction />
+    ) : user.role === "COLLECTOR" && current === "assignments" ? (
       <CollectorWork />
     ) : user.role === "COLLECTOR" && current === "history" ? (
       <CollectorWork history />
@@ -38,7 +42,7 @@ export function HomeShell() {
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 overflow-hidden bg-slate-50">
+    <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden bg-slate-50">
       <aside className="flex w-56 flex-col bg-teal-900 text-white">
         <div className="border-b border-teal-800 px-4 py-4 text-sm font-semibold">
           {ROLE_LABEL[user.role]}
@@ -79,7 +83,7 @@ export function HomeShell() {
           </button>
         </header>
 
-        <main className="min-h-0 flex-1 overflow-y-auto px-8 py-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-8 py-6">
           <h1 className="mb-4 text-2xl font-bold text-slate-900">{title}</h1>
           {justRenewed ? (
             <p
@@ -101,37 +105,6 @@ export function HomeShell() {
           <p className="mt-3 text-sm text-slate-500">
             Current section: {nav.find((item) => item.id === current)?.label}
           </p>
-
-          {USE_MOCK_AUTH ? (
-            <div className="mt-8 max-w-xl rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
-              <p className="font-medium text-slate-800">
-                Mock session (until the login API is ready)
-              </p>
-              <p className="mt-1 text-xs text-slate-500">
-                Access tokens last 15 minutes, then refresh silently. Refresh
-                tokens last 24 hours. Use these only to demo expiry without
-                waiting.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={simulateAccessExpiry}
-                  data-testid="simulate-access-expiry"
-                  className="text-sm font-medium text-teal-800 hover:text-teal-950"
-                >
-                  Simulate access-token expiry
-                </button>
-                <button
-                  type="button"
-                  onClick={simulateSessionExpiry}
-                  data-testid="simulate-session-expiry"
-                  className="text-sm font-medium text-teal-800 hover:text-teal-950"
-                >
-                  Simulate expired session
-                </button>
-              </div>
-            </div>
-          ) : null}
         </main>
       </div>
     </div>

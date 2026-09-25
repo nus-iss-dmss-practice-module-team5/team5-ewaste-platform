@@ -2,24 +2,37 @@ package middleware
 
 import (
 	"net/http"
+	"net/url"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 )
 
-const allowedUIOrigin = "https://aca-ewaste-dev-ui.kindflower-300f4866.malaysiawest.azurecontainerapps.io"
+func CORS(allowedOrigins []string) gin.HandlerFunc {
+	allowed := make(map[string]struct{}, len(allowedOrigins))
 
-// CORS allows the deployed UI to call the API from a browser.
-// Keep the allow-list explicit so other origins cannot use the API through CORS.
-func CORS() gin.HandlerFunc {
+	for _, origin := range allowedOrigins {
+		normalized, ok := normalizeOrigin(origin)
+		if ok {
+			allowed[normalized] = struct{}{}
+		}
+	}
+
 	return func(c *gin.Context) {
-		if c.GetHeader("Origin") != allowedUIOrigin {
+		origin, ok := normalizeOrigin(c.GetHeader("Origin"))
+		if !ok {
 			c.Next()
 			return
 		}
 
-		c.Header("Access-Control-Allow-Origin", allowedUIOrigin)
-		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Correlation-ID")
+		if _, ok := allowed[origin]; !ok {
+			c.Next()
+			return
+		}
+
+		c.Header("Access-Control-Allow-Origin", origin)
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Correlation-ID, Idempotency-Key, If-Match-Version")
 		c.Header("Access-Control-Max-Age", "600")
 		c.Header("Vary", "Origin")
 
@@ -30,4 +43,23 @@ func CORS() gin.HandlerFunc {
 
 		c.Next()
 	}
+}
+
+func normalizeOrigin(raw string) (string, bool) {
+	raw = strings.TrimRight(strings.TrimSpace(raw), "/")
+	if raw == "" {
+		return "", false
+	}
+
+	parsed, err := url.Parse(raw)
+	if err != nil ||
+		(parsed.Scheme != "http" && parsed.Scheme != "https") ||
+		parsed.Host == "" ||
+		parsed.Path != "" ||
+		parsed.RawQuery != "" ||
+		parsed.Fragment != "" {
+		return "", false
+	}
+
+	return raw, true
 }
