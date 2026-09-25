@@ -17,6 +17,8 @@ type BatchView struct {
 	BatchID            string     `json:"batch_id"`
 	Status             string     `json:"status"`
 	Version            int64      `json:"version"`
+	ClaimEpoch         string     `json:"claim_epoch,omitempty"`
+	CollectorScopeID   string     `json:"collector_scope_id,omitempty"`
 	Category           *string    `json:"category,omitempty"`
 	Quantity           *int       `json:"quantity,omitempty"`
 	EstimatedWeightKg  *float64   `json:"estimated_weight_kg,omitempty"`
@@ -36,6 +38,8 @@ type BatchIDParams struct {
 type OpportunityView struct {
 	BatchID            string     `json:"batch_id"`
 	Status             string     `json:"status"`
+	Version            int64      `json:"version"`
+	ClaimEpoch         string     `json:"claim_epoch"`
 	Category           *string    `json:"category"`
 	Quantity           *int       `json:"quantity"`
 	EstimatedWeightKg  *float64   `json:"estimated_weight_kg,omitempty"`

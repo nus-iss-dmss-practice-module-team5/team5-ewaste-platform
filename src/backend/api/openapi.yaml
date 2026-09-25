@@ -725,6 +725,8 @@ components:
           type: string
           enum: [DRAFT, SUBMITTED, MATCHED, APPROVED, ASSIGNED, COLLECTED, FAILED_COLLECTION]
         version: {type: integer, minimum: 1}
+        claim_epoch: {type: string, pattern: '^[0-9]+$'}
+        collector_scope_id: {type: string, format: uuid}
         category: {type: string}
         quantity: {type: integer, minimum: 1}
         estimated_weight_kg: {type: number, format: double}
@@ -756,10 +758,12 @@ components:
         correlation_id: {type: string}
     Opportunity:
       type: object
-      required: [batch_id, status, category, quantity, zone, collection_deadline, eligibility_reason]
+      required: [batch_id, status, version, claim_epoch, category, quantity, zone, collection_deadline, eligibility_reason]
       properties:
         batch_id: {type: string, format: uuid}
         status: {type: string, enum: [MATCHED, APPROVED, ASSIGNED]}
+        version: {type: integer, minimum: 1}
+        claim_epoch: {type: string, pattern: '^[0-9]+$'}
         category: {type: string}
         quantity: {type: integer, minimum: 1}
         estimated_weight_kg: {type: number, format: double}

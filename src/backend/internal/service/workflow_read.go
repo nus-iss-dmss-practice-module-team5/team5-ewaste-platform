@@ -253,6 +253,7 @@ func opportunityToDTO(opportunity *model.WorkflowOpportunity) dto.OpportunityVie
 	}
 	return dto.OpportunityView{
 		BatchID: opportunity.BatchID, Status: string(opportunity.Status), Category: opportunity.Category,
+		Version: int64(opportunity.Version), ClaimEpoch: strconv.FormatUint(opportunity.ClaimEpoch, 10),
 		Quantity: opportunity.Quantity, EstimatedWeightKg: estimatedWeightKg, Zone: opportunity.Zone,
 		CollectionDeadline: opportunity.CollectionDeadline, EligibilityReason: opportunity.EligibilityReason,
 	}
