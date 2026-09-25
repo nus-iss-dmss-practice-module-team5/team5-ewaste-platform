@@ -120,7 +120,8 @@ jobs:
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
 
-          # Dynamically discover the environment's Private Endpoint IP via Azure CLI (no hardcoding!)
+          # Dynamically discover ACR location and Private Endpoint IP via Azure CLI
+          ACR_REGION=$(az acr show --name "$ACR_NAME" --query location -o tsv 2>/dev/null || true)
           PE_NIC_ID=$(az network private-endpoint show \
             --name "pe-acr-ewaste-${TARGET_ENV}" \
             --resource-group "rg-ewaste-${TARGET_ENV}" \
@@ -128,9 +129,11 @@ jobs:
 
           if [ -n "$PE_NIC_ID" ]; then
             PE_IP=$(az network nic show --ids "$PE_NIC_ID" --query "ipConfigurations[0].privateIPAddress" -o tsv)
-            echo "Dynamically discovered Private Endpoint IP: $PE_IP"
+            echo "Dynamically discovered Private Endpoint IP: $PE_IP in region: $ACR_REGION"
             echo "$PE_IP ${ACR_NAME}.azurecr.io" | sudo tee -a /etc/hosts
-            echo "$PE_IP ${ACR_NAME}.japaneast.data.azurecr.io" | sudo tee -a /etc/hosts
+            if [ -n "$ACR_REGION" ]; then
+              echo "$PE_IP ${ACR_NAME}.${ACR_REGION}.data.azurecr.io" | sudo tee -a /etc/hosts
+            fi
           fi
 
           TOKEN=$(az account get-access-token --resource https://containerregistry.azure.net --query accessToken --output tsv)
