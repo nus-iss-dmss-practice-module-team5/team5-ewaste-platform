@@ -119,9 +119,24 @@ jobs:
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
 
-          # Retrieve an ACR registry refresh token directly via az acr login --expose-token
-          ACR_TOKEN=$(az acr login --name "$ACR_NAME" --expose-token --output tsv --query accessToken)
-          echo "$ACR_TOKEN" | docker login "${ACR_NAME}.azurecr.io" --username 00000000-0000-0000-0000-000000000000 --password-stdin
+          # 1. Acquire ARM token for Azure Container Registry resource
+          ARM_TOKEN=$(az account get-access-token --resource https://containerregistry.azure.net --query accessToken --output tsv)
+
+          # 2. Exchange ARM token for ACR Refresh Token via the private endpoint
+          ACR_REFRESH_TOKEN=$(curl -s -k -X POST "https://${ACR_NAME}.azurecr.io/oauth2/exchange" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            -d "grant_type=access_token&service=${ACR_NAME}.azurecr.io&access_token=${ARM_TOKEN}" | jq -r .refresh_token)
+
+          if [ -z "$ACR_REFRESH_TOKEN" ] || [ "$ACR_REFRESH_TOKEN" == "null" ]; then
+            echo "Direct exchange failed, outputting response for diagnosis:"
+            curl -k -v -X POST "https://${ACR_NAME}.azurecr.io/oauth2/exchange" \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              -d "grant_type=access_token&service=${ACR_NAME}.azurecr.io&access_token=${ARM_TOKEN}"
+            exit 1
+          fi
+
+          # 3. Log into Docker using the ACR Refresh Token
+          echo "$ACR_REFRESH_TOKEN" | docker login "${ACR_NAME}.azurecr.io" --username 00000000-0000-0000-0000-000000000000 --password-stdin
 
       # ------------------------------------------------------------------------
       # 1.1 BACKEND API CONTAINER
