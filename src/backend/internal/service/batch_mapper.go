@@ -25,7 +25,6 @@ func batchToDTO(batch *model.Batch) dto.BatchView {
 		Status:             string(batch.Status),
 		Version:            int64(batch.Version),
 		ClaimEpoch:         claimEpoch,
-		CollectorScopeID:   valueOrEmpty(batch.CollectorScopeID),
 		Category:           batch.Category,
 		Quantity:           batch.Quantity,
 		EstimatedWeightKg:  estimatedWeightKg,
@@ -37,11 +36,4 @@ func batchToDTO(batch *model.Batch) dto.BatchView {
 		CreatedAt:          batch.CreatedAt,
 		UpdatedAt:          batch.UpdatedAt,
 	}
-}
-
-func valueOrEmpty(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
 }
