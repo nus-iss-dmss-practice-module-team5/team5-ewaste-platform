@@ -493,16 +493,31 @@ jobs:
       # 3.3 ANALYTICS WORKER & EVENT HUBS INTEGRATION SMOKE TEST
       # ------------------------------------------------------------------------
       - name: Verify Matcher Without Synthetic Business Events
-        env:
-          MATCHER_FQDN: ${{ needs.deploy-application.outputs.aca_analytics_fqdn }}
-          TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
         run: |
-          test -n "$MATCHER_FQDN"
-          if [ "$TARGET_ENV" = dev ]; then
-            curl --fail --silent --show-error --max-time 15 "https://${MATCHER_FQDN}/readyz"
-          else
+          ANALYTICS_FQDN="${{ needs.deploy-application.outputs.aca_analytics_fqdn }}"
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+
+          if [ -n "$ANALYTICS_FQDN" ] && [ "$TARGET_ENV" == "dev" ]; then
+            echo "Verifying Analytics ingress accessibility at: https://$ANALYTICS_FQDN/readyz"
+            for i in {1..12}; do
+              STATUS_CODE=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" "https://$ANALYTICS_FQDN/readyz" || true)
+              echo "Analytics Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
+              if [ "$STATUS_CODE" == "200" ]; then
+                echo "Analytics Worker verified successfully (HTTP 200)."
+                break
+              fi
+              sleep 10
+            done
+            if [ "$STATUS_CODE" != "200" ]; then
+              echo "::error::Analytics Worker did not become ready after 12 attempts."
+              exit 1
+            fi
+          elif [ -n "$ANALYTICS_FQDN" ]; then
             echo "Matcher ingress is internal in $TARGET_ENV; the authenticated deployment step verified the new ACA revision's health."
             echo "Broker readiness is available at /readyz from inside the ACA environment."
+          else
+            echo "::error::Analytics smoke test cannot run: FQDN not yet assigned."
+            exit 1
           fi
 
       # ------------------------------------------------------------------------
