@@ -54,15 +54,13 @@ jobs:
               az storage blob lease break \
                 --account-name "$STORAGE_ACCOUNT" \
                 --container-name "$CONTAINER_NAME" \
-                --name "$BLOB_NAME" \
-                --break-period 0 \
+                --blob-name "$BLOB_NAME" \
                 --account-key "${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
             else
               az storage blob lease break \
                 --account-name "$STORAGE_ACCOUNT" \
                 --container-name "$CONTAINER_NAME" \
-                --name "$BLOB_NAME" \
-                --break-period 0 \
+                --blob-name "$BLOB_NAME" \
                 --auth-mode login
             fi
             echo "Lease broken successfully!"
