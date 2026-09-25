@@ -120,6 +120,11 @@ jobs:
           echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
 
           ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].value" -o tsv)
+
+          echo "=== 1. Probing ACR /v2/ endpoint ==="
+          curl -i -k -u "${ACR_NAME}:${ACR_PASSWORD}" "https://${ACR_NAME}.azurecr.io/v2/" || true
+
+          echo "=== 2. Docker login attempt ==="
           echo "$ACR_PASSWORD" | docker login "${ACR_NAME}.azurecr.io" --username "$ACR_NAME" --password-stdin
 
       # ------------------------------------------------------------------------
