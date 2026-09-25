@@ -9,6 +9,11 @@ import {
   mockSubmitBatch,
 } from "./local-batch-mock";
 import {
+  USE_LOCAL_OPPORTUNITY_MOCK,
+  mockGetOpportunity,
+  mockListOpportunities,
+} from "./local-opportunity-mock";
+import {
   parseAssignment,
   parseAssignmentPage,
   parseBatch,
@@ -194,6 +199,9 @@ export async function listOpportunities(
   accessToken: string,
   query: { page?: number; pageSize?: number } = {},
 ): Promise<Page<Opportunity>> {
+  if (USE_LOCAL_OPPORTUNITY_MOCK) {
+    return mockListOpportunities();
+  }
   return call(
     api.get("/api/v1/opportunities", {
       ...authHeaders(accessToken),
@@ -210,6 +218,9 @@ export async function getOpportunity(
   accessToken: string,
   batchId: string,
 ): Promise<Opportunity> {
+  if (USE_LOCAL_OPPORTUNITY_MOCK) {
+    return mockGetOpportunity(batchId);
+  }
   return call(
     api.get(`/api/v1/opportunities/${batchId}`, authHeaders(accessToken)),
     (data) => parseData(data, parseOpportunity, "Opportunity"),

@@ -4,6 +4,7 @@ import { ROLE_HOME_TITLE, ROLE_LABEL, ROLE_NAV } from "@/lib/auth/roles";
 import { useSession } from "@/lib/auth/session-context";
 import { useState } from "react";
 import { DonorBatchForm, DonorBatchList } from "./donor-batches";
+import { OpportunityView } from "./opportunities";
 
 export function HomeShell() {
   const { session, justRenewed, logout } = useSession();
@@ -23,6 +24,8 @@ export function HomeShell() {
       <DonorBatchList />
     ) : user.role === "DONOR" && current === "new-request" ? (
       <DonorBatchForm />
+    ) : user.role === "RECYCLER" && current === "opportunities" ? (
+      <OpportunityView />
     ) : null;
 
   async function onLogout() {

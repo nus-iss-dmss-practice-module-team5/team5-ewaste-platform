@@ -348,6 +348,7 @@ describe("workflow api", () => {
     );
     await expect(listBatches("token")).rejects.toMatchObject({
       kind: "not_found",
+      correlationId: "corr-404",
     });
 
     get.mockRejectedValueOnce(
@@ -359,6 +360,19 @@ describe("workflow api", () => {
     );
     await expect(listBatches("token")).rejects.toMatchObject({
       kind: "duplicate",
+      correlationId: "corr-dup",
+    });
+
+    get.mockRejectedValueOnce(
+      axiosError(500, {
+        code: "INTERNAL",
+        message: "boom",
+        correlationId: "corr-camel",
+      }),
+    );
+    await expect(listBatches("token")).rejects.toMatchObject({
+      kind: "error",
+      correlationId: "corr-unknown",
     });
 
     get.mockRejectedValueOnce(axiosError(undefined));
@@ -411,5 +425,16 @@ describe("workflow api", () => {
         notes: " ",
       }),
     ).not.toHaveProperty("notes");
+  });
+
+  it("sends only the fields present in a partial draft", () => {
+    expect(draftBody({ category: " laptops ", quantity: 3 })).toEqual({
+      category: "laptops",
+      quantity: 3,
+    });
+    expect(draftBody({ zone: "  ", isDataBearing: false })).toEqual({
+      is_data_bearing: false,
+    });
+    expect(draftBody({})).toEqual({});
   });
 });
