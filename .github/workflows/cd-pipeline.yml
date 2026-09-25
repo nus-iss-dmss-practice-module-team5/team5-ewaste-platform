@@ -119,13 +119,9 @@ jobs:
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
 
-          echo "=== 1. Checking Azure Private DNS directly from WireServer ==="
-          nslookup "${ACR_NAME}.azurecr.io" 168.63.129.16 || true
-
-          echo "=== 2. Checking Local Stub Resolver ==="
+          # Verify private DNS resolution (should now resolve to 10.0.3.4)
           nslookup "${ACR_NAME}.azurecr.io" || true
 
-          echo "=== 3. Attempting Entra ID Authentication ==="
           TOKEN=$(az account get-access-token --resource https://containerregistry.azure.net --query accessToken --output tsv)
           echo "$TOKEN" | docker login "${ACR_NAME}.azurecr.io" --username 00000000-0000-0000-0000-000000000000 --password-stdin
 
