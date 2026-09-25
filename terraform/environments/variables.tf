@@ -61,3 +61,27 @@ variable "ui_image_digest" {
   default     = "mcr.microsoft.com/azuredocs/aci-helloworld:latest"
   description = "Immutable Next.js frontend image digest from ACR, or initial bootstrap image."
 }
+
+variable "analytics_image_digest" {
+  type        = string
+  default     = "mcr.microsoft.com/azuredocs/aci-helloworld:latest"
+  description = "Immutable Python analytics image digest from ACR, or initial bootstrap image."
+}
+
+variable "auth_access_secret" {
+  type        = string
+  sensitive   = true
+  description = "JWT access token signing secret for backend API."
+}
+
+variable "auth_refresh_secret" {
+  type        = string
+  sensitive   = true
+  description = "JWT refresh token signing secret for backend API."
+}
+
+variable "auth_refresh_hash_secret" {
+  type        = string
+  sensitive   = true
+  description = "HMAC secret for refresh token fingerprinting."
+}
