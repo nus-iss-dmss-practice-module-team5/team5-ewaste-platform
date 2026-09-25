@@ -54,15 +54,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function readString(
   record: Record<string, unknown>,
-  ...keys: string[]
+  key: string,
 ): string | undefined {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
-    }
-  }
-  return undefined;
+  const value = record[key];
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function nameFromEmail(email: string): string {
@@ -100,27 +95,18 @@ export function userFromAccessToken(
   fallbacks: UserClaimFallbacks = {},
 ): SessionUser {
   const payload = decodeJwtPayload(accessToken);
-  const role = parseRole(payload.role ?? payload.Role);
-  const id = readString(payload, "sub", "userId", "id");
-  const email = readString(payload, "email") ?? fallbacks.email?.trim();
+  const role = parseRole(payload.role);
+  const id = readString(payload, "sub");
+  const email = fallbacks.email?.trim();
   if (!role || !id || !email) {
-    throw new Error("access token is missing role, subject, or email");
+    throw new Error("access token is missing role or subject, or no email");
   }
 
   const seed = SEED_PROFILES[email.toLowerCase()];
-  const organisationId =
-    readString(payload, "organisationId", "organizationId", "orgId", "org") ??
-    "";
+  const organisationId = readString(payload, "org") ?? "";
   const organisationName =
-    readString(payload, "organisationName", "organizationName", "orgName") ??
-    fallbacks.organisationName ??
-    seed?.organisationName ??
-    organisationId;
-  const name =
-    readString(payload, "name") ??
-    fallbacks.name ??
-    seed?.name ??
-    nameFromEmail(email);
+    fallbacks.organisationName ?? seed?.organisationName ?? organisationId;
+  const name = fallbacks.name ?? seed?.name ?? nameFromEmail(email);
 
   return {
     id,

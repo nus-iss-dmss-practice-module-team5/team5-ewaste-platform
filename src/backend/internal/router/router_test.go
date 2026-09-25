@@ -63,11 +63,22 @@ func newRouterTest(t *testing.T, checker *health.Checker) *gin.Engine {
 	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
 	authService := service.NewAuthService(repo, tokens, zap.NewNop())
 	authController := controller.NewAuthController(authService, zap.NewNop())
-	return NewAuthRouter(authController, tokens, repo, routerTestLimiter{}, checker)
+	return NewAuthRouter(
+		authController,
+		nil,
+		nil,
+		nil,
+		tokens,
+		repo,
+		routerTestLimiter{},
+		checker,
+		nil,
+		zap.NewNop(),
+	)
 }
 
 func TestNewTestRouterHelloEndpoint(t *testing.T) {
-	r := NewTestRouter()
+	r := NewTestRouter("https://aca-ewaste-dev-ui.kindflower-300f4866.malaysiawest.azurecontainerapps.io")
 	res := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/hello", nil)
 	req.Header.Set("Origin", "https://aca-ewaste-dev-ui.kindflower-300f4866.malaysiawest.azurecontainerapps.io")

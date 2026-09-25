@@ -2,13 +2,16 @@ package controller
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 
+	"workflow-api/internal/apierror"
 	"workflow-api/internal/dto"
 	"workflow-api/internal/middleware"
+	"workflow-api/internal/response"
 	"workflow-api/internal/service"
 )
 
@@ -27,62 +30,74 @@ func (h *AuthController) Login(c *gin.Context) {
 		CorrelationID: middleware.GetCorrelationID(c),
 		SourceIP:      c.ClientIP(),
 	}
+
 	if err := c.ShouldBindJSON(&request); err != nil {
 		h.service.AuditInvalidLoginRequest(c.Request.Context(), request.Email, metadata)
-		h.error(c, http.StatusBadRequest, "AUTH_INVALID_REQUEST", "invalid request", err)
+		h.writeError(c, apierror.InvalidRequest, err)
 		return
 	}
-	response, err := h.service.Login(c.Request.Context(), request, metadata)
+
+	result, err := h.service.Login(c.Request.Context(), request, metadata)
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidCredentials) {
-			h.error(c, http.StatusUnauthorized, "AUTH_INVALID_CREDENTIALS", "invalid credentials", nil)
-			return
-		}
-		h.error(c, http.StatusServiceUnavailable, "AUTH_SERVICE_UNAVAILABLE", "service temporarily unavailable", err)
+		h.writeError(c, mapAuthError(err), err)
 		return
 	}
-	c.JSON(http.StatusOK, response)
+
+	response.JSON(c, http.StatusOK, result)
 }
 
 func (h *AuthController) Refresh(c *gin.Context) {
 	var request dto.RefreshRequest
+
 	if err := c.ShouldBindJSON(&request); err != nil {
-		h.error(c, http.StatusBadRequest, "AUTH_INVALID_REQUEST", "invalid request", err)
+		h.writeError(c, apierror.InvalidRequest, err)
 		return
 	}
-	response, err := h.service.Refresh(c.Request.Context(), request.RefreshToken)
+
+	result, err := h.service.Refresh(c.Request.Context(), request.RefreshToken)
 	if err != nil {
-		if errors.Is(err, service.ErrInvalidSession) {
-			h.error(c, http.StatusUnauthorized, "AUTH_INVALID_SESSION", "invalid or expired session", nil)
-			return
-		}
-		h.error(c, http.StatusServiceUnavailable, "AUTH_SERVICE_UNAVAILABLE", "service temporarily unavailable", err)
+		h.writeError(c, mapAuthError(err), err)
 		return
 	}
-	c.JSON(http.StatusOK, response)
+
+	response.JSON(c, http.StatusOK, result)
 }
 
 func (h *AuthController) Logout(c *gin.Context) {
 	claims, ok := middleware.ClaimsFromContext(c)
 	if !ok {
-		h.error(c, http.StatusUnauthorized, "AUTH_INVALID_SESSION", "invalid or expired session", nil)
+		h.writeError(c, apierror.InvalidSession, nil)
 		return
 	}
+
 	if err := h.service.Logout(c.Request.Context(), claims.UserID, claims.SessionID); err != nil {
-		if errors.Is(err, service.ErrInvalidSession) {
-			h.error(c, http.StatusUnauthorized, "AUTH_INVALID_SESSION", "invalid or expired session", nil)
-			return
-		}
-		h.error(c, http.StatusServiceUnavailable, "AUTH_SERVICE_UNAVAILABLE", "service temporarily unavailable", err)
+		h.writeError(c, mapAuthError(err), err)
 		return
 	}
-	c.Status(http.StatusNoContent)
+
+	response.NoContent(c)
 }
 
-func (h *AuthController) error(c *gin.Context, status int, code, message string, err error) {
-	if err != nil {
-		// Do not log the underlying error: database and dependency errors may contain SQL or sensitive details.
-		h.logger.Warn("authentication request failed", zap.String("code", code))
+func (h *AuthController) writeError(c *gin.Context, code apierror.Code, err error) {
+	if err != nil && h.logger != nil {
+		h.logger.Warn(
+			"authentication request failed",
+			zap.String("error_code", string(code)),
+			zap.String("correlation_id", middleware.GetCorrelationID(c)),
+			zap.String("error_type", fmt.Sprintf("%T", err)),
+		)
 	}
-	c.JSON(status, dto.ErrorResponse{Code: code, Message: message, CorrelationID: middleware.GetCorrelationID(c)})
+
+	response.Error(c, code, middleware.GetCorrelationID(c))
+}
+
+func mapAuthError(err error) apierror.Code {
+	switch {
+	case errors.Is(err, service.ErrInvalidCredentials):
+		return apierror.InvalidCredentials
+	case errors.Is(err, service.ErrInvalidSession):
+		return apierror.InvalidSession
+	default:
+		return apierror.ServiceUnavailable
+	}
 }
