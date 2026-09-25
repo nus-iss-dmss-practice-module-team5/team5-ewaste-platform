@@ -18,11 +18,11 @@ vi.mock("@/lib/auth/login", () => ({
 function donorSession(): Session {
   return {
     user: {
-      id: "usr-donor-001",
-      email: "donor@example.com",
-      name: "Alex Tan",
-      organisationId: "org-donor-001",
-      organisationName: "Campus Labs",
+      id: "USR-003",
+      email: "donor1@ewaste.test",
+      name: "Green Office Donor",
+      organisationId: "DON-001",
+      organisationName: "DON-001",
       role: "DONOR",
     },
     tokens: {
@@ -55,11 +55,11 @@ describe("LoginForm", () => {
     login.mockRejectedValue({
       code: "AUTH_INVALID_CREDENTIALS",
       message: "Invalid email or password",
-      correlationId: "corr-mock-401",
+      correlationId: "corr-login-401",
     });
 
     render(<LoginForm />);
-    await user.type(screen.getByTestId("login-email"), "donor@example.com");
+    await user.type(screen.getByTestId("login-email"), "donor1@ewaste.test");
     await user.type(screen.getByTestId("login-password"), "wrong-password");
     await user.click(screen.getByTestId("login-submit"));
 
@@ -75,8 +75,8 @@ describe("LoginForm", () => {
     login.mockResolvedValue(session);
 
     render(<LoginForm />);
-    await user.type(screen.getByTestId("login-email"), "donor@example.com");
-    await user.type(screen.getByTestId("login-password"), "Password1!");
+    await user.type(screen.getByTestId("login-email"), "donor1@ewaste.test");
+    await user.type(screen.getByTestId("login-password"), "correct-password");
     await user.click(screen.getByTestId("login-submit"));
 
     await waitFor(() => {
