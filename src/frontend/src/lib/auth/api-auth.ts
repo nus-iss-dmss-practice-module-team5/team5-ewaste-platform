@@ -22,16 +22,30 @@ function credentialsMessage(body: AuthErrorBody): AuthErrorBody {
   return body;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function parseErrorBody(data: unknown): AuthErrorBody | null {
+  if (
+    !isRecord(data) ||
+    typeof data.code !== "string" ||
+    typeof data.message !== "string" ||
+    typeof data.correlation_id !== "string"
+  ) {
+    return null;
+  }
+  return {
+    code: data.code,
+    message: data.message,
+    correlationId: data.correlation_id,
+  };
+}
+
 function toAuthError(error: unknown): AuthErrorBody {
   if (axios.isAxiosError(error)) {
-    const data: unknown = error.response?.data;
-    if (isAuthError(data)) {
-      return credentialsMessage(data);
-    }
-    if (!error.response) {
-      return NETWORK_ERROR;
-    }
-    return NETWORK_ERROR;
+    const body = parseErrorBody(error.response?.data);
+    return body ? credentialsMessage(body) : NETWORK_ERROR;
   }
   if (isAuthError(error)) {
     return credentialsMessage(error);
@@ -39,31 +53,38 @@ function toAuthError(error: unknown): AuthErrorBody {
   return NETWORK_ERROR;
 }
 
-function isTokenResponse(value: unknown): value is TokenResponse {
-  if (typeof value !== "object" || value === null) {
-    return false;
+function parseTokenResponse(value: unknown): TokenResponse | null {
+  if (
+    !isRecord(value) ||
+    typeof value.access_token !== "string" ||
+    typeof value.refresh_token !== "string" ||
+    value.token_type !== "Bearer" ||
+    typeof value.expires_in !== "number" ||
+    typeof value.refresh_expires_in !== "number"
+  ) {
+    return null;
   }
-  const record = value as TokenResponse;
-  return (
-    typeof record.accessToken === "string" &&
-    typeof record.refreshToken === "string" &&
-    record.tokenType === "Bearer" &&
-    typeof record.expiresIn === "number" &&
-    typeof record.refreshExpiresIn === "number"
-  );
+  return {
+    accessToken: value.access_token,
+    refreshToken: value.refresh_token,
+    tokenType: "Bearer",
+    expiresIn: value.expires_in,
+    refreshExpiresIn: value.refresh_expires_in,
+  };
 }
 
 function sessionFromResponse(
   data: unknown,
   fallbacks?: { email?: string; name?: string; organisationName?: string },
 ): Session {
-  if (!isTokenResponse(data)) {
+  const tokens = parseTokenResponse(data);
+  if (!tokens) {
     throw NETWORK_ERROR;
   }
   try {
     return sessionFromTokens(
-      userFromAccessToken(data.accessToken, fallbacks),
-      data,
+      userFromAccessToken(tokens.accessToken, fallbacks),
+      tokens,
     );
   } catch {
     const error: AuthErrorBody = {
@@ -81,7 +102,7 @@ export async function apiLogin(
 ): Promise<Session> {
   const trimmedEmail = email.trim();
   try {
-    const response = await api.post<TokenResponse>("/api/v1/auth/login", {
+    const response = await api.post<unknown>("/api/v1/auth/login", {
       email: trimmedEmail,
       password,
     });
@@ -96,8 +117,8 @@ export async function apiRefresh(
   previous?: { email: string; name: string; organisationName: string },
 ): Promise<Session> {
   try {
-    const response = await api.post<TokenResponse>("/api/v1/auth/refresh", {
-      refreshToken,
+    const response = await api.post<unknown>("/api/v1/auth/refresh", {
+      refresh_token: refreshToken,
     });
     return sessionFromResponse(response.data, previous);
   } catch (error) {

@@ -120,6 +120,22 @@ func (r *GormWorkflowReadRepository) scopedBatchQuery(
 		}
 		now := time.Now().UTC()
 		query = query.
+			Select(`b.*, (
+				SELECT collector_scope.id
+				FROM batch_claims AS claim
+				INNER JOIN recycler_collector_scopes AS collector_scope
+					ON collector_scope.recycler_org_id = claim.recycler_org_id
+					AND collector_scope.collector_org_id = ?
+					AND collector_scope.zone = b.zone
+					AND collector_scope.is_active = TRUE
+					AND collector_scope.valid_from <= ?
+					AND (collector_scope.valid_until IS NULL OR collector_scope.valid_until > ?)
+				WHERE claim.id = b.current_claim_id
+					AND claim.batch_id = b.id
+					AND claim.claim_epoch = b.claim_epoch
+					AND claim.claim_status = ?
+				LIMIT 1
+			) AS collector_scope_id`, scope.OrganisationID, now, now, model.ClaimStatusAccepted).
 			Where(`EXISTS (
 				SELECT 1
 				FROM batch_claims AS claim
@@ -206,6 +222,8 @@ func (r *GormWorkflowReadRepository) opportunityQuery(
 		Select(`
 			b.id AS batch_id,
 			b.status,
+			b.version,
+			b.claim_epoch,
 			b.category,
 			b.quantity,
 			b.estimated_weight_kg,

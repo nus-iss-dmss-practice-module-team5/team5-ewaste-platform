@@ -20,6 +20,7 @@ export const ROLE_NAV: Record<Role, NavItem[]> = {
   ],
   RECYCLER: [
     { id: "opportunities", label: "Opportunities" },
+    { id: "claim", label: "Claim" },
     { id: "processing", label: "Processing" },
   ],
   COLLECTOR: [
