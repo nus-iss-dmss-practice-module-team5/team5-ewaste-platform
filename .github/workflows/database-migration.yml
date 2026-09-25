@@ -95,47 +95,23 @@ jobs:
 
       # Pre-flight check: Verify MySQL Flexible Server and ewastedb exist before installing Liquibase
       - name: Verify MySQL Server and Database Existence
-        uses: azure/cli@v2
-        with:
-          inlineScript: |
-            TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-            SERVER_NAME="mysql-ewaste-${TARGET_ENV}"
-            RG="rg-ewaste-${TARGET_ENV}"
-            DB_NAME="ewastedb"
+        run: |
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          SERVER_NAME="mysql-ewaste-${TARGET_ENV}"
+          RG="rg-ewaste-${TARGET_ENV}"
+          DB_NAME="ewastedb"
 
-            echo "Checking existence of database '$DB_NAME' on server '$SERVER_NAME' in '$RG'..."
-            DB_EXISTS=$(az mysql flexible-server db show \
-              --resource-group "$RG" \
-              --server-name "$SERVER_NAME" \
-              --database-name "$DB_NAME" \
-              --query name -o tsv 2>/dev/null || echo "NotFound")
+          SUB_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)
+          az account set --subscription "$SUB_ID"
 
-            if [ "$DB_EXISTS" != "$DB_NAME" ]; then
-              echo "::error::Database '$DB_NAME' was not found on '$SERVER_NAME'. Please provision infrastructure using terraform-infra-create.yml first!"
-              exit 1
-            fi
-            echo "Database '$DB_NAME' is online on '$SERVER_NAME'."
+          echo "Checking existence of database '$DB_NAME' on server '$SERVER_NAME' in '$RG'..."
+          az mysql flexible-server db show \
+            --resource-group "$RG" \
+            --server-name "$SERVER_NAME" \
+            --database-name "$DB_NAME" \
+            --query "{Database:name, Status:status}" -o table
 
-#      # MySQL flexible server has a closed default firewall with no standing rules.
-#      # Temporarily whitelist the runner IP for the duration of this migration job.
-#      - name: Whitelist GitHub Runner IP on MySQL Firewall
-#        run: |
-#          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-#          RG="rg-ewaste-${TARGET_ENV}"
-#          SERVER_NAME="mysql-ewaste-${TARGET_ENV}"
-#          RUNNER_RAW_IP=$(curl -s https://api.ipify.org)
-#          echo "MYSQL_RUNNER_IP=$RUNNER_RAW_IP" >> $GITHUB_ENV
-#          echo "MYSQL_SERVER_NAME=$SERVER_NAME" >> $GITHUB_ENV
-#          echo "MYSQL_RG=$RG" >> $GITHUB_ENV
-#          echo "Adding runner IP $RUNNER_RAW_IP to MySQL firewall on $SERVER_NAME..."
-#          az mysql flexible-server firewall-rule create \
-#            --resource-group "$RG" \
-#            --name "$SERVER_NAME" \
-#            --rule-name "AllowRunnerIP-${{ github.run_id }}" \
-#            --start-ip-address "$RUNNER_RAW_IP" \
-#            --end-ip-address "$RUNNER_RAW_IP" \
-#            --output none
-
+          echo "Database '$DB_NAME' is online on '$SERVER_NAME'."
       - name: Setup Java Runtime
         uses: actions/setup-java@v4
         with:
