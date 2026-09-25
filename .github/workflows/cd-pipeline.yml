@@ -117,13 +117,24 @@ jobs:
         run: |
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-          echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          echo "Logging into Azure Container Registry $ACR_NAME via Runner Managed Identity over Private Link..."
 
-          CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
-          CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
+          # Dynamically discover the Runner VM's Managed Identity for this environment (Zero Hardcoding)
+          RUNNER_CLIENT_ID=$(az identity show \
+            --name "id-runner-ewaste-${TARGET_ENV}" \
+            --resource-group "rg-ewaste-${TARGET_ENV}" \
+            --query clientId -o tsv)
 
-          echo "$CLIENT_SECRET" | docker login "${ACR_NAME}.azurecr.io" \
-            --username "$CLIENT_ID" \
+          echo "Authenticating via Managed Identity: $RUNNER_CLIENT_ID"
+          az login --identity --client-id "$RUNNER_CLIENT_ID"
+
+          # Acquire native ACR token using the VM's RBAC role
+          TOKEN=$(az account get-access-token --resource https://containerregistry.azure.net --query accessToken --output tsv)
+
+          # Authenticate Docker daemon over Private Link
+          echo "$TOKEN" | docker login "${ACR_NAME}.azurecr.io" \
+            --username 00000000-0000-0000-0000-000000000000 \
             --password-stdin
 
       # ------------------------------------------------------------------------
