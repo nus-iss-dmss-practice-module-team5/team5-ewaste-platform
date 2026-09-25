@@ -33,11 +33,11 @@ type Batch struct {
 	// CollectorScopeID is populated only by the collector-scoped read query.
 	// It is derived from the accepted claim and the active recycler/collector
 	// scope, so it must never be persisted with the batch itself.
-	CollectorScopeID    *string     `gorm:"column:collector_scope_id;->"`
-	Version             uint32      `gorm:"column:version;not null;default:1"`
-	SubmittedAt         *time.Time  `gorm:"column:submitted_at"`
-	CreatedAt           time.Time   `gorm:"column:created_at"`
-	UpdatedAt           time.Time   `gorm:"column:updated_at"`
+	CollectorScopeID *string    `gorm:"column:collector_scope_id;->"`
+	Version          uint32     `gorm:"column:version;not null;default:1"`
+	SubmittedAt      *time.Time `gorm:"column:submitted_at"`
+	CreatedAt        time.Time  `gorm:"column:created_at"`
+	UpdatedAt        time.Time  `gorm:"column:updated_at"`
 }
 
 func (Batch) TableName() string {
