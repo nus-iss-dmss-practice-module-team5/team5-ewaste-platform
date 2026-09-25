@@ -208,7 +208,12 @@ jobs:
             -var="auth_access_secret=$AUTH_ACCESS"
             -var="auth_refresh_secret=$AUTH_REFRESH"
             -var="auth_refresh_hash_secret=$AUTH_HASH"
+            -var="github_repository=${{ github.repository }}"
           )
+
+          if [ -n "${{ secrets.GH_RUNNER_PAT }}" ]; then
+            TF_VAR_ARGS+=(-var="github_pat=${{ secrets.GH_RUNNER_PAT }}")
+          fi
 
           # ----------------------------------------------------------------
           # Idempotent import: adopt Container Apps that exist in Azure but
@@ -241,6 +246,19 @@ jobs:
             fi
           done
 
+          # ----------------------------------------------------------------
+          # Auto-heal: If ACR Private Endpoint is in Disconnected state,
+          # taint it so Terraform cleanly replaces and re-establishes it.
+          # ----------------------------------------------------------------
+          PE_STATUS=$(az network private-endpoint show \
+            --name "pe-acr-ewaste-${TARGET_ENV}" \
+            --resource-group "rg-ewaste-${TARGET_ENV}" \
+            --query "privateLinkServiceConnections[0].privateLinkServiceConnectionState.status" -o tsv 2>/dev/null || true)
+
+          if [ "$PE_STATUS" == "Disconnected" ]; then
+            echo "::warning::Detected Disconnected ACR Private Endpoint. Tainting for clean recreation..."
+            terraform taint azurerm_private_endpoint.acr || true
+          fi
           if [ "${{ inputs.action }}" == "plan" ]; then
             terraform plan "${TF_VAR_ARGS[@]}"
           else

@@ -32,7 +32,9 @@ resource "azurerm_resource_group" "shared" {
 }
 
 # Centralized Azure Container Registry.
-# Premium is required for Private Link. Public access and admin credentials are disabled.
+# Premium SKU required for Private Link. Public network access is strictly disabled.
+# All image pushes from CI/CD runners and pulls from ACA runtime flow exclusively
+# through per-environment Private Endpoints over Azure Private Link.
 resource "azurerm_container_registry" "acr" {
   name                          = "acrewasteplatform"
   resource_group_name           = azurerm_resource_group.shared.name
@@ -40,12 +42,8 @@ resource "azurerm_container_registry" "acr" {
   sku                           = "Premium"
   admin_enabled                 = false
   anonymous_pull_enabled        = false
-  public_network_access_enabled = true
+  public_network_access_enabled = false
   network_rule_bypass_option    = "AzureServices"
-
-  network_rule_set {
-    default_action = "Allow"                  # Allow public traffic to authenticate
-  }
 
   tags = {
     Project = "Responsible E-Waste Chain-of-Custody"
@@ -70,11 +68,6 @@ resource "azurerm_log_analytics_workspace" "logs" {
 output "acr_id" {
   value       = azurerm_container_registry.acr.id
   description = "Shared ACR resource ID for RBAC bindings and environment private endpoints."
-}
-
-output "acr_login_server" {
-  value       = azurerm_container_registry.acr.login_server
-  description = "Shared ACR login server URL."
 }
 
 output "log_analytics_workspace_id" {

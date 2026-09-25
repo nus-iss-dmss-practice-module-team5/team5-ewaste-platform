@@ -7,7 +7,7 @@ set -Eeuo pipefail
 : "${MATCHER_SIGNING_SECRET:?configure the dedicated matcher secret for this environment}"
 [[ "$TARGET_ENV" =~ ^(dev|stg|prod)$ ]] || exit 2
 [[ ${#MATCHER_SIGNING_SECRET} -ge 32 ]] || { echo 'Matcher signing secret must contain at least 32 characters.' >&2; exit 2; }
-RG="rg-ewaste-${TARGET_ENV}"
+RG="${RG:-rg-ewaste-${TARGET_ENV}}"
 NAMESPACE="evh-ewaste-${TARGET_ENV}"
 API="aca-ewaste-${TARGET_ENV}-api"
 APP="aca-ewaste-${TARGET_ENV}-analytics"
