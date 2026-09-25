@@ -8,6 +8,8 @@ import "time"
 type WorkflowOpportunity struct {
 	BatchID            string      `gorm:"column:batch_id"`
 	Status             BatchStatus `gorm:"column:status"`
+	Version            uint32      `gorm:"column:version"`
+	ClaimEpoch         uint64      `gorm:"column:claim_epoch"`
 	Category           *string     `gorm:"column:category"`
 	Quantity           *int        `gorm:"column:quantity"`
 	EstimatedWeightKg  *string     `gorm:"column:estimated_weight_kg"`

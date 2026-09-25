@@ -206,6 +206,8 @@ func (r *GormWorkflowReadRepository) opportunityQuery(
 		Select(`
 			b.id AS batch_id,
 			b.status,
+			b.version,
+			b.claim_epoch,
 			b.category,
 			b.quantity,
 			b.estimated_weight_kg,
