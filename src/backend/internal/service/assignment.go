@@ -171,7 +171,9 @@ func (s *AssignmentWorkflowService) Select(ctx context.Context, batchID string, 
 		eventID := s.newID()
 		payload, err := buildAssignmentEventPayload(eventID, command.ID, assignedBatch, model.CollectorAssignedEventType, metadata.CorrelationID, now, map[string]any{
 			"assignment_id": assignment.ID, "claim_id": claim.ID, "collector_user_id": assignment.CollectorUserID,
-			"collector_org_id": assignment.CollectorOrgID, "collector_scope_id": assignment.CollectorScopeID,
+			"recycler_org_id": assignment.RecyclerOrgID, "assignment_version": strconv.FormatUint(uint64(assignment.Version), 10),
+			"previous_assignment_id": assignment.PreviousAssignmentID,
+			"collector_org_id":       assignment.CollectorOrgID, "collector_scope_id": assignment.CollectorScopeID,
 			"assignment_sequence": strconv.FormatUint(sequence, 10), "assigned_at": contractTimestamp(now),
 		})
 		if err != nil {
@@ -444,12 +446,16 @@ func (s *AssignmentWorkflowService) recordPickup(ctx context.Context, assignment
 			return err
 		}
 		eventID := s.newID()
-		eventData := map[string]any{"assignment_id": assignment.ID, "handoff_id": handoff.ID, "collector_user_id": assignment.CollectorUserID, "collector_org_id": assignment.CollectorOrgID, "pickup_status": handoff.PickupStatus, "recorded_at": contractTimestamp(now)}
+		eventData := map[string]any{
+			"assignment_id": assignment.ID, "handoff_id": handoff.ID,
+			"collector_user_id": assignment.CollectorUserID, "collector_org_id": assignment.CollectorOrgID,
+			"collector_scope_id": assignment.CollectorScopeID, "pickup_occurred_at": contractTimestamp(handoff.PickupOccurredAt),
+			"pickup_status": handoff.PickupStatus, "recorded_at": contractTimestamp(now),
+		}
 		if failed {
 			eventData["failure_reason"] = handoff.FailureReason
 		} else {
 			request := payload.(dto.HandoffRequest)
-			eventData["pickup_occurred_at"] = contractTimestamp(handoff.PickupOccurredAt)
 			eventData["actual_item_count"] = request.ActualItemCount
 			eventData["verification_hash"] = strings.ToLower(request.VerificationHash)
 		}
