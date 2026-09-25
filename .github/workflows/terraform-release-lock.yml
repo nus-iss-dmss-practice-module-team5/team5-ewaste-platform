@@ -1,23 +1,18 @@
 name: "Terraform - Break Azure State Lock"
 
 on:
-  push:
-    branches: [azure-checkov-fix]
   workflow_dispatch:
     inputs:
       storage_account:
         description: 'Azure Storage Account Name'
-        default: 'ewastetfstatese'
         required: true
         type: string
       container_name:
         description: 'Blob Container Name'
-        default: 'tfstate'
         required: true
         type: string
       blob_name:
         description: 'Blob Name (e.g., dev.tfstate)'
-        default: 'shared.tfstate'
         required: true
         type: string
 
@@ -46,7 +41,7 @@ jobs:
           inlineScript: |
             STORAGE_ACCOUNT="${{ inputs.storage_account || secrets.TF_STATE_STORAGE_ACCOUNT || 'ewastetfstatese' }}"
             CONTAINER_NAME="${{ inputs.container_name || 'tfstate' }}"
-            BLOB_NAME="${{ inputs.blob_name || 'shared.tfstate' }}"
+            BLOB_NAME="${{ inputs.blob_name || 'dev.tfstate' }}"
 
             echo "Attempting to break lease on: $BLOB_NAME in $STORAGE_ACCOUNT/$CONTAINER_NAME"
 
