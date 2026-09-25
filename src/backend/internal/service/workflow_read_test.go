@@ -20,6 +20,21 @@ func TestBatchToDTOExposesClaimEpochOnlyAfterClaim(t *testing.T) {
 	}
 }
 
+func TestBatchToDTOExposesCollectorScopeID(t *testing.T) {
+	scopeID := "scope-1"
+	batch := model.Batch{
+		ID:               "batch-1",
+		Status:           model.BatchStatusApproved,
+		Version:          4,
+		CollectorScopeID: &scopeID,
+	}
+
+	view := batchToDTO(&batch)
+	if view.CollectorScopeID != scopeID {
+		t.Fatalf("collector scope id = %q, want %q", view.CollectorScopeID, scopeID)
+	}
+}
+
 func TestOpportunityToDTOExposesClaimVersionAndEpoch(t *testing.T) {
 	opportunity := model.WorkflowOpportunity{
 		BatchID:    "batch-1",
