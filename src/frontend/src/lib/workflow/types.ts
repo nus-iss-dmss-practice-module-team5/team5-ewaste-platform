@@ -51,6 +51,7 @@ export type Batch = {
   collectionDeadline?: string;
   notes?: string;
   claimEpoch?: string;
+  collectorScopeId?: string;
   createdAt?: string;
   updatedAt?: string;
 };

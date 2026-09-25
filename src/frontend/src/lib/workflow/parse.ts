@@ -93,6 +93,7 @@ export function parseBatch(value: unknown): Batch {
   const collectionDeadline = readString(value, "collection_deadline");
   const notes = readString(value, "notes");
   const claimEpoch = readString(value, "claim_epoch");
+  const collectorScopeId = readString(value, "collector_scope_id");
   const createdAt = readString(value, "created_at");
   const updatedAt = readString(value, "updated_at");
   if (category) batch.category = category;
@@ -107,6 +108,7 @@ export function parseBatch(value: unknown): Batch {
   if (collectionDeadline) batch.collectionDeadline = collectionDeadline;
   if (notes) batch.notes = notes;
   if (claimEpoch) batch.claimEpoch = claimEpoch;
+  if (collectorScopeId) batch.collectorScopeId = collectorScopeId;
   if (createdAt) batch.createdAt = createdAt;
   if (updatedAt) batch.updatedAt = updatedAt;
   return batch;

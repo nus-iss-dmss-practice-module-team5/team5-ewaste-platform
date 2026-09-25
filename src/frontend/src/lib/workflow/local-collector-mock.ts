@@ -116,9 +116,14 @@ export async function mockSelectAssignment(
 ): Promise<Assignment> {
   const data = await load();
   const batch = data.batches.find((row) => row.batchId === batchId);
-  if (!batch || batch.status !== "APPROVED" || !batch.claimEpoch) {
+  if (
+    !batch ||
+    batch.status !== "APPROVED" ||
+    !batch.claimEpoch ||
+    batch.collectorScopeId !== command.collectorScopeId
+  ) {
     throw conflict(
-      "Only an APPROVED batch with a claim epoch can be selected.",
+      "Only an APPROVED batch with a claim epoch and your collector scope can be selected.",
     );
   }
   if (batchId === STALE_BATCH_ID || batch.version !== command.expectedVersion) {

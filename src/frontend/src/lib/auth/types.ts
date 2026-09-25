@@ -6,7 +6,6 @@ export type SessionUser = {
   name: string;
   organisationId: string;
   organisationName: string;
-  collectorScopeId?: string;
   role: Role;
 };
 

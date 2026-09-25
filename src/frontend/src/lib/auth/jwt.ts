@@ -107,7 +107,6 @@ export function userFromAccessToken(
   const organisationName =
     fallbacks.organisationName ?? seed?.organisationName ?? organisationId;
   const name = fallbacks.name ?? seed?.name ?? nameFromEmail(email);
-  const collectorScopeId = readString(payload, "collector_scope_id");
 
   return {
     id,
@@ -116,6 +115,5 @@ export function userFromAccessToken(
     organisationId,
     organisationName,
     role,
-    ...(collectorScopeId ? { collectorScopeId } : {}),
   };
 }

@@ -7,6 +7,7 @@ const BATCH_ROW = {
   category: "laptops",
   zone: "central",
   claim_epoch: "1",
+  collector_scope_id: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
 };
 
 const ASSIGNMENT_ROW = {
@@ -49,6 +50,7 @@ describe("local collector mock", () => {
           category: "laptops",
           zone: "central",
           claimEpoch: "1",
+          collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
         },
       ],
     });

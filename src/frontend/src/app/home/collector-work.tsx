@@ -55,22 +55,18 @@ function useRetryKey() {
   };
 }
 
-function selectBlockReason(
-  batch: Batch,
-  collectorScopeId: string,
-): string | null {
-  if (!collectorScopeId) {
-    return "Your session has no collector scope, so this batch cannot be selected.";
-  }
+function selectBlockReason(batch: Batch): string | null {
   if (!batch.claimEpoch) {
     return "This batch has no claim epoch yet, so it cannot be selected.";
+  }
+  if (!batch.collectorScopeId) {
+    return "This batch has no collector scope for your organisation, so it cannot be selected.";
   }
   return null;
 }
 
 export function CollectorWork({ history = false }: { history?: boolean }) {
   const { session } = useSession();
-  const scopeId = session?.user.collectorScopeId ?? "";
   const [available, setAvailable] = useState<Batch[] | null>(null);
   const [assignments, setAssignments] = useState<Assignment[] | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -148,8 +144,8 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
   }
 
   async function onSelect(batch: Batch) {
-    const claimEpoch = batch.claimEpoch;
-    if (!session || !claimEpoch || !scopeId) {
+    const { claimEpoch, collectorScopeId } = batch;
+    if (!session || !claimEpoch || !collectorScopeId) {
       return;
     }
     await finish(async () => {
@@ -159,10 +155,15 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
         {
           expectedVersion: batch.version,
           claimEpoch,
-          collectorScopeId: scopeId,
+          collectorScopeId,
         },
         selectKey.keyFor(
-          JSON.stringify([batch.batchId, batch.version, claimEpoch, scopeId]),
+          JSON.stringify([
+            batch.batchId,
+            batch.version,
+            claimEpoch,
+            collectorScopeId,
+          ]),
         ),
       );
       selectKey.clear();
@@ -386,7 +387,7 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
           </thead>
           <tbody>
             {available.map((batch) => {
-              const blocked = selectBlockReason(batch, scopeId);
+              const blocked = selectBlockReason(batch);
               return (
                 <tr key={batch.batchId} className="border-t border-slate-200">
                   <td className="py-2 pr-3">

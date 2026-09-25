@@ -17,7 +17,6 @@ vi.mock("@/lib/auth/session-context", () => ({
   useSession: () => ({
     session: {
       tokens: { accessToken: "access-token" },
-      user: { collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99" },
     },
   }),
 }));
@@ -39,6 +38,7 @@ const approved: Batch = {
   category: "laptops",
   zone: "central",
   claimEpoch: "1",
+  collectorScopeId: "9f6d5c3a-37e1-4e0e-a5f6-0f7f4e2b2c99",
 };
 
 const accepted: Assignment = {
@@ -94,6 +94,20 @@ describe("collector work", () => {
     expect(await screen.findByTestId("collector-accepted")).toHaveTextContent(
       "ACCEPTED",
     );
+  });
+
+  it("blocks selection when the batch has no collector scope", async () => {
+    listBatches.mockResolvedValue(
+      page([{ ...approved, collectorScopeId: undefined }]),
+    );
+    render(<CollectorWork />);
+    expect(
+      await screen.findByTestId("collector-select-blocked-batch-1"),
+    ).toHaveTextContent("no collector scope");
+    expect(
+      screen.queryByTestId("collector-select-batch-1"),
+    ).not.toBeInTheDocument();
+    expect(selectAssignment).not.toHaveBeenCalled();
   });
 
   it("reuses the idempotency key when the same selection is retried", async () => {
