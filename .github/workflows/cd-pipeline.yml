@@ -118,12 +118,7 @@ jobs:
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
-
-          # Verify private DNS resolution (should now resolve to 10.0.3.4)
-          nslookup "${ACR_NAME}.azurecr.io" || true
-
-          TOKEN=$(az account get-access-token --resource https://containerregistry.azure.net --query accessToken --output tsv)
-          echo "$TOKEN" | docker login "${ACR_NAME}.azurecr.io" --username 00000000-0000-0000-0000-000000000000 --password-stdin
+          az acr login --name "$ACR_NAME"
 
       # ------------------------------------------------------------------------
       # 1.1 BACKEND API CONTAINER
