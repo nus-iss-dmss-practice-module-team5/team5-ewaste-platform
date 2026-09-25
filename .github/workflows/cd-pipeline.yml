@@ -119,12 +119,11 @@ jobs:
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
 
-          # Acquire Entra ID token using the authenticated Service Principal
-          TOKEN=$(az account get-access-token --resource https://containerregistry.azure.net --query accessToken --output tsv)
+          CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
+          CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
 
-          # Docker logs in directly through the Private Endpoint IP (10.0.3.4)
-          echo "$TOKEN" | docker login "${ACR_NAME}.azurecr.io" \
-            --username 00000000-0000-0000-0000-000000000000 \
+          echo "$CLIENT_SECRET" | docker login "${ACR_NAME}.azurecr.io" \
+            --username "$CLIENT_ID" \
             --password-stdin
 
       # ------------------------------------------------------------------------
