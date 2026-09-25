@@ -156,27 +156,6 @@ resource "azurerm_private_endpoint" "acr" {
   }
 }
 
-# 1. Base Registry Endpoint A Record (acrewasteplatform.privatelink.azurecr.io)
-# Resolves the dynamic private IP assigned to the Private Endpoint interface card.
-resource "azurerm_private_dns_a_record" "acr_login_record" {
-  name                = var.shared_acr_name
-  zone_name           = azurerm_private_dns_zone.acr_dns.name
-  resource_group_name = azurerm_resource_group.env_rg.name
-  ttl                 = 300
-  records             = [azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address]
-}
-
-# 2. Regional Data Layer Endpoint A Record (acrewasteplatform.japaneast.data.privatelink.azurecr.io)
-# Dynamically queries the location of your shared ACR so the self-hosted runner
-# routes push blobs securely over the internal network instead of public space.
-resource "azurerm_private_dns_a_record" "acr_data_record" {
-  name                = "${var.shared_acr_name}.${data.azurerm_container_registry.shared_acr.location}.data"
-  zone_name           = azurerm_private_dns_zone.acr_dns.name
-  resource_group_name = azurerm_resource_group.env_rg.name
-  ttl                 = 300
-  records             = [azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address]
-}
-
 # ============================================================================
 # 4. ENVIRONMENT KEY VAULT & MANAGED IDENTITY
 # ============================================================================
