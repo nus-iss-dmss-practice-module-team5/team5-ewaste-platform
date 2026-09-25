@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
   push:
-    branches: [azure-checkov-fix]
+    branches: [dev, main]
 
 permissions:
   contents: read
