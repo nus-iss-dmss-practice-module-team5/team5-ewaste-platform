@@ -101,7 +101,7 @@ variable "github_pat" {
 
 variable "runner_vm_size" {
   type        = string
-  default     = "Standard_B2s"
+  default     = "Standard_B1as_v2"
   description = "Azure VM SKU for the VNet self-hosted GitHub runner."
 }
 
