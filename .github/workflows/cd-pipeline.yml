@@ -122,7 +122,7 @@ jobs:
           CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
           CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
 
-          az acr login --name "$ACR_NAME" --service-principal -u "$CLIENT_ID" -p "$CLIENT_SECRET"
+          az acr login --name "$ACR_NAME" -u "$CLIENT_ID" -p "$CLIENT_SECRET"
 
       # ------------------------------------------------------------------------
       # 1.1 BACKEND API CONTAINER
