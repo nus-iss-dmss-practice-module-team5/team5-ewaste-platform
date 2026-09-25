@@ -726,6 +726,7 @@ components:
           enum: [DRAFT, SUBMITTED, MATCHED, APPROVED, ASSIGNED, COLLECTED, FAILED_COLLECTION]
         version: {type: integer, minimum: 1}
         claim_epoch: {type: string, pattern: '^[0-9]+$'}
+        collector_scope_id: {type: string, format: uuid}
         category: {type: string}
         quantity: {type: integer, minimum: 1}
         estimated_weight_kg: {type: number, format: double}
