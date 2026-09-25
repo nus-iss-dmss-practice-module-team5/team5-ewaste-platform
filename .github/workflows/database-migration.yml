@@ -81,7 +81,7 @@ jobs:
   database-migration:
     name: Liquibase Migration (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, azure-vnet, "${{ needs.resolve-environment.outputs.environment }}"]
     timeout-minutes: 10
     environment: ${{ needs.resolve-environment.outputs.environment }}
     steps:
