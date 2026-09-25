@@ -128,12 +128,11 @@ jobs:
           echo "Adding CI/CD Runner IP $RUNNER_IP to ACR firewall..."
           az acr network-rule add --name "$ACR_NAME" --ip-address "$RUNNER_IP" --output none
 
-          echo "Discovering ACA environment egress IPs for cae-${TARGET_ENV} in $RG..."
-          ACA_IPS=$(az containerapp env show \
-            --name "cae-${TARGET_ENV}" \
+          echo "Discovering Container App outbound egress IPs in $RG..."
+          ACA_IPS=$(az containerapp list \
             --resource-group "$RG" \
-            --query "properties.outboundIpAddresses[]" \
-            -o tsv 2>/dev/null || true)
+            --query "[].properties.outboundIpAddresses[]" \
+            -o tsv 2>/dev/null | sort -u || true)
 
           CLEANUP_IPS=""
           for ip in $ACA_IPS; do
