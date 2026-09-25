@@ -247,6 +247,14 @@ jobs:
           done
 
           # ----------------------------------------------------------------
+          # Adopt existing AcrPush role assignment if already in Azure
+          # ----------------------------------------------------------------
+          if ! terraform state show "azurerm_role_assignment.sp_acr_push" &>/dev/null; then
+            echo "[import] Adopting existing AcrPush role into Terraform state..."
+            terraform import "${TF_VAR_ARGS[@]}" "azurerm_role_assignment.sp_acr_push" "/subscriptions/eac03f0d-4526-499e-8192-f5130edfc0bd/resourceGroups/rg-ewaste-shared/providers/Microsoft.ContainerRegistry/registries/acrewasteplatform/providers/Microsoft.Authorization/roleAssignments/90b0363382ae46288e667c8cb45050f7" || true
+          fi
+
+          # ----------------------------------------------------------------
           # Auto-heal: If ACR Private Endpoint is in Disconnected state,
           # taint it so Terraform cleanly replaces and re-establishes it.
           # ----------------------------------------------------------------
