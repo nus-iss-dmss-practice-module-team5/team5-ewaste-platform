@@ -92,7 +92,7 @@ resource "azurerm_role_assignment" "runner_acr_pull" {
 }
 
 resource "azurerm_network_interface" "runner_nic" {
-  # checkov:skip=CKV_AZURE_206:Runner NIC uses public IP solely for outbound long-poll connection to GitHub Actions; all inbound traffic is strictly dropped by NSG DenyAllInboundInternet.
+  # checkov:skip=CKV_AZURE_119:Runner NIC uses public IP solely for outbound long-poll connection to GitHub Actions; all inbound traffic is strictly dropped by NSG DenyAllInboundInternet.
   count               = var.enable_self_hosted_runner ? 1 : 0
   name                = "nic-runner-${local.name_prefix}"
   location            = azurerm_resource_group.env_rg.location
