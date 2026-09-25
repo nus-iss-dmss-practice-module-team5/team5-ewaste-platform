@@ -1,8 +1,6 @@
 name: "Terraform - Break Azure State Lock"
 
 on:
-#  push:
-#    branches: [azure-checkov-fix]
   workflow_dispatch:
     inputs:
       storage_account:

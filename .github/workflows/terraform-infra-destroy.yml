@@ -158,14 +158,6 @@ jobs:
           # Purge any soft-deleted vault so recreation won't collide on name
           az keyvault purge --name "$KV_NAME" >/dev/null 2>&1 || true
 
-      - name: Release lock if cancelled
-        if: cancelled()
-        run: |
-          LOCK_ID=$(terraform plan -no-color -refresh=false 2>&1 | grep ' ID: ' | cut -d: -f2 | tr -d ' ' || true)
-          if [[ -n "${LOCK_ID}" ]]; then
-            terraform force-unlock -force ${LOCK_ID}
-          fi
-
       - name: Teardown Summary
         run: |
           TARGET_ENV="${{ inputs.target_env }}"

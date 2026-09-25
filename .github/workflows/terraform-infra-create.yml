@@ -265,14 +265,6 @@ jobs:
             terraform apply -auto-approve "${TF_VAR_ARGS[@]}"
           fi
 
-      - name: Release lock if cancelled
-        if: cancelled()
-        run: |
-          LOCK_ID=$(terraform plan -no-color -refresh=false 2>&1 | grep ' ID: ' | cut -d: -f2 | tr -d ' ' || true)
-          if [[ -n "${LOCK_ID}" ]]; then
-            terraform force-unlock -force ${LOCK_ID}
-          fi
-
       # ------------------------------------------------------------------------
       # 1.3 EXPORT OUTPUTS
       # ------------------------------------------------------------------------

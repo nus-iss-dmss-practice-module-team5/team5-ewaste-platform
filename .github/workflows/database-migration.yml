@@ -162,20 +162,3 @@ jobs:
             $COMMAND
 
           echo "Liquibase $COMMAND executed successfully."
-
-#      # Guaranteed cleanup: Remove ephemeral runner IP firewall rule post-job
-#      - name: Remove GitHub Runner IP from MySQL Firewall
-#        if: always()
-#        run: |
-#          if [ -n "${{ env.MYSQL_RUNNER_IP }}" ] && [ -n "${{ env.MYSQL_SERVER_NAME }}" ]; then
-#            echo "Removing runner IP ${{ env.MYSQL_RUNNER_IP }} from MySQL firewall..."
-#            az mysql flexible-server firewall-rule delete \
-#              --resource-group "${{ env.MYSQL_RG }}" \
-#              --name "${{ env.MYSQL_SERVER_NAME }}" \
-#              --rule-name "AllowRunnerIP-${{ github.run_id }}" \
-#              --yes \
-#              --output none || echo "Warning: Failed to remove MySQL firewall rule."
-#            echo "MySQL firewall rule removed successfully."
-#          else
-#            echo "Skipping MySQL firewall cleanup: Runner IP or server name not set."
-#          fi
