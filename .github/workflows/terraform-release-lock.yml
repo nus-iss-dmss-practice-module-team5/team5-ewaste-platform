@@ -1,0 +1,57 @@
+name: "Terraform - Break Azure State Lock"
+
+on:
+  push:
+    branches: [azure-checkov-fix]
+  workflow_dispatch:
+    inputs:
+      storage_account:
+        description: 'Azure Storage Account Name'
+        default: 'ewastetfstatese'
+        required: true
+        type: string
+      container_name:
+        description: 'Blob Container Name'
+        default: 'tfstate'
+        required: true
+        type: string
+      blob_name:
+        description: 'Blob Name (e.g., terraform.tfstate)'
+        default: 'dev.tfstate'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  break-lock:
+    name: Break Blob Lease
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 1. Authenticate to Azure using OIDC or Service Principal Secrets
+      - name: Azure Login
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      # 2. Break the stuck blob lease without requiring a Lock ID
+      - name: Break Lease
+        uses: azure/cli-execute-action@v2
+        with:
+          azcliversion: latest
+          inlineScript: |
+            echo "Attempting to break lease on: ${{ inputs.blob_name }}"
+            az storage blob lease break \
+              --account-name "${{ inputs.storage_account }}" \
+              --container-name "${{ inputs.container_name }}" \
+              --name "${{ inputs.blob_name }}" \
+              --break-period 0 \
+              --auth-mode login
+            echo "Lease broken successfully!"
