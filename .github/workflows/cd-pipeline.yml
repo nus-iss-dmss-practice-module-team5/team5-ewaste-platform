@@ -117,14 +117,11 @@ jobs:
         run: |
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-          echo "Logging into Azure Container Registry $ACR_NAME using Service Principal..."
+          echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
 
-          CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
-          CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
-
-          echo "$CLIENT_SECRET" | docker login "${ACR_NAME}.azurecr.io" \
-            --username "$CLIENT_ID" \
-            --password-stdin
+          # Retrieve ACR access token for the authenticated Service Principal
+          TOKEN=$(az acr login --name "$ACR_NAME" --expose-token --output tsv --query accessToken)
+          echo "$TOKEN" | docker login "${ACR_NAME}.azurecr.io" --username 00000000-0000-0000-0000-000000000000 --password-stdin
 
       # ------------------------------------------------------------------------
       # 1.1 BACKEND API CONTAINER
