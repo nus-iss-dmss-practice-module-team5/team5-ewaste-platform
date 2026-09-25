@@ -3,6 +3,7 @@
 import { ROLE_HOME_TITLE, ROLE_LABEL, ROLE_NAV } from "@/lib/auth/roles";
 import { useSession } from "@/lib/auth/session-context";
 import { useState } from "react";
+import { ClaimAction } from "./claim-action";
 import { DonorBatchForm, DonorBatchList } from "./donor-batches";
 import { OpportunityView } from "./opportunities";
 
@@ -26,6 +27,8 @@ export function HomeShell() {
       <DonorBatchForm />
     ) : user.role === "RECYCLER" && current === "opportunities" ? (
       <OpportunityView />
+    ) : user.role === "RECYCLER" && current === "claim" ? (
+      <ClaimAction />
     ) : null;
 
   async function onLogout() {

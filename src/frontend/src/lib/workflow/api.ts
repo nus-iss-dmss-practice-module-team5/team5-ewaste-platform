@@ -8,6 +8,7 @@ import {
   mockListBatches,
   mockSubmitBatch,
 } from "./local-batch-mock";
+import { USE_LOCAL_CLAIM_MOCK, mockClaimOpportunity } from "./local-claim-mock";
 import {
   USE_LOCAL_OPPORTUNITY_MOCK,
   mockGetOpportunity,
@@ -233,6 +234,9 @@ export async function claimOpportunity(
   command: ClaimCommand,
   idempotencyKey: string,
 ): Promise<ClaimResult> {
+  if (USE_LOCAL_CLAIM_MOCK) {
+    return mockClaimOpportunity(batchId, command);
+  }
   const body: {
     expected_version: number;
     claim_epoch: string;
