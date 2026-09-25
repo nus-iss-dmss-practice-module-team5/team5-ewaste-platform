@@ -56,3 +56,37 @@ func TestKafkaServerNameSupportsHostAndHostPort(t *testing.T) {
 		t.Fatalf("expected host to remain unchanged, got %q", got)
 	}
 }
+
+// Preserve the matcher checks while keeping PR #41's transport tests above.
+func TestMatcherEventHubsTransportSafeguards(t *testing.T) {
+	cfg := config.KafkaConfig{Brokers: []string{"test.servicebus.windows.net:9093"}, TLSEnabled: true,
+		SASLMechanism: "PLAIN", SASLUsername: "$ConnectionString",
+		SASLPassword: "Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test"}
+	p, err := NewKafkaPublisher(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	if p.writer.RequiredAcks != kafka.RequireAll || p.writer.AllowAutoTopicCreation || p.writer.Async {
+		t.Fatal("matcher requires synchronous acknowledged publication without topic creation")
+	}
+	for _, tc := range []struct {
+		name  string
+		alter func(*config.KafkaConfig)
+	}{
+		{"missing password", func(c *config.KafkaConfig) { c.SASLPassword = "" }},
+		{"missing credentials", func(c *config.KafkaConfig) { c.SASLUsername = ""; c.SASLPassword = "" }},
+		{"plaintext credentials", func(c *config.KafkaConfig) { c.TLSEnabled = false }},
+		{"wrong Event Hubs username", func(c *config.KafkaConfig) { c.SASLUsername = "worker" }},
+		{"unsupported mechanism", func(c *config.KafkaConfig) { c.SASLMechanism = "SCRAM-SHA-256" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			bad := cfg
+			tc.alter(&bad)
+			if p, err := NewKafkaPublisher(bad); err == nil {
+				p.Close()
+				t.Fatal("invalid transport configuration accepted")
+			}
+		})
+	}
+}

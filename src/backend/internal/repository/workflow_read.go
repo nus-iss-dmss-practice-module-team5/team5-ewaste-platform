@@ -30,6 +30,7 @@ type WorkflowReadPage struct {
 type WorkflowReadRepository interface {
 	ListBatches(context.Context, WorkflowReadScope, *model.BatchStatus, WorkflowReadPage) ([]model.Batch, int64, error)
 	FindBatch(context.Context, string, WorkflowReadScope) (*model.Batch, error)
+	FindRecyclerOrganisation(context.Context, string) (string, error)
 	ListOpportunities(context.Context, string, WorkflowReadPage) ([]model.WorkflowOpportunity, int64, error)
 	FindOpportunity(context.Context, string, string) (*model.WorkflowOpportunity, error)
 	ListAssignments(context.Context, string, string, string, WorkflowReadPage) ([]model.BatchAssignment, int64, error)
@@ -140,6 +141,26 @@ func (r *GormWorkflowReadRepository) scopedBatchQuery(
 	default:
 		return nil, ErrWorkflowReadForbidden
 	}
+}
+
+// Resolve opportunity scope from current database membership, not stale JWT claims.
+func (r *GormWorkflowReadRepository) FindRecyclerOrganisation(ctx context.Context, userID string) (string, error) {
+	if r == nil || r.db == nil {
+		return "", errors.New("repository: workflow read database is nil")
+	}
+	var actor struct{ OrganisationID string }
+	result := r.db.WithContext(ctx).Table("users AS u").Select("u.organisation_id").
+		Joins("JOIN organisations AS o ON o.organisation_id = u.organisation_id").
+		Joins("JOIN roles AS r ON r.role_code = u.role_code").
+		Where("u.user_id = ? AND u.status = 'ACTIVE' AND u.role_code = 'RECYCLER' AND r.is_active = TRUE AND r.allowed_organisation_type = 'PROCESSING_FACILITY' AND o.status = 'ACTIVE' AND o.organisation_type = 'PROCESSING_FACILITY'", userID).
+		Scan(&actor)
+	if result.Error != nil {
+		return "", result.Error
+	}
+	if result.RowsAffected != 1 {
+		return "", ErrWorkflowReadForbidden
+	}
+	return actor.OrganisationID, nil
 }
 
 func (r *GormWorkflowReadRepository) ListOpportunities(
