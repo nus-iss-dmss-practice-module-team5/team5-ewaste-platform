@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
+    branches: [azure-checkov-fix]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
