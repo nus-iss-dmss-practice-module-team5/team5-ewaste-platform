@@ -156,6 +156,23 @@ resource "azurerm_private_endpoint" "acr" {
   }
 }
 
+# Explicit DNS A-records in privatelink.azurecr.io for the ACR login and data streaming endpoints
+resource "azurerm_private_dns_a_record" "acr_record" {
+  name                = var.shared_acr_name
+  zone_name           = azurerm_private_dns_zone.acr_dns.name
+  resource_group_name = azurerm_resource_group.env_rg.name
+  ttl                 = 300
+  records             = [azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address]
+}
+
+resource "azurerm_private_dns_a_record" "acr_data_record" {
+  name                = "${var.shared_acr_name}.${data.azurerm_container_registry.shared_acr.location}.data"
+  zone_name           = azurerm_private_dns_zone.acr_dns.name
+  resource_group_name = azurerm_resource_group.env_rg.name
+  ttl                 = 300
+  records             = [azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address]
+}
+
 # ============================================================================
 # 4. ENVIRONMENT KEY VAULT & MANAGED IDENTITY
 # ============================================================================
