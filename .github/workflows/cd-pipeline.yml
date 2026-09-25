@@ -117,11 +117,16 @@ jobs:
         run: |
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-          echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
+          echo "Logging into Azure Container Registry $ACR_NAME..."
 
-          # Ensure admin access is enabled and renew password dynamically for this run
+          # Dynamically authorize the runner's outbound IP on the ACR firewall (pinhole pattern)
+          RUNNER_IP=$(curl -s https://api.ipify.org || curl -s https://ifconfig.me)
+          echo "Authorizing Runner Public IP ($RUNNER_IP) on ACR firewall..."
+          az acr network-rule add --name "$ACR_NAME" --ip-address "$RUNNER_IP" 2>/dev/null || true
+
+          # Enable admin credentials dynamically and fetch active password
           az acr update --name "$ACR_NAME" --admin-enabled true 2>/dev/null || true
-          ACR_PASSWORD=$(az acr credential renew --name "$ACR_NAME" --password-name password --query "passwords[0].value" -o tsv)
+          ACR_PASSWORD=$(az acr credential show --name "$ACR_NAME" --query "passwords[0].value" -o tsv)
 
           echo "$ACR_PASSWORD" | docker login "${ACR_NAME}.azurecr.io" --username "$ACR_NAME" --password-stdin
 
