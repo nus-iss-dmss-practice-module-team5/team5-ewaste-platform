@@ -249,6 +249,20 @@ resource "azurerm_role_assignment" "acr_pull" {
   principal_id         = azurerm_user_assigned_identity.aca_identity.principal_id
 }
 
+data "azurerm_client_config" "current" {}
+
+resource "azurerm_role_assignment" "sp_acr_pull" {
+  scope                = data.azurerm_container_registry.shared_acr.id
+  role_definition_name = "AcrPull"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+resource "azurerm_role_assignment" "sp_acr_push" {
+  scope                = data.azurerm_container_registry.shared_acr.id
+  role_definition_name = "AcrPush"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
 # ============================================================================
 # 5. DATA TIER: MYSQL FLEXIBLE SERVER & REDIS
 # ============================================================================
