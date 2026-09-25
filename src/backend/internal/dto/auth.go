@@ -6,19 +6,19 @@ type LoginRequest struct {
 }
 
 type RefreshRequest struct {
-	RefreshToken string `json:"refreshToken" binding:"required,min=1"`
+	RefreshToken string `json:"refresh_token" binding:"required,min=1"`
 }
 
 type TokenResponse struct {
-	AccessToken      string `json:"accessToken"`
-	RefreshToken     string `json:"refreshToken"`
-	TokenType        string `json:"tokenType"`
-	ExpiresIn        int64  `json:"expiresIn"`
-	RefreshExpiresIn int64  `json:"refreshExpiresIn"`
+	AccessToken      string `json:"access_token"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType        string `json:"token_type"`
+	ExpiresIn        int64  `json:"expires_in"`
+	RefreshExpiresIn int64  `json:"refresh_expires_in"`
 }
 
 type ErrorResponse struct {
 	Code          string `json:"code"`
 	Message       string `json:"message"`
-	CorrelationID string `json:"correlationId"`
+	CorrelationID string `json:"correlation_id"`
 }

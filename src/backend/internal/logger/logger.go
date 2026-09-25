@@ -1,10 +1,10 @@
 package logger
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
@@ -13,13 +13,12 @@ import (
 	"workflow-api/internal/config"
 )
 
-var rotatingSinks sync.Map
+type Logger struct {
+	*zap.Logger
+	fileSink *lumberjack.Logger
+}
 
-func New(cfg config.LoggingConfig) (*zap.Logger, error) {
-	if err := os.MkdirAll(filepath.Dir(cfg.FilePath), 0o755); err != nil {
-		return nil, err
-	}
-
+func New(cfg config.LoggingConfig) (*Logger, error) {
 	level := zapcore.InfoLevel
 	if err := level.UnmarshalText([]byte(strings.ToLower(cfg.Level))); err != nil {
 		return nil, err
@@ -28,39 +27,48 @@ func New(cfg config.LoggingConfig) (*zap.Logger, error) {
 	encoderConfig := zap.NewProductionEncoderConfig()
 	encoderConfig.TimeKey = "timestamp"
 	encoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
-	fileEncoder := zapcore.NewJSONEncoder(encoderConfig)
-	rotatingFile := &lumberjack.Logger{
-		Filename:   cfg.FilePath,
-		MaxSize:    cfg.MaxSizeMB,
-		MaxBackups: cfg.MaxBackups,
-		MaxAge:     cfg.MaxAgeDays,
-		Compress:   cfg.Compress,
-	}
-	fileSink := zapcore.AddSync(rotatingFile)
+	encoder := zapcore.NewJSONEncoder(encoderConfig)
+	cores := make([]zapcore.Core, 0, 2)
 
-	cores := []zapcore.Core{zapcore.NewCore(fileEncoder, fileSink, level)}
+	var fileSink *lumberjack.Logger
+	if strings.TrimSpace(cfg.FilePath) != "" {
+		if err := os.MkdirAll(filepath.Dir(cfg.FilePath), 0o755); err != nil {
+			return nil, err
+		}
+
+		fileSink = &lumberjack.Logger{
+			Filename:   cfg.FilePath,
+			MaxSize:    cfg.MaxSizeMB,
+			MaxBackups: cfg.MaxBackups,
+			MaxAge:     cfg.MaxAgeDays,
+			Compress:   cfg.Compress,
+		}
+		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(fileSink), level))
+	}
+
 	if cfg.Console {
-		cores = append(cores, zapcore.NewCore(fileEncoder, zapcore.AddSync(os.Stdout), level))
+		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), level))
 	}
 
-	log := zap.New(zapcore.NewTee(cores...), zap.AddCaller())
-	rotatingSinks.Store(log, rotatingFile)
-	return log, nil
+	if len(cores) == 0 {
+		return nil, errors.New("logger has no configured output")
+	}
+
+	return &Logger{
+		Logger:   zap.New(zapcore.NewTee(cores...), zap.AddCaller()),
+		fileSink: fileSink,
+	}, nil
 }
 
-// Close flushes the logger and closes the rotating file writer.
-// zap.Sync alone does not release the file handle on Windows.
-func Close(log *zap.Logger) error {
-	if log == nil {
+func (l *Logger) Close() error {
+	if l == nil {
 		return nil
 	}
-	syncErr := log.Sync()
-	if sink, ok := rotatingSinks.LoadAndDelete(log); ok {
-		closeErr := sink.(*lumberjack.Logger).Close()
-		if syncErr != nil {
-			return syncErr
-		}
-		return closeErr
+
+	syncErr := l.Sync()
+	if l.fileSink == nil {
+		return syncErr
 	}
-	return syncErr
+
+	return errors.Join(syncErr, l.fileSink.Close())
 }

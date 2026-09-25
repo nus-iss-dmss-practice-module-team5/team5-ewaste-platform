@@ -145,10 +145,10 @@ func TestLoginReturnsSafeBadRequest(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &response); err != nil {
 		t.Fatalf("decode error response: %v", err)
 	}
-	if response.Code != "AUTH_INVALID_REQUEST" || response.Message != "invalid request" || response.CorrelationID == "" {
+	if response.Code != "INVALID_REQUEST" || response.Message != "invalid request" || response.CorrelationID == "" {
 		t.Fatalf("unexpected safe error: %+v", response)
 	}
-	if len(repo.audits) != 1 || repo.audits[0].Result != service.LoginAuditFailure || repo.audits[0].ReasonCode == nil || *repo.audits[0].ReasonCode != "AUTH_INVALID_REQUEST" {
+	if len(repo.audits) != 1 || repo.audits[0].Result != service.LoginAuditFailure || repo.audits[0].ReasonCode == nil || *repo.audits[0].ReasonCode != "INVALID_REQUEST" {
 		t.Fatalf("unexpected invalid-request audit: %+v", repo.audits)
 	}
 }

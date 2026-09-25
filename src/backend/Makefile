@@ -5,10 +5,13 @@ COMPOSE = docker compose -f $(COMPOSE_FILE) --env-file $(COMPOSE_ENV_FILE)
 
 .PHONY: test vet build check test-dependencies run-test docker-build docker-run docker-stop \
 	compose-config compose-build compose-up compose-down compose-destroy-test compose-reset-test \
-	compose-restart compose-ps compose-logs compose-seed-users
+	compose-restart compose-ps compose-logs compose-seed-users dummy_precommit
 
 test:
 	go test ./...
+
+dummy_precommit:
+	pre-commit run --all-files --show-diff-on-failure
 
 vet:
 	go vet ./...

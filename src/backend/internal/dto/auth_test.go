@@ -12,18 +12,18 @@ func TestTokenResponseUsesAPIFieldNames(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal token response: %v", err)
 	}
-	expected := `{"accessToken":"access","refreshToken":"refresh","tokenType":"Bearer","expiresIn":900,"refreshExpiresIn":86400}`
+	expected := `{"access_token":"access","refresh_token":"refresh","token_type":"Bearer","expires_in":900,"refresh_expires_in":86400}`
 	if string(payload) != expected {
 		t.Fatalf("expected %s, got %s", expected, payload)
 	}
 }
 
-func TestErrorResponseUsesCorrelationIdField(t *testing.T) {
-	payload, err := json.Marshal(ErrorResponse{Code: "AUTH_INVALID_REQUEST", Message: "invalid request", CorrelationID: "corr-001"})
+func TestErrorResponseUsesCorrelationIDField(t *testing.T) {
+	payload, err := json.Marshal(ErrorResponse{Code: "INVALID_REQUEST", Message: "invalid request", CorrelationID: "corr-001"})
 	if err != nil {
 		t.Fatalf("marshal error response: %v", err)
 	}
-	if string(payload) != `{"code":"AUTH_INVALID_REQUEST","message":"invalid request","correlationId":"corr-001"}` {
+	if string(payload) != `{"code":"INVALID_REQUEST","message":"invalid request","correlation_id":"corr-001"}` {
 		t.Fatalf("unexpected error response: %s", payload)
 	}
 }

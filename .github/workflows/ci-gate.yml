@@ -22,6 +22,8 @@ concurrency:
 env:
   GO_VERSION: "1.26"
   NODE_VERSION: "22"
+  PYTHON_VERSION: "3.11"
+  PYTHON_MIN_COVERAGE: ${{ vars.PYTHON_MIN_COVERAGE }}
 
 jobs:
 
@@ -262,10 +264,10 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Check Analytics Project
+      - name: Check Analytics Tests
         id: python-check
         run: |
-          if [ -d "src/analytics" ]; then
+          if [ -d "src/analytics" ] && find src/analytics -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit | grep -q .; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -280,26 +282,32 @@ jobs:
 
       - name: Install Test Dependencies
         if: steps.python-check.outputs.exists == 'true'
+        working-directory: src/analytics
         run: |
           python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install pytest pytest-cov
 
       - name: Run PyTest
         if: steps.python-check.outputs.exists == 'true'
         working-directory: src/analytics
         run: |
+          coverage_args=()
+          if [ -n "$PYTHON_MIN_COVERAGE" ]; then
+            coverage_args+=("--cov-fail-under=$PYTHON_MIN_COVERAGE")
+          fi
           pytest -v \
             --cov=. \
             --cov-report=term \
             --cov-report=xml:coverage.xml \
-            --cov-fail-under=${{ env.PYTHON_MIN_COVERAGE }} \
+            "${coverage_args[@]}" \
             --junitxml=junit.xml
 
-      - name: Analytics Not Available Yet
+      - name: Analytics Tests Not Available Yet
         if: steps.python-check.outputs.exists == 'false'
         run: |
-          echo "No Python analytics implementation available yet."
-          echo "Analytics tests will run when src/analytics exists."
+          echo "No Python analytics test files are available yet."
+          echo "Analytics tests will run when src/analytics contains test_*.py or *_test.py files."
 
       - name: Upload Python Test Evidence
         if: steps.python-check.outputs.exists == 'true'
