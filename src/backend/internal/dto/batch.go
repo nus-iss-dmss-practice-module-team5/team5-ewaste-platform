@@ -18,6 +18,7 @@ type BatchView struct {
 	Status             string     `json:"status"`
 	Version            int64      `json:"version"`
 	ClaimEpoch         string     `json:"claim_epoch,omitempty"`
+	CollectorScopeID   string     `json:"collector_scope_id,omitempty"`
 	Category           *string    `json:"category,omitempty"`
 	Quantity           *int       `json:"quantity,omitempty"`
 	EstimatedWeightKg  *float64   `json:"estimated_weight_kg,omitempty"`
