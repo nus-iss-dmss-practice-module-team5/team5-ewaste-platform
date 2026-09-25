@@ -156,34 +156,33 @@ resource "azurerm_private_endpoint" "acr" {
   }
 }
 
-# Direct Private DNS zone for azurecr.io so the runner and ACA resolve directly to the Private Endpoint IP
-resource "azurerm_private_dns_zone" "acr_direct_dns" {
-  name                = "azurecr.io"
-  resource_group_name = azurerm_resource_group.env_rg.name
-  tags                = local.common_tags
-}
-
-resource "azurerm_private_dns_zone_virtual_network_link" "acr_direct_dns_link" {
-  name                  = "vnetlink-acr-direct"
-  private_dns_zone_name = azurerm_private_dns_zone.acr_direct_dns.name
-  virtual_network_id    = azurerm_virtual_network.vnet.id
-  resource_group_name   = azurerm_resource_group.env_rg.name
-}
-
-resource "azurerm_private_dns_a_record" "acr_direct_record" {
+# 1. Base Registry Endpoint A Record (acrewasteplatform.privatelink.azurecr.io)
+# Resolves the dynamic private IP assigned to the Private Endpoint interface card.
+resource "azurerm_private_dns_a_record" "acr_login_record" {
   name                = var.shared_acr_name
-  zone_name           = azurerm_private_dns_zone.acr_direct_dns.name
+  zone_name           = azurerm_private_dns_zone.acr_dns.name
   resource_group_name = azurerm_resource_group.env_rg.name
   ttl                 = 300
-  records             = [azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address]
+  records             = [azurerm_private_endpoint.acr.private_network_interface_provisioned_ids[0] != "" ? azurerm_private_endpoint.acr.custom_dns_configs[0].ip_addresses[0] : "10.0.3.4"]
+
+  lifecycle {
+    ignore_changes = [records]
+  }
 }
 
-resource "azurerm_private_dns_a_record" "acr_direct_data_record" {
+# 2. Regional Data Layer Endpoint A Record (acrewasteplatform.japaneast.data.privatelink.azurecr.io)
+# Dynamically queries the location of your shared ACR so the self-hosted runner
+# routes push blobs securely over the internal network instead of public space.
+resource "azurerm_private_dns_a_record" "acr_data_record" {
   name                = "${var.shared_acr_name}.${data.azurerm_container_registry.shared_acr.location}.data"
-  zone_name           = azurerm_private_dns_zone.acr_direct_dns.name
+  zone_name           = azurerm_private_dns_zone.acr_dns.name
   resource_group_name = azurerm_resource_group.env_rg.name
   ttl                 = 300
-  records             = [azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address]
+  records             = [azurerm_private_endpoint.acr.private_network_interface_provisioned_ids[0] != "" ? azurerm_private_endpoint.acr.custom_dns_configs[0].ip_addresses[0] : "10.0.3.4"]
+
+  lifecycle {
+    ignore_changes = [records]
+  }
 }
 
 # ============================================================================
