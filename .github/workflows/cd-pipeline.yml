@@ -112,29 +112,50 @@ jobs:
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
-      # ACR firewall is default-Deny with no standing IP rules.
-      # Temporarily whitelist the runner IP for the duration of this job.
-      - name: Whitelist GitHub Runner IP on ACR Firewall
+      # ------------------------------------------------------------------------
+      # ZERO STANDING PRIVILEGE (ZSP): Ephemeral JIT ACR Firewall Pinholing
+      # ------------------------------------------------------------------------
+      - name: Ephemeral JIT Whitelist on ACR Firewall (Runner & ACA Outbound IPs)
         run: |
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          RG="${{ needs.resolve-environment.outputs.resource_group }}"
           RUNNER_IP=$(curl -s https://api.ipify.org)/32
-          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
-          echo "Adding runner IP $RUNNER_IP to ACR firewall..."
+          echo "RUNNER_IP=$RUNNER_IP" >> $GITHUB_ENV
+
+          echo "Adding CI/CD Runner IP $RUNNER_IP to ACR firewall..."
           az acr network-rule add --name "$ACR_NAME" --ip-address "$RUNNER_IP" --output none
+
+          echo "Discovering ACA environment egress IPs for cae-${TARGET_ENV} in $RG..."
+          ACA_IPS=$(az containerapp env show \
+            --name "cae-${TARGET_ENV}" \
+            --resource-group "$RG" \
+            --query "properties.outboundIpAddresses[]" \
+            -o tsv 2>/dev/null || true)
+
+          CLEANUP_IPS=""
+          for ip in $ACA_IPS; do
+            if [ -n "$ip" ]; then
+              echo "Whitelisting ACA egress IP ${ip}/32 on ACR firewall..."
+              az acr network-rule add --name "$ACR_NAME" --ip-address "${ip}/32" --output none
+              CLEANUP_IPS="$CLEANUP_IPS $ip"
+            fi
+          done
+          echo "ACA_OUTBOUND_IPS=${CLEANUP_IPS# }" >> $GITHUB_ENV
 
       - name: Log in to Azure Container Registry
         run: |
-          echo "Waiting for ACR firewall rule propagation..."
+          echo "Verifying ACR firewall rule propagation..."
           for i in {1..12}; do
             if az acr login --name "${{ env.ACR_NAME }}" 2>/dev/null; then
-              echo "ACR login successful on attempt $i."
+              echo "ACR firewall propagation complete. Login successful on attempt $i."
               break
             fi
-            echo "ACR login attempt $i/12 failed, retrying in 15s..."
-            sleep 15
+            echo "Waiting for ACR rule propagation (attempt $i/12)..."
+            sleep 10
           done
-
 
       # ------------------------------------------------------------------------
       # 1.1 BACKEND API CONTAINER
@@ -394,20 +415,34 @@ jobs:
           done
 
       # ------------------------------------------------------------------------
-      # 1.6 REMOVE RUNNER IP FROM ACR FIREWALL (Guaranteed Cleanup)
+      # 1.6 GUARANTEED CLEANUP: Revoke All Ephemeral Rules (Zero Standing Access)
       # ------------------------------------------------------------------------
-      - name: Remove GitHub Runner IP from ACR Firewall
+      - name: Revoke Ephemeral JIT Rules from ACR Firewall
         if: always()
         run: |
-          if [ -n "${{ env.RUNNER_IP }}" ] && [ -n "${{ env.ACR_NAME }}" ]; then
-            echo "Removing runner IP ${{ env.RUNNER_IP }} from ACR firewall..."
-            az acr network-rule remove \
-              --name "${{ env.ACR_NAME }}" \
-              --ip-address "${{ env.RUNNER_IP }}" \
-              --output none || echo "Warning: Failed to remove runner IP. Manual cleanup may be needed."
-            echo "ACR firewall rule removed successfully."
+          if [ -n "${{ env.ACR_NAME }}" ]; then
+            # 1. Revoke CI/CD Runner IP
+            if [ -n "${{ env.RUNNER_IP }}" ]; then
+              echo "Revoking runner IP ${{ env.RUNNER_IP }} from ACR firewall..."
+              az acr network-rule remove \
+                --name "${{ env.ACR_NAME }}" \
+                --ip-address "${{ env.RUNNER_IP }}" \
+                --output none || true
+            fi
+
+            # 2. Revoke ACA Outbound Egress IPs
+            if [ -n "${{ env.ACA_OUTBOUND_IPS }}" ]; then
+              for ip in ${{ env.ACA_OUTBOUND_IPS }}; do
+                echo "Revoking ACA egress IP ${ip}/32 from ACR firewall..."
+                az acr network-rule remove \
+                  --name "${{ env.ACR_NAME }}" \
+                  --ip-address "${ip}/32" \
+                  --output none || true
+              done
+            fi
+            echo "ACR firewall cleanup complete. Zero standing rules maintained."
           else
-            echo "Skipping ACR firewall cleanup: Runner IP or ACR name not set."
+            echo "Skipping ACR firewall cleanup: ACR name not set."
           fi
 
   # ============================================================================
