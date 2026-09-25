@@ -21,17 +21,17 @@ function jwtWithPayload(payload: Record<string, unknown>): string {
 
 function workflowTokenResponse() {
   return {
-    accessToken: jwtWithPayload({
+    access_token: jwtWithPayload({
       sub: "USR-003",
       role: "DONOR",
       org: "DON-001",
       sid: "session-1",
       typ: "access",
     }),
-    refreshToken: "refresh-token",
-    tokenType: "Bearer" as const,
-    expiresIn: 900,
-    refreshExpiresIn: 86400,
+    refresh_token: "refresh-token",
+    token_type: "Bearer",
+    expires_in: 900,
+    refresh_expires_in: 86400,
   };
 }
 
@@ -50,7 +50,7 @@ describe("apiLogin", () => {
     post.mockReset();
   });
 
-  it("maps a token response onto a session", async () => {
+  it("maps a snake_case token response onto a session", async () => {
     const tokens = workflowTokenResponse();
     post.mockResolvedValue({ data: tokens });
 
@@ -64,15 +64,38 @@ describe("apiLogin", () => {
     expect(session.user.email).toBe("donor1@ewaste.test");
     expect(session.user.name).toBe("Green Office Donor");
     expect(session.user.id).toBe("USR-003");
-    expect(session.tokens.refreshToken).toBe("refresh-token");
+    expect(session.tokens).toEqual({
+      accessToken: tokens.access_token,
+      refreshToken: "refresh-token",
+      tokenType: "Bearer",
+      expiresIn: 900,
+      refreshExpiresIn: 86400,
+    });
   });
 
-  it("normalises invalid credentials to the UI message", async () => {
+  it("rejects a camelCase token response", async () => {
+    const tokens = workflowTokenResponse();
+    post.mockResolvedValue({
+      data: {
+        accessToken: tokens.access_token,
+        refreshToken: tokens.refresh_token,
+        tokenType: "Bearer",
+        expiresIn: 900,
+        refreshExpiresIn: 86400,
+      },
+    });
+
+    await expect(
+      apiLogin("donor1@ewaste.test", "secret"),
+    ).rejects.toMatchObject({ code: "AUTH_SERVICE_UNAVAILABLE" });
+  });
+
+  it("normalises invalid credentials and keeps the correlation ID", async () => {
     post.mockRejectedValue(
       axiosError(401, {
         code: "AUTH_INVALID_CREDENTIALS",
         message: "invalid credentials",
-        correlationId: "corr-login-001",
+        correlation_id: "corr-login-001",
       }),
     );
 
@@ -80,6 +103,7 @@ describe("apiLogin", () => {
       {
         code: "AUTH_INVALID_CREDENTIALS",
         message: "Invalid email or password",
+        correlationId: "corr-login-001",
       },
     );
   });
@@ -102,7 +126,7 @@ describe("apiRefresh", () => {
     post.mockReset();
   });
 
-  it("posts the refresh token", async () => {
+  it("posts the refresh token as refresh_token", async () => {
     post.mockResolvedValue({ data: workflowTokenResponse() });
     const session = await apiRefresh("old-refresh", {
       email: "donor1@ewaste.test",
@@ -110,7 +134,7 @@ describe("apiRefresh", () => {
       organisationName: "DON-001",
     });
     expect(post).toHaveBeenCalledWith("/api/v1/auth/refresh", {
-      refreshToken: "old-refresh",
+      refresh_token: "old-refresh",
     });
     expect(session.user.role).toBe("DONOR");
   });

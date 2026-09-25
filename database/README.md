@@ -1,5 +1,35 @@
 # EW-101-C1 Persistence Foundation
 
+The Sprint 1 instructions below describe the existing foundation. The master
+changelog now also includes approved Sprint 2 C1 migrations 006–010, C2
+prerequisites 011–017, C3 claim migrations 018–020, and C4 assignment/handoff migrations 021–025. For
+EWCSB-126 deterministic batch fixtures and SQL persistence/migration checks,
+see [the C1 test guide](tests/c1/README.md) and run:
+
+```sh
+./scripts/test-ewcsb126.sh
+```
+
+C1 batch fixtures require the explicit `c1-fixtures` context; the existing
+`seed` context continues to load only synthetic Sprint 1 identities.
+
+For C3 claim repository, constraints and concurrent MySQL fixtures, see
+[the C3 test guide](tests/c3/README.md) and run:
+
+```sh
+./scripts/test-c3-persistence.sh
+```
+
+For C4 assignment/handoff persistence, canonical outbox events and lifecycle
+concurrency checks, see [the C4 test guide](tests/c4/README.md) and run:
+
+```sh
+./scripts/test-c4-persistence.sh
+```
+
+The sections below describe the original Sprint 1 foundation. Its scope exclusions
+are historical; the main changelog now includes the later C1–C4 business tables.
+
 This folder implements the Sprint 1 database foundation for:
 
 - organisations and organisation ownership;
