@@ -403,6 +403,7 @@ resource "azurerm_container_app_environment" "aca_env" {
 # 6.1 Backend API / workflow Container App
 resource "azurerm_container_app" "api" {
   name                         = "aca-${local.name_prefix}-api"
+  workload_profile_name        = "Consumption"
   container_app_environment_id = azurerm_container_app_environment.aca_env.id
   resource_group_name          = azurerm_resource_group.env_rg.name
   revision_mode                = "Single"
@@ -457,7 +458,7 @@ resource "azurerm_container_app" "api" {
       name   = "workflow-api"
       image  = var.image_digest
       cpu    = 0.5
-      memory = "1.0Gi"
+      memory = "1Gi"
 
       env {
         name  = "EWASTE_MODE"
@@ -650,7 +651,9 @@ resource "azurerm_container_app" "api" {
 
   lifecycle {
     ignore_changes = [
-      template[0].container[0].image
+      template[0].container[0].image,
+      template[0].container[0].memory,
+      workload_profile_name
     ]
   }
 
@@ -667,6 +670,7 @@ resource "azurerm_container_app" "api" {
 # 6.2 Frontend UI (Next.js) Container App
 resource "azurerm_container_app" "ui" {
   name                         = "aca-${local.name_prefix}-ui"
+  workload_profile_name        = "Consumption"
   container_app_environment_id = azurerm_container_app_environment.aca_env.id
   resource_group_name          = azurerm_resource_group.env_rg.name
   revision_mode                = "Single"
@@ -690,7 +694,7 @@ resource "azurerm_container_app" "ui" {
       name   = "workflow-ui"
       image  = var.ui_image_digest
       cpu    = 0.5
-      memory = "1.0Gi"
+      memory = "1Gi"
 
       env {
         name  = "APP_ENV"
@@ -742,7 +746,9 @@ resource "azurerm_container_app" "ui" {
 
   lifecycle {
     ignore_changes = [
-      template[0].container[0].image
+      template[0].container[0].image,
+      template[0].container[0].memory,
+      workload_profile_name
     ]
   }
 
