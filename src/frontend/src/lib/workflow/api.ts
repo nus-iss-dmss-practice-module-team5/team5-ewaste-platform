@@ -1,6 +1,14 @@
 import { api } from "@/lib/auth/api-client";
 import { toWorkflowError } from "./errors";
 import {
+  USE_LOCAL_BATCH_MOCK,
+  mockCreateBatchDraft,
+  mockEditBatchDraft,
+  mockGetBatch,
+  mockListBatches,
+  mockSubmitBatch,
+} from "./local-batch-mock";
+import {
   USE_LOCAL_OPPORTUNITY_MOCK,
   mockGetOpportunity,
   mockListOpportunities,
@@ -69,6 +77,9 @@ export async function listBatches(
   accessToken: string,
   query: { status?: BatchStatus; page?: number; pageSize?: number } = {},
 ): Promise<Page<Batch>> {
+  if (USE_LOCAL_BATCH_MOCK) {
+    return mockListBatches(query.status);
+  }
   return call(
     api.get("/api/v1/batches", {
       ...authHeaders(accessToken),
@@ -86,6 +97,9 @@ export async function getBatch(
   accessToken: string,
   batchId: string,
 ): Promise<Batch> {
+  if (USE_LOCAL_BATCH_MOCK) {
+    return mockGetBatch(batchId);
+  }
   return call(
     api.get(`/api/v1/batches/${batchId}`, authHeaders(accessToken)),
     (data) => parseData(data, parseBatch, "Batch"),
@@ -129,6 +143,9 @@ export async function createBatchDraft(
   input: BatchDraftRequest,
   idempotencyKey: string,
 ): Promise<Batch> {
+  if (USE_LOCAL_BATCH_MOCK) {
+    return mockCreateBatchDraft(input);
+  }
   return call(
     api.post(
       "/api/v1/batches",
@@ -146,6 +163,9 @@ export async function editBatchDraft(
   input: BatchDraftRequest,
   idempotencyKey: string,
 ): Promise<Batch> {
+  if (USE_LOCAL_BATCH_MOCK) {
+    return mockEditBatchDraft(batchId, version, input);
+  }
   return call(
     api.patch(
       `/api/v1/batches/${batchId}`,
@@ -162,6 +182,9 @@ export async function submitBatch(
   version: number,
   idempotencyKey: string,
 ): Promise<Batch> {
+  if (USE_LOCAL_BATCH_MOCK) {
+    return mockSubmitBatch(batchId, version);
+  }
   return call(
     api.post(
       `/api/v1/batches/${batchId}/submit`,

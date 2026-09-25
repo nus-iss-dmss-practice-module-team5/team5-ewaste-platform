@@ -12,6 +12,10 @@ func TestEntityTableNamesMatchLiquibaseSchema(t *testing.T) {
 		"user":         (User{}).TableName(),
 		"session":      (Session{}).TableName(),
 		"login_audit":  (LoginAudit{}).TableName(),
+		"batch":        (Batch{}).TableName(),
+		"command":      (CommandIdempotency{}).TableName(),
+		"batch_audit":  (BatchAuditEvent{}).TableName(),
+		"outbox":       (EventOutbox{}).TableName(),
 	}
 	expected := map[string]string{
 		"organisation": "organisations",
@@ -19,6 +23,10 @@ func TestEntityTableNamesMatchLiquibaseSchema(t *testing.T) {
 		"user":         "users",
 		"session":      "sessions",
 		"login_audit":  "login_audit",
+		"batch":        "ewaste_batches",
+		"command":      "command_idempotency",
+		"batch_audit":  "batch_audit_events",
+		"outbox":       "event_outbox",
 	}
 	for name, want := range expected {
 		if tests[name] != want {

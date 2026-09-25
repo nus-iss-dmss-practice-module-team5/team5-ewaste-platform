@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
+	"workflow-api/internal/apierror"
 	"workflow-api/internal/dto"
 	"workflow-api/internal/model"
 	"workflow-api/internal/repository"
@@ -45,14 +46,14 @@ func (s *AuthService) Login(ctx context.Context, request dto.LoginRequest, metad
 	user, err := s.repository.FindActiveUserByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
-			s.writeLoginAudit(ctx, email, nil, metadata, LoginAuditFailure, "AUTH_INVALID_CREDENTIALS")
+			s.writeLoginAudit(ctx, email, nil, metadata, LoginAuditFailure, string(apierror.InvalidCredentials))
 			return dto.TokenResponse{}, ErrInvalidCredentials
 		}
-		s.writeLoginAudit(ctx, email, nil, metadata, LoginAuditFailure, "AUTH_SERVICE_UNAVAILABLE")
+		s.writeLoginAudit(ctx, email, nil, metadata, LoginAuditFailure, string(apierror.ServiceUnavailable))
 		return dto.TokenResponse{}, err
 	}
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(request.Password)) != nil {
-		s.writeLoginAudit(ctx, email, &user.UserID, metadata, LoginAuditFailure, "AUTH_INVALID_CREDENTIALS")
+		s.writeLoginAudit(ctx, email, &user.UserID, metadata, LoginAuditFailure, string(apierror.InvalidCredentials))
 		return dto.TokenResponse{}, ErrInvalidCredentials
 	}
 
@@ -60,7 +61,7 @@ func (s *AuthService) Login(ctx context.Context, request dto.LoginRequest, metad
 	sessionID := token.NewSessionID()
 	access, refresh, accessExpiry, refreshExpiry, err := s.tokens.Issue(user.UserID, sessionID, user.RoleCode, user.OrganisationID, now)
 	if err != nil {
-		s.writeLoginAudit(ctx, email, &user.UserID, metadata, LoginAuditFailure, "AUTH_SERVICE_UNAVAILABLE")
+		s.writeLoginAudit(ctx, email, &user.UserID, metadata, LoginAuditFailure, string(apierror.ServiceUnavailable))
 		return dto.TokenResponse{}, err
 	}
 	session := &model.Session{
@@ -68,7 +69,7 @@ func (s *AuthService) Login(ctx context.Context, request dto.LoginRequest, metad
 		IssuedAt: now, ExpiresAt: refreshExpiry,
 	}
 	if err := s.repository.CreateLoginSession(ctx, user, session, now); err != nil {
-		s.writeLoginAudit(ctx, email, &user.UserID, metadata, LoginAuditFailure, "AUTH_SERVICE_UNAVAILABLE")
+		s.writeLoginAudit(ctx, email, &user.UserID, metadata, LoginAuditFailure, string(apierror.ServiceUnavailable))
 		return dto.TokenResponse{}, err
 	}
 	s.writeLoginAudit(ctx, email, &user.UserID, metadata, LoginAuditSuccess, "")
@@ -79,7 +80,7 @@ func (s *AuthService) Login(ctx context.Context, request dto.LoginRequest, metad
 }
 
 func (s *AuthService) AuditInvalidLoginRequest(ctx context.Context, email string, metadata LoginAuditMetadata) {
-	s.writeLoginAudit(ctx, normalizeAuditEmail(email), nil, metadata, LoginAuditFailure, "AUTH_INVALID_REQUEST")
+	s.writeLoginAudit(ctx, normalizeAuditEmail(email), nil, metadata, LoginAuditFailure, string(apierror.InvalidRequest))
 }
 
 func (s *AuthService) writeLoginAudit(ctx context.Context, email string, userID *string, metadata LoginAuditMetadata, result, reasonCode string) {
