@@ -2,7 +2,7 @@ name: Database - Liquibase Migration
 
 on:
   push:
-    branches: [azure-checkov-fix]
+    branches: [dev, main]
     paths:
       - 'database/**'
       - '.github/workflows/database-migration.yml'
