@@ -120,7 +120,6 @@ jobs:
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           echo "Logging into Azure Container Registry $ACR_NAME via Runner Managed Identity over Private Link..."
 
-          # Dynamically discover the Runner VM's Managed Identity for this environment (Zero Hardcoding)
           RUNNER_CLIENT_ID=$(az identity show \
             --name "id-runner-ewaste-${TARGET_ENV}" \
             --resource-group "rg-ewaste-${TARGET_ENV}" \
@@ -129,13 +128,32 @@ jobs:
           echo "Authenticating via Managed Identity: $RUNNER_CLIENT_ID"
           az login --identity --client-id "$RUNNER_CLIENT_ID"
 
-          # Acquire native ACR token using the VM's RBAC role
-          TOKEN=$(az account get-access-token --resource https://containerregistry.azure.net --query accessToken --output tsv)
+          # 1. Acquire ARM token for container registry
+          ARM_TOKEN=$(az account get-access-token --resource https://containerregistry.azure.net --query accessToken --output tsv)
+          TENANT_ID=$(az account show --query tenantId -o tsv)
 
-          # Authenticate Docker daemon over Private Link
-          echo "$TOKEN" | docker login "${ACR_NAME}.azurecr.io" \
-            --username 00000000-0000-0000-0000-000000000000 \
-            --password-stdin
+          # 2. Exchange ARM token for ACR Refresh Token using tenant context
+          ACR_REFRESH_TOKEN=$(curl -s -k -X POST "https://${ACR_NAME}.azurecr.io/oauth2/exchange" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "grant_type=access_token" \
+            --data-urlencode "service=${ACR_NAME}.azurecr.io" \
+            --data-urlencode "tenant=${TENANT_ID}" \
+            --data-urlencode "access_token=${ARM_TOKEN}" | jq -r .refresh_token)
+
+          if [ -n "$ACR_REFRESH_TOKEN" ] && [ "$ACR_REFRESH_TOKEN" != "null" ]; then
+            echo "$ACR_REFRESH_TOKEN" | docker login "${ACR_NAME}.azurecr.io" \
+              --username 00000000-0000-0000-0000-000000000000 \
+              --password-stdin
+          else
+            echo "Direct exchange response:"
+            curl -k -i -X POST "https://${ACR_NAME}.azurecr.io/oauth2/exchange" \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              --data-urlencode "grant_type=access_token" \
+              --data-urlencode "service=${ACR_NAME}.azurecr.io" \
+              --data-urlencode "tenant=${TENANT_ID}" \
+              --data-urlencode "access_token=${ARM_TOKEN}"
+            exit 1
+          fi
 
       # ------------------------------------------------------------------------
       # 1.1 BACKEND API CONTAINER
