@@ -118,7 +118,10 @@ jobs:
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
-          az acr login --name "$ACR_NAME"
+
+          # Retrieve an ACR registry refresh token directly via az acr login --expose-token
+          ACR_TOKEN=$(az acr login --name "$ACR_NAME" --expose-token --output tsv --query accessToken)
+          echo "$ACR_TOKEN" | docker login "${ACR_NAME}.azurecr.io" --username 00000000-0000-0000-0000-000000000000 --password-stdin
 
       # ------------------------------------------------------------------------
       # 1.1 BACKEND API CONTAINER
