@@ -400,13 +400,16 @@ describe("workflow api", () => {
       "token",
       "asg-1",
       1,
-      { failureReason: " collector absent ", observedDetails: "No recipient" },
+      {
+        failureReason: "DONOR_UNAVAILABLE",
+        observedDetails: " No recipient ",
+      },
       "idem-fail",
     );
 
     const body = post.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(body).toEqual({
-      failure_reason: "collector absent",
+      failure_reason: "DONOR_UNAVAILABLE",
       observed_details: "No recipient",
     });
     expect(body).not.toHaveProperty("version");

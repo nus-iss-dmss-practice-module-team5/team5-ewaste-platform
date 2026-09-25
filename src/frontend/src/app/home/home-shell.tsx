@@ -4,6 +4,7 @@ import { ROLE_HOME_TITLE, ROLE_LABEL, ROLE_NAV } from "@/lib/auth/roles";
 import { useSession } from "@/lib/auth/session-context";
 import { useState } from "react";
 import { ClaimAction } from "./claim-action";
+import { CollectorWork } from "./collector-work";
 import { DonorBatchForm, DonorBatchList } from "./donor-batches";
 import { OpportunityView } from "./opportunities";
 
@@ -29,6 +30,10 @@ export function HomeShell() {
       <OpportunityView />
     ) : user.role === "RECYCLER" && current === "claim" ? (
       <ClaimAction />
+    ) : user.role === "COLLECTOR" && current === "assignments" ? (
+      <CollectorWork />
+    ) : user.role === "COLLECTOR" && current === "history" ? (
+      <CollectorWork history />
     ) : null;
 
   async function onLogout() {

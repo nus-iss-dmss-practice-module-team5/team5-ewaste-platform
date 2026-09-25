@@ -10,6 +10,16 @@ import {
 } from "./local-batch-mock";
 import { USE_LOCAL_CLAIM_MOCK, mockClaimOpportunity } from "./local-claim-mock";
 import {
+  USE_LOCAL_COLLECTOR_MOCK,
+  mockAcceptAssignment,
+  mockListAssignments,
+  mockListBatches as mockListCollectorBatches,
+  mockRecordHandoff,
+  mockRejectAssignment,
+  mockReportFailedPickup,
+  mockSelectAssignment,
+} from "./local-collector-mock";
+import {
   USE_LOCAL_OPPORTUNITY_MOCK,
   mockGetOpportunity,
   mockListOpportunities,
@@ -32,6 +42,7 @@ import type {
   ClaimCommand,
   ClaimResult,
   FailPickupCommand,
+  FailureReason,
   HandoffCommand,
   Opportunity,
   Page,
@@ -80,6 +91,9 @@ export async function listBatches(
 ): Promise<Page<Batch>> {
   if (USE_LOCAL_BATCH_MOCK) {
     return mockListBatches(query.status);
+  }
+  if (USE_LOCAL_COLLECTOR_MOCK) {
+    return mockListCollectorBatches(query.status);
   }
   return call(
     api.get("/api/v1/batches", {
@@ -265,6 +279,9 @@ export async function selectAssignment(
   command: SelectAssignmentCommand,
   idempotencyKey: string,
 ): Promise<Assignment> {
+  if (USE_LOCAL_COLLECTOR_MOCK) {
+    return mockSelectAssignment(batchId, command);
+  }
   return call(
     api.post(
       `/api/v1/batches/${batchId}/assignments`,
@@ -287,6 +304,9 @@ export async function listAssignments(
     pageSize?: number;
   } = {},
 ): Promise<Page<Assignment>> {
+  if (USE_LOCAL_COLLECTOR_MOCK) {
+    return mockListAssignments();
+  }
   return call(
     api.get("/api/v1/assignments", {
       ...authHeaders(accessToken),
@@ -306,6 +326,9 @@ export async function acceptAssignment(
   version: number,
   idempotencyKey: string,
 ): Promise<Assignment> {
+  if (USE_LOCAL_COLLECTOR_MOCK) {
+    return mockAcceptAssignment(assignmentId, version);
+  }
   return call(
     api.post(
       `/api/v1/assignments/${assignmentId}/accept`,
@@ -323,6 +346,9 @@ export async function rejectAssignment(
   rejectionReason: string,
   idempotencyKey: string,
 ): Promise<Assignment> {
+  if (USE_LOCAL_COLLECTOR_MOCK) {
+    return mockRejectAssignment(assignmentId, version);
+  }
   return call(
     api.post(
       `/api/v1/assignments/${assignmentId}/reject`,
@@ -340,6 +366,9 @@ export async function recordHandoff(
   command: HandoffCommand,
   idempotencyKey: string,
 ): Promise<Assignment> {
+  if (USE_LOCAL_COLLECTOR_MOCK) {
+    return mockRecordHandoff(assignmentId, version);
+  }
   const body: {
     pickup_occurred_at: string;
     donor_representative_name: string;
@@ -373,11 +402,14 @@ export async function reportFailedPickup(
   command: FailPickupCommand,
   idempotencyKey: string,
 ): Promise<Assignment> {
+  if (USE_LOCAL_COLLECTOR_MOCK) {
+    return mockReportFailedPickup(assignmentId, version);
+  }
   const body: {
-    failure_reason: string;
+    failure_reason: FailureReason;
     observed_details?: string;
   } = {
-    failure_reason: command.failureReason.trim(),
+    failure_reason: command.failureReason,
   };
   const observedDetails = command.observedDetails?.trim();
   if (observedDetails) {
