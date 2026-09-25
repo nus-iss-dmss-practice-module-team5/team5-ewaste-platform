@@ -1581,7 +1581,7 @@ CALL c3_clone('claim.superseded_before_claim', 'batch_claims', 'f3000000-0000-40
 
 CALL c3_clone('claim.notes_255_unicode', 'batch_claims', 'f3000000-0000-4000-8000-000000000001', 'f3999999-0000-4000-8000-000000000099', JSON_OBJECT('batch_id','''b3000000-0000-4000-8000-000000000002''','idempotency_key','''C3-Fresh-Key-000002''','notes','REPEAT(''界'',255)'), 0, '');
 
-CALL c3_clone('claim.key_16', 'batch_claims', 'f3000000-0000-4000-8000-000000000001', 'f3999999-0000-4000-8000-000000000099', JSON_OBJECT('batch_id','''b3000000-0000-4000-8000-000000000002''','idempotency_key','''1234567890abcdef'''), 0, '');
+CALL c3_clone('claim.key_16', 'batch_claims', 'f3000000-0000-4000-8000-000000000001', 'f3999999-0000-4000-8000-000000000099', JSON_OBJECT('batch_id','''b3000000-0000-4000-8000-000000000002''','idempotency_key','REPEAT(''k'',16)'), 0, '');
 
 CALL c3_clone('claim.key_64', 'batch_claims', 'f3000000-0000-4000-8000-000000000001', 'f3999999-0000-4000-8000-000000000099', JSON_OBJECT('batch_id','''b3000000-0000-4000-8000-000000000002''','idempotency_key','REPEAT(''k'',64)'), 0, '');
 
