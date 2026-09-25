@@ -17,7 +17,7 @@ on:
         type: string
       blob_name:
         description: 'Blob Name (e.g., dev.tfstate)'
-        default: 'dev.tfstate'
+        default: 'shared.tfstate'
         required: true
         type: string
 
@@ -46,7 +46,7 @@ jobs:
           inlineScript: |
             STORAGE_ACCOUNT="${{ inputs.storage_account || secrets.TF_STATE_STORAGE_ACCOUNT || 'ewastetfstatese' }}"
             CONTAINER_NAME="${{ inputs.container_name || 'tfstate' }}"
-            BLOB_NAME="${{ inputs.blob_name || 'dev.tfstate' }}"
+            BLOB_NAME="${{ inputs.blob_name || 'shared.tfstate' }}"
 
             echo "Attempting to break lease on: $BLOB_NAME in $STORAGE_ACCOUNT/$CONTAINER_NAME"
 
