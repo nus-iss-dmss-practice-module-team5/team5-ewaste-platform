@@ -116,8 +116,23 @@ jobs:
       - name: Log in to Azure Container Registry
         run: |
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
           echo "Logging into Azure Container Registry $ACR_NAME via private network endpoint..."
+
+          # Dynamically discover the environment's Private Endpoint IP via Azure CLI (no hardcoding!)
+          PE_NIC_ID=$(az network private-endpoint show \
+            --name "pe-acr-ewaste-${TARGET_ENV}" \
+            --resource-group "rg-ewaste-${TARGET_ENV}" \
+            --query "networkInterfaces[0].id" -o tsv 2>/dev/null || true)
+
+          if [ -n "$PE_NIC_ID" ]; then
+            PE_IP=$(az network nic show --ids "$PE_NIC_ID" --query "ipConfigurations[0].privateIPAddress" -o tsv)
+            echo "Dynamically discovered Private Endpoint IP: $PE_IP"
+            echo "$PE_IP ${ACR_NAME}.azurecr.io" | sudo tee -a /etc/hosts
+            echo "$PE_IP ${ACR_NAME}.japaneast.data.azurecr.io" | sudo tee -a /etc/hosts
+          fi
+
           TOKEN=$(az account get-access-token --resource https://containerregistry.azure.net --query accessToken --output tsv)
           echo "$TOKEN" | docker login "${ACR_NAME}.azurecr.io" --username 00000000-0000-0000-0000-000000000000 --password-stdin
 
