@@ -36,6 +36,13 @@ batches, matching results or recycler configuration. Production excludes the
 and activation time. Policies referenced by matching decisions are retained;
 this seed has no destructive rollback.
 
+For the reported dev configuration IDs (`p226...`, `c1`–`c8`, `z1`–`z10`), use
+the [migration and deployment recovery guide](maintenance/README.md).
+Changeset `EWCSB129-106` runs after seed 105 in the master changelog with the
+explicit `seed` context. It preserves business values and rejects historical
+references or reserved capacity. Databases without these old IDs are unchanged;
+Liquibase records a successful no-op. No manual SQL repair is required.
+
 For C3 claim repository, constraints and concurrent MySQL fixtures, see
 [the C3 test guide](tests/c3/README.md) and run:
 

@@ -34,6 +34,12 @@ CD reuses the current Terraform resources: Event Hubs namespace/topics, managed
 identity, ACR, and `aca-ewaste-{env}-analytics`. It requires those resources to
 exist and preserves ingress, identity, registry and scaling settings.
 
+Terraform and CD both require the environment's same `MATCHER_SIGNING_SECRET`.
+Terraform retains the API facade and worker configuration on subsequent applies;
+CD deploys immutable images and restarts revisions after updating secrets. For
+the September 26 invalid configuration IDs and missing environment settings,
+follow the [dev recovery guide](../../database/maintenance/README.md).
+
 The original approved schema/API files and two golden fixtures remain unchanged.
 Their design-document implementation status is historical. Implemented internal
 routes and public opportunity reads are listed in the façade README.

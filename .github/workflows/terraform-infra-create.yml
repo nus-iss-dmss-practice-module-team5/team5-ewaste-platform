@@ -142,6 +142,12 @@ jobs:
         with:
           terraform_version: 1.8.0
 
+      - name: Validate Matcher Infrastructure Configuration
+        run: |
+          terraform -chdir=terraform/environments init -backend=false -input=false
+          terraform -chdir=terraform/environments validate
+          terraform -chdir=terraform/environments test -filter=tests/matcher.tftest.hcl
+
       # ------------------------------------------------------------------------
       # 1.1 SHARED INFRASTRUCTURE (ACR & Log Analytics Workspace)
       # ------------------------------------------------------------------------
@@ -164,7 +170,13 @@ jobs:
       # 1.2 ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, Event Hubs, ACA)
       # ------------------------------------------------------------------------
       - name: Apply Target Environment Infrastructure
+        env:
+          TF_VAR_matcher_signing_secret: ${{ secrets.MATCHER_SIGNING_SECRET }}
         run: |
+          if [ "${#TF_VAR_matcher_signing_secret}" -lt 32 ]; then
+            echo "::error::MATCHER_SIGNING_SECRET must contain at least 32 characters for this environment."
+            exit 1
+          fi
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           cd terraform/environments
           terraform init \
