@@ -11,7 +11,21 @@ see [the C1 test guide](tests/c1/README.md) and run:
 ```
 
 C1 batch fixtures require the explicit `c1-fixtures` context; the existing
-`seed` context continues to load only synthetic Sprint 1 identities.
+`seed` context loads synthetic Sprint 1 identities and the `binary-v1` matching
+policy from `seed/105-seed-matching-rule-sets.sql`. The policy seed runs once in
+dev/staging, references the active platform administrator `USR-001`, and becomes
+effective at migration time in UTC. It halts if the administrator is missing or
+inactive, the policy version/ID already exists, or another rule set has an
+overlapping activation window. Repeated Liquibase updates leave the policy and
+its activation timestamp unchanged. Existing migrations are not modified.
+
+The policy JSON matches `contracts/matching/contracts/MatchingInput.v1.schema.json`.
+Recycler profiles, capabilities, capacity pools and service zones still require
+configuration before a receiver can qualify for a match. This seed creates no
+batches, matching results or recycler configuration. Production excludes the
+`seed` context and must provision the policy with its own approved administrator
+and activation time. Policies referenced by matching decisions are retained;
+this seed has no destructive rollback.
 
 For C3 claim repository, constraints and concurrent MySQL fixtures, see
 [the C3 test guide](tests/c3/README.md) and run:

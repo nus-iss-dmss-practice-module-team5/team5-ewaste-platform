@@ -51,6 +51,9 @@ func integrationStore(t *testing.T) *Store {
 		}
 	}
 	exec("INSERT IGNORE INTO matching_rule_sets(id,version,rules_json,effective_from,created_by,created_at) VALUES(?,?,?,'2026-01-01','USR-001',?)", rule["rule_set_id"], rule["rule_set_version"], string(canonical(rule["rules_json"])), now)
+	// This disposable fixture evaluates at a fixed historical time, whereas the
+	// migration activates its policy at deployment time. Preserve its ID/content.
+	exec("UPDATE matching_rule_sets SET effective_from='2026-01-01' WHERE version=?", rule["rule_set_version"])
 	exec("INSERT INTO recycler_matching_profiles(recycler_org_id,is_active,version,created_at,updated_at) VALUES('PROC-001',1,1,?,?) ON DUPLICATE KEY UPDATE is_active=1", now, now)
 	org := obj(arr(f["organisations"])[0])
 	poolConfig := obj(arr(org["capacity_pools"])[0])

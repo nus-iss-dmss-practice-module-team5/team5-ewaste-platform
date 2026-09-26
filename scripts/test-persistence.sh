@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-contained persistence suite for migrations 001-025 (Sprint 1, C1, C2/C3, C4).
 # SQL checks, fixtures, concurrency probes and Docker configuration are embedded.
-# Only production migrations, identity seeds and database/Dockerfile are inputs.
+# Only production migrations, identity/policy seeds and database/Dockerfile are inputs.
 # No src/ files, Go toolchain, or external test packages are required.
 # This tests database guarantees; application command behavior is outside scope.
 # Requires Bash, Git, Docker with Compose, and sha256sum or shasum.
@@ -51,11 +51,11 @@ cd "$ROOT_DIR"
 git rev-parse HEAD > "$RUN_DIR/base-commit.txt"
 git branch --show-current > "$RUN_DIR/branch.txt"
 "${HASH[@]}" scripts/test-persistence.sh database/Dockerfile database/changelog-master.yaml \
-  database/changes/*.sql database/seed/10[123]-*.sql > "$RUN_DIR/source-inputs.sha256"
+  database/changes/*.sql database/seed/10[1235]-*.sql > "$RUN_DIR/source-inputs.sha256"
 mkdir -p "$WORK_DIR/database/changes" "$WORK_DIR/database/seed"
 cp database/Dockerfile database/changelog-master.yaml "$WORK_DIR/database/"
 cp database/changes/*.sql "$WORK_DIR/database/changes/"
-cp database/seed/10[123]-*.sql "$WORK_DIR/database/seed/"
+cp database/seed/10[1235]-*.sql "$WORK_DIR/database/seed/"
 
 mysql_query() {
   local db="$1"; shift
@@ -76,6 +76,14 @@ check_scalar() {
   actual="$(mysql_query "$db" --skip-column-names -e "$query")"
   printf '%s\t%s\t%s\n' "$name" "$actual" "$expected" >> "$EVIDENCE_DIR/migration-checks.tsv"
   [[ "$actual" == "$expected" ]] || { printf 'FAIL %s: %s != %s\n' "$name" "$actual" "$expected" >&2; return 1; }
+}
+reject_matching_seed() {
+  local db="$1" name="$2"
+  if lb "$db" "$name" --changelog-file=seed/105-seed-matching-rule-sets.sql update --context-filter=seed; then
+    echo "FAIL: $name unexpectedly applied the matching policy." >&2; return 1
+  fi
+  grep -q 'SQL Precondition failed' "$EVIDENCE_DIR/$db-$name.log"
+  check_scalar "$db" "$name" "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-105'" 0
 }
 dump_rows() {
   local db="$1" dest="$2"; shift 2
@@ -2351,24 +2359,39 @@ run_c4() {
   lb c4_clean schema update
   check_scalar c4_clean schema_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 28
   check_scalar c4_clean seed_excluded 'SELECT COUNT(*) FROM users' 0
+  check_scalar c4_clean matching_seed_excluded 'SELECT COUNT(*) FROM matching_rule_sets' 0
   check_scalar c4_clean claims_empty 'SELECT COUNT(*) FROM batch_claims' 0
+  reject_matching_seed c4_clean matching_seed_missing_creator
   lb c4_clean identities update --context-filter=seed
   check_scalar c4_clean c1_fixtures_opt_in 'SELECT COUNT(*) FROM ewaste_batches' 0
+  check_scalar c4_clean matching_seed_active "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND created_by='USR-001' AND effective_from=created_at AND effective_from<=UTC_TIMESTAMP(6) AND retired_at IS NULL" 1
 
   echo '[2/6] Upgrading existing C3 claims while preserving all rows and changelog identities.'
   lb c4_upgrade c3-baseline --changelog-file=tests/c3/changelog-c3.yaml update --context-filter=seed,c1-fixtures
   check_scalar c4_upgrade c3_baseline_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 25
   mysql_query c4_upgrade < database/tests/c3/schema-fixtures.sql
-  C3_TABLES=(organisations roles users sessions login_audit ewaste_batches command_idempotency batch_audit_events event_outbox matching_rule_sets recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones matching_decisions matched_results batch_claims capacity_reservations)
+  mysql_query c4_upgrade -e "UPDATE users SET status='DISABLED' WHERE user_id='USR-001'"
+  reject_matching_seed c4_upgrade matching_seed_inactive_creator
+  mysql_query c4_upgrade -e "UPDATE users SET status='ACTIVE' WHERE user_id='USR-001'"
+  mysql_query c4_upgrade -e "INSERT INTO matching_rule_sets(id,version,rules_json,effective_from,created_by,created_at) VALUES('a1299999-0000-4000-8000-000000000001','overlap-test',JSON_OBJECT(),UTC_TIMESTAMP(6)+INTERVAL 1 DAY,'USR-001',UTC_TIMESTAMP(6))"
+  reject_matching_seed c4_upgrade matching_seed_overlapping_policy
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET version='binary-v1',effective_from='2026-01-01',retired_at='2026-01-02' WHERE version='overlap-test'"
+  reject_matching_seed c4_upgrade matching_seed_existing_version
+  mysql_query c4_upgrade -e "DELETE FROM matching_rule_sets WHERE id='a1299999-0000-4000-8000-000000000001'"
+  C3_TABLES=(organisations roles users sessions login_audit ewaste_batches command_idempotency batch_audit_events event_outbox recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones matching_decisions matched_results batch_claims capacity_reservations)
   dump_rows c4_upgrade "$EVIDENCE_DIR/c3-before.sql" "${C3_TABLES[@]}"
+  dump_rows c4_upgrade "$EVIDENCE_DIR/c3-rules-before.sql" matching_rule_sets
   mysql_query c4_upgrade -e 'SELECT ID,AUTHOR,FILENAME,MD5SUM,DATEEXECUTED FROM DATABASECHANGELOG ORDER BY ID' > "$EVIDENCE_DIR/changelog-before.tsv"
   lb c4_upgrade validate validate
   lb c4_upgrade preview update-sql --context-filter=seed,c1-fixtures
   lb c4_upgrade upgrade update --context-filter=seed,c1-fixtures
-  check_scalar c4_upgrade upgraded_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 32
+  check_scalar c4_upgrade upgraded_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 33
+  check_scalar c4_upgrade matching_seed_active "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND created_by='USR-001' AND effective_from=created_at AND effective_from<=UTC_TIMESTAMP(6) AND retired_at IS NULL" 1
   dump_rows c4_upgrade "$EVIDENCE_DIR/c3-after.sql" "${C3_TABLES[@]}"
   diff -u "$EVIDENCE_DIR/c3-before.sql" "$EVIDENCE_DIR/c3-after.sql" > "$EVIDENCE_DIR/c3-preserved-diff.txt"
-  mysql_query c4_upgrade -e "SELECT ID,AUTHOR,FILENAME,MD5SUM,DATEEXECUTED FROM DATABASECHANGELOG WHERE ID NOT LIKE 'EWCSB4-%' ORDER BY ID" > "$EVIDENCE_DIR/changelog-after.tsv"
+  dump_rows c4_upgrade "$EVIDENCE_DIR/c3-rules-after.sql" matching_rule_sets --where="id <> 'a1290000-0000-4000-8000-000000000001'"
+  diff -u "$EVIDENCE_DIR/c3-rules-before.sql" "$EVIDENCE_DIR/c3-rules-after.sql" > "$EVIDENCE_DIR/c3-rules-preserved-diff.txt"
+  mysql_query c4_upgrade -e "SELECT ID,AUTHOR,FILENAME,MD5SUM,DATEEXECUTED FROM DATABASECHANGELOG WHERE ID NOT LIKE 'EWCSB4-%' AND ID <> 'EWCSB129-105' ORDER BY ID" > "$EVIDENCE_DIR/changelog-after.tsv"
   diff -u "$EVIDENCE_DIR/changelog-before.tsv" "$EVIDENCE_DIR/changelog-after.tsv" > "$EVIDENCE_DIR/changelog-preserved-diff.txt"
   mysql_query c4_clean < database/tests/c3/schema-fixtures.sql
 
@@ -2390,7 +2413,7 @@ run_c4() {
   mysql_query c4_clean -e "SELECT * FROM batch_handoffs ORDER BY batch_id,id" > "$EVIDENCE_DIR/schema-handoffs.tsv"
 
   echo '[5/6] Reapplying migrations and restarting MySQL with committed assignment history.'
-  DOMAIN_TABLES=("${C3_TABLES[@]}" recycler_collector_scopes batch_assignments batch_handoffs assignment_actions DATABASECHANGELOG)
+  DOMAIN_TABLES=("${C3_TABLES[@]}" matching_rule_sets recycler_collector_scopes batch_assignments batch_handoffs assignment_actions DATABASECHANGELOG)
   for db in c4_clean c4_upgrade; do
     dump_rows "$db" "$EVIDENCE_DIR/$db-before-repeat.sql" "${DOMAIN_TABLES[@]}"
     if [[ "$db" == c4_clean ]]; then lb "$db" repeat update --context-filter=seed; else lb "$db" repeat update --context-filter=seed,c1-fixtures; fi
