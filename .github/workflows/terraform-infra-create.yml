@@ -54,17 +54,22 @@ jobs:
     steps:
       - name: Determine Target Environment from Git Context
         id: env_resolver
+        env:
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          TARGET_ENV_INPUT: ${{ inputs.target_env }}
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_REF: ${{ github.ref }}
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            TARGET="${{ inputs.target_env }}"
-            DESC="Manual workflow dispatch to Azure $(echo $TARGET | tr '[:lower:]' '[:upper:]')"
-          elif [ "${{ github.event_name }}" == "pull_request" ] && [ "${{ github.base_ref }}" == "main" ]; then
+          if [ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]; then
+            TARGET="$TARGET_ENV_INPUT"
+            DESC="Manual workflow dispatch to Azure $(echo "$TARGET" | tr '[:lower:]' '[:upper:]')"
+          elif [ "$GITHUB_EVENT_NAME" == "pull_request" ] && [ "$GITHUB_BASE_REF" == "main" ]; then
             TARGET="stg"
             DESC="48-Hour Feature Freeze PR Staging Deployment (Azure STG for Evaluation)"
-          elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          elif [ "$GITHUB_EVENT_NAME" == "push" ] && [ "$GITHUB_REF" == "refs/heads/main" ]; then
             TARGET="prod"
             DESC="Merged Production Release (Azure PROD - Signed & Locked Baseline)"
-          elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/dev" ]; then
+          elif [ "$GITHUB_EVENT_NAME" == "push" ] && [ "$GITHUB_REF" == "refs/heads/dev" ]; then
             TARGET="dev"
             DESC="Active Development Continuous Integration Sandbox (Azure DEV)"
           else
@@ -126,11 +131,13 @@ jobs:
           az provider register --namespace Microsoft.ContainerService --wait
 
       - name: Set ARM Credentials for Terraform
+        env:
+          AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
         run: |
-          CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
-          CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
-          SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)
-          TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)
+          CLIENT_ID=$(echo "$AZURE_CREDENTIALS" | jq -r .clientId)
+          CLIENT_SECRET=$(echo "$AZURE_CREDENTIALS" | jq -r .clientSecret)
+          SUBSCRIPTION_ID=$(echo "$AZURE_CREDENTIALS" | jq -r .subscriptionId)
+          TENANT_ID=$(echo "$AZURE_CREDENTIALS" | jq -r .tenantId)
 
           echo "ARM_CLIENT_ID=$CLIENT_ID" >> $GITHUB_ENV
           echo "ARM_CLIENT_SECRET=$CLIENT_SECRET" >> $GITHUB_ENV
@@ -146,15 +153,19 @@ jobs:
       # 1.1 SHARED INFRASTRUCTURE (ACR & Log Analytics Workspace)
       # ------------------------------------------------------------------------
       - name: Apply Shared Infrastructure
+        env:
+          TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
+          TF_STATE_SA_ACCESS_KEY: ${{ secrets.TF_STATE_SA_ACCESS_KEY }}
+          TERRAFORM_ACTION: ${{ inputs.action }}
         run: |
           cd terraform/shared
           terraform init \
-            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="storage_account_name=$TF_STATE_STORAGE_ACCOUNT" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=shared.tfstate" \
-            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
+            -backend-config="access_key=$TF_STATE_SA_ACCESS_KEY"
 
-          if [ "${{ inputs.action }}" == "plan" ]; then
+          if [ "$TERRAFORM_ACTION" == "plan" ]; then
             terraform plan
           else
             terraform apply -auto-approve
@@ -164,23 +175,30 @@ jobs:
       # 1.2 ENVIRONMENT INFRASTRUCTURE (VNet, DB, Redis, Key Vault, Event Hubs, ACA)
       # ------------------------------------------------------------------------
       - name: Apply Target Environment Infrastructure
+        env:
+          TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
+          TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
+          TF_STATE_SA_ACCESS_KEY: ${{ secrets.TF_STATE_SA_ACCESS_KEY }}
+          TERRAFORM_ACTION: ${{ inputs.action }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          MYSQL_DB_ADMIN_PASSWORD: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
+          AUTH_ACCESS: ${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}
+          AUTH_REFRESH: ${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}
+          AUTH_HASH: ${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_RUNNER_PAT: ${{ secrets.GH_RUNNER_PAT }}
         run: |
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           cd terraform/environments
           terraform init \
-            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="storage_account_name=$TF_STATE_STORAGE_ACCOUNT" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=$TARGET_ENV.tfstate" \
-            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
+            -backend-config="access_key=$TF_STATE_SA_ACCESS_KEY"
 
           TF_VARS_FILE="environments/$TARGET_ENV.tfvars"
           if [ ! -f "$TF_VARS_FILE" ]; then
             TF_VARS_FILE="environments/dev.tfvars"
           fi
-
-          AUTH_ACCESS="${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}"
-          AUTH_REFRESH="${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}"
-          AUTH_HASH="${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}"
 
           if [ "$TARGET_ENV" != "dev" ]; then
             if [ -z "$AUTH_ACCESS" ] || [ -z "$AUTH_REFRESH" ] || [ -z "$AUTH_HASH" ]; then
@@ -200,19 +218,21 @@ jobs:
             AUTH_HASH="${AUTH_HASH:-default-dev-refresh-hash-secret-32-chars}"
           fi
 
+          TENANT_ID_VAL="${AZURE_TENANT_ID:-$ARM_TENANT_ID}"
+
           TF_VAR_ARGS=(
             -var-file="$TF_VARS_FILE"
             -var="environment=$TARGET_ENV"
-            -var="tenant_id=${{ secrets.AZURE_TENANT_ID }}"
-            -var="db_admin_password=${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+            -var="tenant_id=$TENANT_ID_VAL"
+            -var="db_admin_password=$MYSQL_DB_ADMIN_PASSWORD"
             -var="auth_access_secret=$AUTH_ACCESS"
             -var="auth_refresh_secret=$AUTH_REFRESH"
             -var="auth_refresh_hash_secret=$AUTH_HASH"
-            -var="github_repository=${{ github.repository }}"
+            -var="github_repository=$GITHUB_REPOSITORY"
           )
 
-          if [ -n "${{ secrets.GH_RUNNER_PAT }}" ]; then
-            TF_VAR_ARGS+=(-var="github_pat=${{ secrets.GH_RUNNER_PAT }}")
+          if [ -n "$GH_RUNNER_PAT" ]; then
+            TF_VAR_ARGS+=(-var="github_pat=$GH_RUNNER_PAT")
           fi
 
           # ----------------------------------------------------------------
@@ -259,7 +279,7 @@ jobs:
             echo "::warning::Detected Disconnected ACR Private Endpoint. Tainting for clean recreation..."
             terraform taint azurerm_private_endpoint.acr || true
           fi
-          if [ "${{ inputs.action }}" == "plan" ]; then
+          if [ "$TERRAFORM_ACTION" == "plan" ]; then
             terraform plan "${TF_VAR_ARGS[@]}"
           else
             terraform apply -auto-approve "${TF_VAR_ARGS[@]}"
@@ -270,8 +290,11 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Export Infrastructure Outputs
         id: tf_outputs
+        env:
+          TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
+          MYSQL_DB_ADMIN_PASSWORD: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
+          REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
         run: |
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           cd terraform/environments
 
           ACR_SERVER=$(terraform output -raw acr_login_server 2>/dev/null || echo "acrewasteplatform.azurecr.io")
@@ -279,13 +302,13 @@ jobs:
           MYSQL_DB=$(terraform output -raw mysql_database_name 2>/dev/null || echo "ewastedb")
           MYSQL_USER=$(terraform output -raw mysql_admin_username 2>/dev/null || echo "ewasteadmin")
           KV_URI=$(terraform output -raw key_vault_uri 2>/dev/null || echo "")
-          MYSQL_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+          MYSQL_PASS="$MYSQL_DB_ADMIN_PASSWORD"
           if [ -z "$MYSQL_PASS" ]; then
             MYSQL_PASS=$(terraform output -raw mysql_admin_password 2>/dev/null || echo "")
           fi
           ACA_IDENTITY_ID=$(terraform output -raw aca_identity_id 2>/dev/null || echo "")
           REDIS_ADDR="redis-ewaste-${TARGET_ENV}.redis.cache.windows.net:6380"
-          REDIS_PASS="${{ secrets.REDIS_PASSWORD }}"
+          REDIS_PASS="$REDIS_PASSWORD"
           if [ -z "$REDIS_PASS" ]; then
             REDIS_PASS=$(terraform output -raw redis_primary_access_key 2>/dev/null || echo "")
           fi
