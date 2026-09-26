@@ -43,6 +43,51 @@ explicit `seed` context. It preserves business values and rejects historical
 references or reserved capacity. Databases without these old IDs are unchanged;
 Liquibase records a successful no-op. No manual SQL repair is required.
 
+Changeset `EWCSB4-107` adds the confirmed dev/staging collection scopes with the
+explicit `seed` context:
+
+| Collector | Recycler holding the accepted claim | Batch zone |
+| --- | --- | --- |
+| COL-001 | PROC-001 | NORTH |
+| COL-001 | PROC-002 | EAST |
+| COL-002 | PROC-001 | NORTH |
+
+The one backup scope uses the existing `collector2@ewaste.test` account
+(`USR-006`). It is necessary to test concurrent assignment selection and
+replacement after rejection: the same collector cannot immediately select
+their previous assignment again. Run those cases with a NORTH batch claimed by
+PROC-001. EAST remains assigned only to COL-001 by this seed. No new accounts,
+organisations or business records are required.
+
+New scopes are active from migration time, have no expiry and start at version
+1. Existing valid scopes retain their IDs, versions and dates. Missing/inactive
+or incorrectly typed organisations, conflicting IDs, and inactive, expired,
+future-dated or invalid-ID scopes halt the migration for review. Other scope
+rows are retained. Scope identities must remain available for assignment history,
+so this seed has no destructive rollback and is excluded from production.
+
+These scopes control collector visibility and assignment. They do not change
+which recyclers qualify for matching opportunities: recycler matching profiles,
+capabilities, capacity and service zones still determine that eligibility.
+The collector list requires an `APPROVED` batch with a current accepted claim
+whose recycler and zone match an active scope. After migration, rerun the
+collector lifecycle test to verify the deployed API behavior.
+
+For the current dev setup, keep its existing recycler matching profiles,
+capacity pools, capabilities and service zones. Seed 106 repairs the reported
+IDs but does not populate an empty installation; a fresh database still needs
+approved recycler matching configuration before testing opportunities. Do not
+seed batches, claims, assignments, handoffs, audit events or outbox messages to
+bypass the APIs: the test actions should create those records.
+
+Seed data cannot fill implementation gaps. In this branch, assignment selection
+creates an `ACCEPTED` assignment, so a successful separate acceptance requires
+a legacy `PENDING` assignment. Do not seed one just to make that endpoint pass.
+Failed pickup persists `FAILED_COLLECTION`; `RecoverFailedCollection` exists
+as a service method but has no caller, so automatic recovery/reassignment after
+failure cannot yet be verified end to end. Reassignment after rejection can be
+tested through the exposed APIs with the backup collector.
+
 For C3 claim repository, constraints and concurrent MySQL fixtures, see
 [the C3 test guide](tests/c3/README.md) and run:
 
