@@ -149,6 +149,12 @@ jobs:
         with:
           terraform_version: 1.8.0
 
+      - name: Validate Matcher Infrastructure Configuration
+        run: |
+          terraform -chdir=terraform/environments init -backend=false -input=false
+          terraform -chdir=terraform/environments validate
+          terraform -chdir=terraform/environments test -filter=tests/matcher.tftest.hcl
+
       # ------------------------------------------------------------------------
       # 1.1 SHARED INFRASTRUCTURE (ACR & Log Analytics Workspace)
       # ------------------------------------------------------------------------
@@ -176,6 +182,7 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Apply Target Environment Infrastructure
         env:
+          TF_VAR_matcher_signing_secret: ${{ secrets.MATCHER_SIGNING_SECRET }}
           TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
           TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
           TF_STATE_SA_ACCESS_KEY: ${{ secrets.TF_STATE_SA_ACCESS_KEY }}
@@ -188,6 +195,10 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_RUNNER_PAT: ${{ secrets.GH_RUNNER_PAT }}
         run: |
+          if [ "${#TF_VAR_matcher_signing_secret}" -lt 32 ]; then
+            echo "::error::MATCHER_SIGNING_SECRET must contain at least 32 characters for this environment."
+            exit 1
+          fi
           cd terraform/environments
           terraform init \
             -backend-config="storage_account_name=$TF_STATE_STORAGE_ACCOUNT" \

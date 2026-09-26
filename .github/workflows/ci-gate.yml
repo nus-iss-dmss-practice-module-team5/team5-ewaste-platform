@@ -267,7 +267,7 @@ jobs:
       - name: Check Analytics Tests
         id: python-check
         run: |
-          if [ -d "src/analytics" ] && find src/analytics -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit | grep -q .; then
+          if [ -d "src/matcher/tests" ] && find src/matcher/tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit | grep -q .; then
             echo "exists=true" >> "$GITHUB_OUTPUT"
           else
             echo "exists=false" >> "$GITHUB_OUTPUT"
@@ -279,10 +279,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
+          cache-dependency-path: src/matcher/requirements.txt
 
       - name: Install Test Dependencies
         if: steps.python-check.outputs.exists == 'true'
-        working-directory: src/analytics
+        working-directory: src/matcher
         run: |
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
@@ -290,14 +291,14 @@ jobs:
 
       - name: Run PyTest
         if: steps.python-check.outputs.exists == 'true'
-        working-directory: src/analytics
+        working-directory: src/matcher
         run: |
           coverage_args=()
           if [ -n "$PYTHON_MIN_COVERAGE" ]; then
             coverage_args+=("--cov-fail-under=$PYTHON_MIN_COVERAGE")
           fi
-          pytest -v \
-            --cov=. \
+          python -m pytest -v tests \
+            --cov=matcher \
             --cov-report=term \
             --cov-report=xml:coverage.xml \
             "${coverage_args[@]}" \
@@ -306,8 +307,8 @@ jobs:
       - name: Analytics Tests Not Available Yet
         if: steps.python-check.outputs.exists == 'false'
         run: |
-          echo "No Python analytics test files are available yet."
-          echo "Analytics tests will run when src/analytics contains test_*.py or *_test.py files."
+          echo "No Python worker test files are available yet."
+          echo "Analytics tests will run when src/matcher/tests contains test_*.py or *_test.py files."
 
       - name: Upload Python Test Evidence
         if: steps.python-check.outputs.exists == 'true'
@@ -315,8 +316,8 @@ jobs:
         with:
           name: analytics-test-results-${{ github.sha }}
           path: |
-            src/analytics/junit.xml
-            src/analytics/coverage.xml
+            src/matcher/junit.xml
+            src/matcher/coverage.xml
           retention-days: 30
 
 

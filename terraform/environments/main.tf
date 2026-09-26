@@ -459,6 +459,12 @@ resource "azurerm_container_app" "api" {
     value = azurerm_eventhub_namespace_authorization_rule.app_auth.primary_connection_string
   }
 
+  # Shared with CD; IaC must retain the matcher workload identity on reapply.
+  secret {
+    name  = "matching-signing-key"
+    value = var.matcher_signing_secret
+  }
+
   template {
     min_replicas = 1
     max_replicas = 2
@@ -614,6 +620,27 @@ resource "azurerm_container_app" "api" {
         value = "true"
       }
 
+      # ---- Matcher API facade (same settings as scripts/deploy-matcher.sh) ----
+      env {
+        name  = "EWASTE_MATCHING_ENABLED"
+        value = "true"
+      }
+
+      env {
+        name  = "EWASTE_MATCHING_ISSUER"
+        value = "ewaste-matching-${var.environment}"
+      }
+
+      env {
+        name  = "EWASTE_MATCHING_AUDIENCE"
+        value = "ewaste-matching-api-${var.environment}"
+      }
+
+      env {
+        name        = "EWASTE_MATCHING_SIGNING_SECRET"
+        secret_name = "matching-signing-key"
+      }
+
       # ---- Kafka / Event Hubs outbox relay ----
       env {
         name  = "EWASTE_KAFKA_ENABLED"
@@ -641,8 +668,28 @@ resource "azurerm_container_app" "api" {
       }
 
       env {
-        name        = "EWASTE_KAFKA_SASL_PASSWORD"
+        name        = "KAFKA_CONNECTION_STRING"
         secret_name = "kafka-conn"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_PUBLISH_TIMEOUT"
+        value = "60s"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_BATCH_SIZE"
+        value = "1"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_LEASE_DURATION"
+        value = "180s"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_LEADER_LEASE_DURATION"
+        value = "300s"
       }
     }
   }
@@ -792,6 +839,12 @@ resource "azurerm_container_app" "analytics" {
     value = azurerm_eventhub_namespace_authorization_rule.app_auth.primary_connection_string
   }
 
+  # Shared with CD; IaC must retain the matcher workload identity on reapply.
+  secret {
+    name  = "matching-signing-key"
+    value = var.matcher_signing_secret
+  }
+
   template {
     min_replicas = 1
     max_replicas = 2
@@ -812,38 +865,112 @@ resource "azurerm_container_app" "analytics" {
         secret_name = "kafka-conn"
       }
 
+      # Keep the worker startup contract aligned with scripts/deploy-matcher.sh.
       env {
-        name  = "KAFKA_TOPIC_BATCH_EVENTS"
+        name        = "MATCHER_SIGNING_SECRET"
+        secret_name = "matching-signing-key"
+      }
+
+      env {
+        name  = "MATCHER_TOPIC"
         value = "ewaste.batch.events"
       }
 
       env {
-        name  = "KAFKA_TOPIC_DLQ"
+        name  = "MATCHER_DLQ_TOPIC"
         value = "ewaste.batch.events.matching.dlq.v1"
       }
 
       env {
-        name  = "KAFKA_CONSUMER_GROUP"
-        value = "matching-worker"
+        name  = "MATCHER_GROUP_ID"
+        value = "matching-worker-v1"
       }
 
       env {
-        name  = "ENABLE_TEST_ENDPOINTS"
-        value = var.environment == "dev" ? "true" : "false"
+        name  = "MATCHER_OFFSET_RESET"
+        value = "earliest"
       }
 
       env {
-        name  = "LOG_LEVEL"
-        value = "INFO"
+        name  = "MATCHER_FACADE_URL"
+        value = "https://${azurerm_container_app.api.ingress[0].fqdn}"
+      }
+
+      env {
+        name  = "MATCHER_LOCAL_TEST"
+        value = "0"
+      }
+
+      env {
+        name  = "MATCHER_TOKEN_ISSUER"
+        value = "ewaste-matching-${var.environment}"
+      }
+
+      env {
+        name  = "MATCHER_TOKEN_AUDIENCE"
+        value = "ewaste-matching-api-${var.environment}"
+      }
+
+      env {
+        name  = "MATCHER_MAX_POLL_MS"
+        value = "300000"
+      }
+
+      env {
+        name  = "MATCHER_SESSION_TIMEOUT_MS"
+        value = "30000"
+      }
+
+      env {
+        name  = "MATCHER_WORKERS"
+        value = "1"
+      }
+
+      env {
+        name  = "MATCHER_HTTP_TIMEOUT_SECONDS"
+        value = "30"
+      }
+
+      env {
+        name  = "MATCHER_MAX_RESPONSE_BYTES"
+        value = "16777216"
+      }
+
+      env {
+        name  = "MATCHER_MAX_RECORD_BYTES"
+        value = "1000000"
+      }
+
+      env {
+        name  = "MATCHER_DELIVERY_TIMEOUT_SECONDS"
+        value = "120"
+      }
+
+      env {
+        name  = "MATCHER_RETRY_BASE_SECONDS"
+        value = "1"
+      }
+
+      env {
+        name  = "MATCHER_RETRY_MAX_SECONDS"
+        value = "30"
+      }
+
+      env {
+        name  = "MATCHER_MAX_REFRESHES"
+        value = "5"
+      }
+
+      env {
+        name  = "MATCHER_HEALTH_PORT"
+        value = "8000"
       }
     }
   }
 
   ingress {
-    # External ingress only in dev — the smoke test's publish-test and /events
-    # endpoints require an externally reachable FQDN from the GitHub Actions runner.
-    # In stg/prod, the analytics worker runs as an internal consumer-only service;
-    # ENABLE_TEST_ENDPOINTS is false and no external callers need to reach it.
+    # Dev exposes /readyz for the CD smoke check. Stg/prod retain internal
+    # ingress; deployment checks the exact revision's platform health there.
     external_enabled = var.environment == "dev" ? true : false
     target_port      = 8000
     transport        = "auto"

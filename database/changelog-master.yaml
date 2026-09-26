@@ -86,3 +86,9 @@ databaseChangeLog:
   - include:
       file: seed/104-seed-c1-batches.sql
       relativeToChangelogFile: true
+  - include:
+      file: seed/105-seed-matching-rule-sets.sql
+      relativeToChangelogFile: true
+  - include:
+      file: seed/106-repair-matching-config-ids.sql
+      relativeToChangelogFile: true

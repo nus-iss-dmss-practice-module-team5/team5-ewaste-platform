@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-contained persistence suite for migrations 001-025 (Sprint 1, C1, C2/C3, C4).
 # SQL checks, fixtures, concurrency probes and Docker configuration are embedded.
-# Only production migrations, identity seeds and database/Dockerfile are inputs.
+# Only production migrations, seed/repair changesets and database/Dockerfile are inputs.
 # No src/ files, Go toolchain, or external test packages are required.
 # This tests database guarantees; application command behavior is outside scope.
 # Requires Bash, Git, Docker with Compose, and sha256sum or shasum.
@@ -51,11 +51,11 @@ cd "$ROOT_DIR"
 git rev-parse HEAD > "$RUN_DIR/base-commit.txt"
 git branch --show-current > "$RUN_DIR/branch.txt"
 "${HASH[@]}" scripts/test-persistence.sh database/Dockerfile database/changelog-master.yaml \
-  database/changes/*.sql database/seed/10[123]-*.sql > "$RUN_DIR/source-inputs.sha256"
+  database/changes/*.sql database/seed/10[12356]-*.sql > "$RUN_DIR/source-inputs.sha256"
 mkdir -p "$WORK_DIR/database/changes" "$WORK_DIR/database/seed"
 cp database/Dockerfile database/changelog-master.yaml "$WORK_DIR/database/"
 cp database/changes/*.sql "$WORK_DIR/database/changes/"
-cp database/seed/10[123]-*.sql "$WORK_DIR/database/seed/"
+cp database/seed/10[12356]-*.sql "$WORK_DIR/database/seed/"
 
 mysql_query() {
   local db="$1"; shift
@@ -76,6 +76,14 @@ check_scalar() {
   actual="$(mysql_query "$db" --skip-column-names -e "$query")"
   printf '%s\t%s\t%s\n' "$name" "$actual" "$expected" >> "$EVIDENCE_DIR/migration-checks.tsv"
   [[ "$actual" == "$expected" ]] || { printf 'FAIL %s: %s != %s\n' "$name" "$actual" "$expected" >&2; return 1; }
+}
+reject_matching_seed() {
+  local db="$1" name="$2"
+  if lb "$db" "$name" --changelog-file=seed/105-seed-matching-rule-sets.sql update --context-filter=seed; then
+    echo "FAIL: $name unexpectedly applied the matching policy." >&2; return 1
+  fi
+  grep -q 'SQL Precondition failed' "$EVIDENCE_DIR/$db-$name.log"
+  check_scalar "$db" "$name" "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-105'" 0
 }
 dump_rows() {
   local db="$1" dest="$2"; shift 2
@@ -2351,24 +2359,90 @@ run_c4() {
   lb c4_clean schema update
   check_scalar c4_clean schema_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 28
   check_scalar c4_clean seed_excluded 'SELECT COUNT(*) FROM users' 0
+  check_scalar c4_clean matching_seed_excluded 'SELECT COUNT(*) FROM matching_rule_sets' 0
+  check_scalar c4_clean repair_excluded_without_seed "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 0
   check_scalar c4_clean claims_empty 'SELECT COUNT(*) FROM batch_claims' 0
+  reject_matching_seed c4_clean matching_seed_missing_creator
   lb c4_clean identities update --context-filter=seed
+  check_scalar c4_clean unaffected_repair_recorded "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106' AND EXECTYPE='EXECUTED'" 1
   check_scalar c4_clean c1_fixtures_opt_in 'SELECT COUNT(*) FROM ewaste_batches' 0
+  check_scalar c4_clean matching_seed_active "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND created_by='USR-001' AND effective_from=created_at AND effective_from<=UTC_TIMESTAMP(6) AND retired_at IS NULL" 1
+  # An already-applied original 105 checksum must remain valid and unchanged.
+  mysql_query c4_clean -e "UPDATE DATABASECHANGELOG SET MD5SUM='9:e6bf826ee57fbbec596986f0f65ffe25' WHERE ID='EWCSB129-105'"
+  dump_rows c4_clean "$EVIDENCE_DIR/original-105-before.sql" matching_rule_sets DATABASECHANGELOG
+  lb c4_clean original-checksum validate
+  lb c4_clean original-checksum-repeat update --context-filter=seed
+  dump_rows c4_clean "$EVIDENCE_DIR/original-105-after.sql" matching_rule_sets DATABASECHANGELOG
+  diff -u "$EVIDENCE_DIR/original-105-before.sql" "$EVIDENCE_DIR/original-105-after.sql" > "$EVIDENCE_DIR/original-105-preserved-diff.txt"
+
+  # Reuse the isolated, completed C3 database to verify an identical manual
+  # policy with a different valid ID/creator is adopted without changing it.
+  mysql_query c3_clean -e "INSERT INTO matching_rule_sets SELECT 'a1299999-0000-4000-8000-000000000002',version,rules_json,'2026-01-01',NULL,'USR-002','2026-01-01' FROM c4_clean.matching_rule_sets WHERE version='binary-v1'"
+  dump_rows c3_clean "$EVIDENCE_DIR/manual-policy-before.sql" matching_rule_sets
+  lb c3_clean adopt-manual-policy --changelog-file=seed/105-seed-matching-rule-sets.sql update --context-filter=seed
+  dump_rows c3_clean "$EVIDENCE_DIR/manual-policy-after.sql" matching_rule_sets
+  diff -u "$EVIDENCE_DIR/manual-policy-before.sql" "$EVIDENCE_DIR/manual-policy-after.sql" > "$EVIDENCE_DIR/manual-policy-preserved-diff.txt"
+  check_scalar c3_clean manual_policy_adopted "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-105' AND EXECTYPE='EXECUTED'" 1
 
   echo '[2/6] Upgrading existing C3 claims while preserving all rows and changelog identities.'
   lb c4_upgrade c3-baseline --changelog-file=tests/c3/changelog-c3.yaml update --context-filter=seed,c1-fixtures
   check_scalar c4_upgrade c3_baseline_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 25
   mysql_query c4_upgrade < database/tests/c3/schema-fixtures.sql
-  C3_TABLES=(organisations roles users sessions login_audit ewaste_batches command_idempotency batch_audit_events event_outbox matching_rule_sets recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones matching_decisions matched_results batch_claims capacity_reservations)
+  mysql_query c4_upgrade -e "UPDATE users SET status='DISABLED' WHERE user_id='USR-001'"
+  reject_matching_seed c4_upgrade matching_seed_inactive_creator
+  mysql_query c4_upgrade -e "UPDATE users SET status='ACTIVE' WHERE user_id='USR-001'"
+  mysql_query c4_upgrade -e "INSERT INTO matching_rule_sets(id,version,rules_json,effective_from,created_by,created_at) VALUES('a1299999-0000-4000-8000-000000000001','overlap-test',JSON_OBJECT(),UTC_TIMESTAMP(6)+INTERVAL 1 DAY,'USR-001',UTC_TIMESTAMP(6))"
+  reject_matching_seed c4_upgrade matching_seed_overlapping_policy
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET version='binary-v1',effective_from='2026-01-01',retired_at='2026-01-02' WHERE version='overlap-test'"
+  reject_matching_seed c4_upgrade matching_seed_existing_version
+  mysql_query c4_upgrade -e "DELETE FROM matching_rule_sets WHERE id='a1299999-0000-4000-8000-000000000001'"
+  # Reproduce the reported dev row, including its invalid UUID and old dates.
+  mysql_query c4_upgrade -e "INSERT INTO matching_rule_sets SELECT 'r2260000-0000-4000-8000-000000000001',version,rules_json,'2026-01-01',NULL,'USR-001','2026-01-01' FROM c4_clean.matching_rule_sets WHERE version='binary-v1'"
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET rules_json=JSON_SET(rules_json,'$.ranking',TRUE) WHERE version='binary-v1'"
+  reject_matching_seed c4_upgrade matching_seed_different_content
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET rules_json=(SELECT rules_json FROM c4_clean.matching_rule_sets WHERE version='binary-v1'),effective_from=UTC_TIMESTAMP(6)+INTERVAL 1 DAY WHERE version='binary-v1'"
+  reject_matching_seed c4_upgrade matching_seed_future_policy
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET effective_from='2026-01-01',id='x2260000-0000-4000-8000-000000000001' WHERE version='binary-v1'"
+  reject_matching_seed c4_upgrade matching_seed_unknown_invalid_id
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET id='r2260000-0000-4000-8000-000000000001' WHERE version='binary-v1'"
+  mysql_query c4_upgrade -e "INSERT INTO matching_rule_sets(id,version,rules_json,effective_from,retired_at,created_by,created_at) VALUES('a1290000-0000-4000-8000-000000000001','retired-collision',JSON_OBJECT(),'2026-01-01','2026-01-02','USR-001','2026-01-01')"
+  reject_matching_seed c4_upgrade matching_seed_id_collision
+  mysql_query c4_upgrade -e "DELETE FROM matching_rule_sets WHERE version='retired-collision'"
+  local table column
+  for table in command_idempotency event_outbox batch_audit_events; do
+    case "$table" in
+      command_idempotency) column=response_json ;;
+      event_outbox) column=payload_json ;;
+      batch_audit_events) column=details_json ;;
+    esac
+    mysql_query c4_upgrade -e "UPDATE $table SET $column=JSON_SET($column,'$.seed_reference_fixture','r2260000-0000-4000-8000-000000000001')"
+    reject_matching_seed c4_upgrade "matching_seed_referenced_by_$table"
+    mysql_query c4_upgrade -e "UPDATE $table SET $column=JSON_REMOVE($column,'$.seed_reference_fixture')"
+  done
+  mysql_query c4_upgrade <<'SQL_REFERENCED_POLICY'
+INSERT INTO matching_decisions(id,batch_id,trigger_id,trigger_type,batch_version,claim_epoch,rule_set_id,evaluation_at,input_hash,profile_snapshot_hash,input_snapshot_json,outcome,primary_reason,evaluated_count,eligible_count,correlation_id,created_at,completed_at)
+VALUES('a1299999-0000-4000-8000-000000000003','b3000000-0000-4000-8000-000000000001','a1299999-0000-4000-8000-000000000004','EXPLICIT_RUN',3,1,'r2260000-0000-4000-8000-000000000001','2026-09-18',REPEAT('a',64),REPEAT('b',64),JSON_OBJECT(),'NO_MATCH','NO_APPROVED_ORGANISATION',0,0,'seed-reference-fixture','2026-09-18','2026-09-18');
+SQL_REFERENCED_POLICY
+  reject_matching_seed c4_upgrade matching_seed_referenced_by_decision
+  mysql_query c4_upgrade -e "DELETE FROM matching_decisions WHERE id='a1299999-0000-4000-8000-000000000003'"
+  C3_TABLES=(organisations roles users sessions login_audit ewaste_batches command_idempotency batch_audit_events event_outbox recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones matching_decisions matched_results batch_claims capacity_reservations)
   dump_rows c4_upgrade "$EVIDENCE_DIR/c3-before.sql" "${C3_TABLES[@]}"
+  dump_rows c4_upgrade "$EVIDENCE_DIR/c3-rules-before.sql" matching_rule_sets --where="id <> 'r2260000-0000-4000-8000-000000000001'"
+  mysql_query c4_upgrade -e "SELECT version,rules_json,effective_from,retired_at,created_by,created_at FROM matching_rule_sets WHERE version='binary-v1'" > "$EVIDENCE_DIR/repaired-policy-before.tsv"
   mysql_query c4_upgrade -e 'SELECT ID,AUTHOR,FILENAME,MD5SUM,DATEEXECUTED FROM DATABASECHANGELOG ORDER BY ID' > "$EVIDENCE_DIR/changelog-before.tsv"
   lb c4_upgrade validate validate
   lb c4_upgrade preview update-sql --context-filter=seed,c1-fixtures
   lb c4_upgrade upgrade update --context-filter=seed,c1-fixtures
-  check_scalar c4_upgrade upgraded_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 32
+  check_scalar c4_upgrade upgraded_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 34
+  check_scalar c4_upgrade matching_seed_active "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND created_by='USR-001' AND effective_from=created_at AND effective_from<=UTC_TIMESTAMP(6) AND retired_at IS NULL" 1
+  check_scalar c4_upgrade matching_seed_uuid_repaired "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND id='a1290000-0000-4000-8000-000000000001'" 1
+  mysql_query c4_upgrade -e "SELECT version,rules_json,effective_from,retired_at,created_by,created_at FROM matching_rule_sets WHERE version='binary-v1'" > "$EVIDENCE_DIR/repaired-policy-after.tsv"
+  diff -u "$EVIDENCE_DIR/repaired-policy-before.tsv" "$EVIDENCE_DIR/repaired-policy-after.tsv" > "$EVIDENCE_DIR/repaired-policy-preserved-diff.txt"
   dump_rows c4_upgrade "$EVIDENCE_DIR/c3-after.sql" "${C3_TABLES[@]}"
   diff -u "$EVIDENCE_DIR/c3-before.sql" "$EVIDENCE_DIR/c3-after.sql" > "$EVIDENCE_DIR/c3-preserved-diff.txt"
-  mysql_query c4_upgrade -e "SELECT ID,AUTHOR,FILENAME,MD5SUM,DATEEXECUTED FROM DATABASECHANGELOG WHERE ID NOT LIKE 'EWCSB4-%' ORDER BY ID" > "$EVIDENCE_DIR/changelog-after.tsv"
+  dump_rows c4_upgrade "$EVIDENCE_DIR/c3-rules-after.sql" matching_rule_sets --where="id <> 'a1290000-0000-4000-8000-000000000001'"
+  diff -u "$EVIDENCE_DIR/c3-rules-before.sql" "$EVIDENCE_DIR/c3-rules-after.sql" > "$EVIDENCE_DIR/c3-rules-preserved-diff.txt"
+  mysql_query c4_upgrade -e "SELECT ID,AUTHOR,FILENAME,MD5SUM,DATEEXECUTED FROM DATABASECHANGELOG WHERE ID NOT LIKE 'EWCSB4-%' AND ID NOT IN ('EWCSB129-105','EWCSB129-106') ORDER BY ID" > "$EVIDENCE_DIR/changelog-after.tsv"
   diff -u "$EVIDENCE_DIR/changelog-before.tsv" "$EVIDENCE_DIR/changelog-after.tsv" > "$EVIDENCE_DIR/changelog-preserved-diff.txt"
   mysql_query c4_clean < database/tests/c3/schema-fixtures.sql
 
@@ -2390,7 +2464,7 @@ run_c4() {
   mysql_query c4_clean -e "SELECT * FROM batch_handoffs ORDER BY batch_id,id" > "$EVIDENCE_DIR/schema-handoffs.tsv"
 
   echo '[5/6] Reapplying migrations and restarting MySQL with committed assignment history.'
-  DOMAIN_TABLES=("${C3_TABLES[@]}" recycler_collector_scopes batch_assignments batch_handoffs assignment_actions DATABASECHANGELOG)
+  DOMAIN_TABLES=("${C3_TABLES[@]}" matching_rule_sets recycler_collector_scopes batch_assignments batch_handoffs assignment_actions DATABASECHANGELOG)
   for db in c4_clean c4_upgrade; do
     dump_rows "$db" "$EVIDENCE_DIR/$db-before-repeat.sql" "${DOMAIN_TABLES[@]}"
     if [[ "$db" == c4_clean ]]; then lb "$db" repeat update --context-filter=seed; else lb "$db" repeat update --context-filter=seed,c1-fixtures; fi
@@ -2409,6 +2483,126 @@ run_c4() {
   printf 'c4\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
 }
 
+reject_config_repair() {
+  local name="$1" expected="$2"
+  dump_rows matcher_repair "$EVIDENCE_DIR/$name-before.sql" "${REPAIR_TABLES[@]}"
+  if lb matcher_repair "$name" update --context-filter=seed; then
+    echo "FAIL: configuration repair unexpectedly succeeded: $name" >&2; return 1
+  fi
+  grep -Fq "$expected" "$EVIDENCE_DIR/matcher_repair-$name.log"
+  check_scalar matcher_repair "$name-not-recorded" "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 0
+  dump_rows matcher_repair "$EVIDENCE_DIR/$name-after.sql" "${REPAIR_TABLES[@]}"
+  diff -u "$EVIDENCE_DIR/$name-before.sql" "$EVIDENCE_DIR/$name-after.sql" > "$EVIDENCE_DIR/$name-diff.txt"
+}
+
+run_matcher_repair() {
+  EVIDENCE_DIR="$RUN_DIR/matcher-repair"
+  CHANGELOG="changelog-master.yaml"
+  mkdir -p "$EVIDENCE_DIR"
+  printf '\nChecking the reported dev configuration repair and rejected histories.\n'
+  printf 'test_name\tactual\texpected\n' > "$EVIDENCE_DIR/migration-checks.tsv"
+  # Reproduce a database upgraded through 105 before the repair was introduced.
+  # Keep include paths/changeset identities identical to the production master.
+  awk '/^  - include:/ {block=$0 ORS; next} {block=block $0 ORS; if (/relativeToChangelogFile:/) {if (block !~ /106-repair-matching-config-ids/) printf "%s",block; block=""}} NR==1 {printf "%s",block; block=""}' \
+    database/changelog-master.yaml > database/changelog-before-config-repair.yaml
+  lb matcher_repair migrate --changelog-file=changelog-before-config-repair.yaml update --context-filter=seed
+  check_scalar matcher_repair repair_pending "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 0
+  REPAIR_TABLES=(recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones
+    ewaste_batches command_idempotency matching_decisions matched_results batch_claims capacity_reservations event_outbox batch_audit_events)
+  mysql_query matcher_repair <<'REPAIR_FIXTURES'
+INSERT INTO recycler_matching_profiles VALUES
+('PROC-001',1,1,'2026-01-01','2026-01-01'),('PROC-002',1,1,'2026-01-01','2026-01-01');
+INSERT INTO recycler_capacity_pools VALUES
+('p2260000-0000-4000-8000-000000000001','PROC-001','MAIN',50000,0,1,1,'2026-01-01'),
+('p2260000-0000-4000-8000-000000000002','PROC-002','MAIN',50000,0,1,1,'2026-01-01');
+INSERT INTO recycler_category_capabilities
+SELECT CONCAT('c',(o.n-1)*4+c.n),CONCAT('PROC-00',o.n),c.category,
+       '["FUNCTIONAL","REPAIRABLE","END_OF_LIFE"]',c.data_bearing,1,
+       CONCAT('p2260000-0000-4000-8000-00000000000',o.n),1,'2026-01-01'
+FROM (SELECT 1 n UNION ALL SELECT 2) o CROSS JOIN
+     (SELECT 1 n,'ICT_EQUIPMENT' category,1 data_bearing UNION ALL
+      SELECT 2,'LARGE_APPLIANCE',0 UNION ALL SELECT 3,'BATTERIES',0 UNION ALL SELECT 4,'CONSUMER_ELECTRONICS',1) c;
+INSERT INTO recycler_service_zones
+SELECT CONCAT('z',(o.n-1)*5+z.n),CONCAT('PROC-00',o.n),z.zone,0,1,1,'2026-01-01'
+FROM (SELECT 1 n UNION ALL SELECT 2) o CROSS JOIN
+     (SELECT 1 n,'NORTH' zone UNION ALL SELECT 2,'SOUTH' UNION ALL SELECT 3,'EAST'
+      UNION ALL SELECT 4,'WEST' UNION ALL SELECT 5,'CENTRAL') z;
+-- SQL-only carriers for history guards; not application-generated outcomes.
+INSERT INTO ewaste_batches(id,organization_id,created_by)
+VALUES('fe000000-0000-4000-8000-000000000001','DON-001','USR-003');
+INSERT INTO command_idempotency(id,service_principal,actor_scope,command_name,idempotency_key,request_hash,batch_id,response_json,created_at,retain_until)
+VALUES('fe000000-0000-4000-8000-000000000002','repair-test','service:repair-test','RepairFixture','repair-fixture-001',REPEAT('a',64),'fe000000-0000-4000-8000-000000000001',JSON_OBJECT(),'2026-01-01','2027-01-01');
+INSERT INTO event_outbox(event_id,batch_id,command_id,event_type,topic,schema_version,aggregate_version,sequence_in_command,partition_key,payload_json,correlation_id,occurred_at,next_attempt_at)
+VALUES('fe000000-0000-4000-8000-000000000003','fe000000-0000-4000-8000-000000000001','fe000000-0000-4000-8000-000000000002','RepairFixture','test',1,1,1,'fe000000-0000-4000-8000-000000000001',JSON_OBJECT(),'repair-test','2026-01-01','2026-01-01');
+INSERT INTO batch_audit_events(id,batch_id,command_id,service_principal,event_type,from_status,to_status,batch_version,sequence_in_command,occurred_at,correlation_id,details_json)
+VALUES('fe000000-0000-4000-8000-000000000004','fe000000-0000-4000-8000-000000000001','fe000000-0000-4000-8000-000000000002','repair-test','RepairFixture','DRAFT','DRAFT',1,1,'2026-01-01','repair-test',JSON_OBJECT());
+INSERT INTO matching_decisions(id,batch_id,trigger_id,trigger_type,batch_version,claim_epoch,rule_set_id,evaluation_at,input_hash,profile_snapshot_hash,input_snapshot_json,outcome,primary_reason,evaluated_count,eligible_count,correlation_id,created_at,completed_at)
+VALUES('fe000000-0000-4000-8000-000000000005','fe000000-0000-4000-8000-000000000001','fe000000-0000-4000-8000-000000000006','EXPLICIT_RUN',1,1,'a1290000-0000-4000-8000-000000000001','2026-01-01',REPEAT('a',64),REPEAT('b',64),JSON_OBJECT(),'NO_MATCH','NO_ELIGIBLE_ORGANISATION',1,0,'repair-test','2026-01-01','2026-01-01');
+INSERT INTO matched_results(id,decision_id,batch_id,recycler_org_id,category_match,capability_match,capacity_available,zone_match,deadline_viable,is_matched,reason_code,failed_rules_json,evidence_json,created_at)
+VALUES('fe000000-0000-4000-8000-000000000007','fe000000-0000-4000-8000-000000000005','fe000000-0000-4000-8000-000000000001','PROC-001',0,0,0,0,0,0,'CATEGORY_UNSUPPORTED','[{}]',JSON_OBJECT(),'2026-01-01');
+INSERT INTO batch_claims(id,batch_id,recycler_org_id,claimed_by,idempotency_key)
+VALUES('fe000000-0000-4000-8000-000000000008','fe000000-0000-4000-8000-000000000001','PROC-001','USR-007','repair-claim-fixture-001');
+REPAIR_FIXTURES
+  local table column spec
+  for spec in 'command_idempotency response_json' 'matching_decisions input_snapshot_json' 'matched_results evidence_json' 'event_outbox payload_json' 'batch_audit_events details_json'; do
+    read -r table column <<< "$spec"
+    mysql_query matcher_repair -e "UPDATE $table SET $column=JSON_OBJECT('capability_id','c1')"
+    reject_config_repair "history-$table" 'Historical or prepared records reference the old IDs'
+    mysql_query matcher_repair -e "UPDATE $table SET $column=JSON_OBJECT()"
+  done
+  mysql_query matcher_repair -e "UPDATE matched_results SET capacity_pool_id='p2260000-0000-4000-8000-000000000001'"
+  reject_config_repair matched_pool 'Historical or prepared records reference the old IDs'
+  mysql_query matcher_repair -e 'UPDATE matched_results SET capacity_pool_id=NULL'
+  mysql_query matcher_repair -e "INSERT INTO capacity_reservations(id,batch_id,claim_id,capacity_pool_id,reserved_kg,status,reserved_at,version) VALUES('fe000000-0000-4000-8000-000000000009','fe000000-0000-4000-8000-000000000001','fe000000-0000-4000-8000-000000000008','p2260000-0000-4000-8000-000000000001',1,'RESERVED','2026-01-01',1)"
+  reject_config_repair reserved_history 'Historical or prepared records reference the old IDs'
+  mysql_query matcher_repair -e 'DELETE FROM capacity_reservations'
+  mysql_query matcher_repair -e 'UPDATE recycler_capacity_pools SET reserved_kg=1'
+  reject_config_repair nonzero_reservation 'Reserved capacity'
+  mysql_query matcher_repair -e 'UPDATE recycler_capacity_pools SET reserved_kg=0'
+  mysql_query matcher_repair -e "UPDATE recycler_service_zones SET id='unexpected-zone-id' WHERE id='z10'"
+  reject_config_repair partial_state 'Reported IDs, owners or configuration keys differ'
+  mysql_query matcher_repair -e "UPDATE recycler_service_zones SET id='z10' WHERE id='unexpected-zone-id'"
+  mysql_query matcher_repair -e "INSERT INTO recycler_capacity_pools VALUES('b2260000-0000-4000-8000-000000000001','PROC-001','COLLISION',1,0,1,1,'2026-01-01')"
+  reject_config_repair collision 'Replacement UUID already exists'
+  mysql_query matcher_repair -e "DELETE FROM recycler_capacity_pools WHERE pool_code='COLLISION'"
+  # Fail after replacement pools and capability rows have been written.
+  mysql_query matcher_repair -e "CREATE TABLE extra_pool_reference(id INT PRIMARY KEY,pool_id VARCHAR(36),FOREIGN KEY(pool_id) REFERENCES recycler_capacity_pools(id)); INSERT INTO extra_pool_reference VALUES(1,'p2260000-0000-4000-8000-000000000001')"
+  reject_config_repair late_foreign_key 'Cannot delete or update a parent row'
+  mysql_query matcher_repair -e 'DROP TABLE extra_pool_reference'
+
+  local business_query="SELECT recycler_org_id,pool_code,total_kg,reserved_kg,is_active FROM recycler_capacity_pools ORDER BY recycler_org_id,pool_code; SELECT recycler_org_id,category,accepted_conditions_json,supports_data_bearing,is_active FROM recycler_category_capabilities ORDER BY recycler_org_id,category; SELECT recycler_org_id,zone,minimum_lead_minutes,is_active FROM recycler_service_zones ORDER BY recycler_org_id,zone;"
+  mysql_query matcher_repair -e "$business_query" > "$EVIDENCE_DIR/business-before.tsv"
+  dump_rows matcher_repair "$EVIDENCE_DIR/history-before.sql" "${REPAIR_TABLES[@]:4}" recycler_matching_profiles matching_rule_sets
+  dump_rows matcher_repair "$EVIDENCE_DIR/changelog-before.sql" DATABASECHANGELOG
+  lb matcher_repair repair update --context-filter=seed
+  check_scalar matcher_repair repair_recorded "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106' AND EXECTYPE='EXECUTED'" 1
+  dump_rows matcher_repair "$EVIDENCE_DIR/changelog-after.sql" DATABASECHANGELOG --where="ID <> 'EWCSB129-106'"
+  diff -u "$EVIDENCE_DIR/changelog-before.sql" "$EVIDENCE_DIR/changelog-after.sql" > "$EVIDENCE_DIR/changelog-preserved.diff"
+  mysql_query matcher_repair -e "$business_query" > "$EVIDENCE_DIR/business-after.tsv"
+  diff -u "$EVIDENCE_DIR/business-before.tsv" "$EVIDENCE_DIR/business-after.tsv" > "$EVIDENCE_DIR/business-preserved.diff"
+  dump_rows matcher_repair "$EVIDENCE_DIR/history-after.sql" "${REPAIR_TABLES[@]:4}" recycler_matching_profiles matching_rule_sets
+  diff -u "$EVIDENCE_DIR/history-before.sql" "$EVIDENCE_DIR/history-after.sql" > "$EVIDENCE_DIR/history-preserved.diff"
+  check_scalar matcher_repair repaired_versions "SELECT COUNT(*) FROM (SELECT version FROM recycler_capacity_pools UNION ALL SELECT version FROM recycler_category_capabilities UNION ALL SELECT version FROM recycler_service_zones) x WHERE version=2" 20
+  check_scalar matcher_repair valid_ids "SELECT COUNT(*) FROM (SELECT id FROM recycler_capacity_pools UNION ALL SELECT id FROM recycler_category_capabilities UNION ALL SELECT id FROM recycler_service_zones) x WHERE REGEXP_LIKE(id,'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$','c')" 20
+  check_scalar matcher_repair owned_links 'SELECT COUNT(*) FROM recycler_category_capabilities c JOIN recycler_capacity_pools p ON c.capacity_pool_id=p.id AND c.recycler_org_id=p.recycler_org_id' 8
+  check_scalar matcher_repair fk_checks 'SELECT @@foreign_key_checks' 1
+  dump_rows matcher_repair "$EVIDENCE_DIR/before-repeat.sql" "${REPAIR_TABLES[@]}"
+  lb matcher_repair repeat update --context-filter=seed
+  check_scalar matcher_repair repair_recorded_once "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 1
+  dump_rows matcher_repair "$EVIDENCE_DIR/after-repeat.sql" "${REPAIR_TABLES[@]}"
+  diff -u "$EVIDENCE_DIR/before-repeat.sql" "$EVIDENCE_DIR/after-repeat.sql" > "$EVIDENCE_DIR/repeat.diff"
+  # Isolated test only: emulate manual repair, or a crash after data commit but
+  # before Liquibase recorded completion. Do not edit live changelog records.
+  mysql_query matcher_repair -e "DELETE FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'"
+  lb matcher_repair adopt-repaired update --context-filter=seed
+  check_scalar matcher_repair repaired_state_adopted "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106' AND EXECTYPE='EXECUTED'" 1
+  dump_rows matcher_repair "$EVIDENCE_DIR/after-adopt.sql" "${REPAIR_TABLES[@]}"
+  diff -u "$EVIDENCE_DIR/before-repeat.sql" "$EVIDENCE_DIR/after-adopt.sql" > "$EVIDENCE_DIR/adopt-repaired.diff"
+  check_scalar matcher_repair helper_removed "SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema='matcher_repair' AND routine_name='repair_ewcsb129_config_ids'" 0
+  printf 'PASS\n' > "$EVIDENCE_DIR/result.txt"
+  printf 'matcher-repair\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
+}
+
 main() {
   write_embedded_tests
   cd "$WORK_DIR"
@@ -2424,11 +2618,13 @@ CREATE DATABASE c3_clean CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c3_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c4_clean CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c4_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE matcher_repair CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 GRANT ALL ON c1_upgrade.* TO 'persistence_test'@'%';
 GRANT ALL ON c3_clean.* TO 'persistence_test'@'%';
 GRANT ALL ON c3_upgrade.* TO 'persistence_test'@'%';
 GRANT ALL ON c4_clean.* TO 'persistence_test'@'%';
 GRANT ALL ON c4_upgrade.* TO 'persistence_test'@'%';
+GRANT ALL ON matcher_repair.* TO 'persistence_test'@'%';
 GRANT SELECT ON performance_schema.data_lock_waits TO 'persistence_test'@'%';
 PERSISTENCE_DATABASES
   mysql_query c1_clean -e 'SELECT VERSION() AS mysql_version, @@sql_mode AS sql_mode, @@global.time_zone AS global_time_zone;' > "$RUN_DIR/runtime.tsv"
@@ -2436,6 +2632,7 @@ PERSISTENCE_DATABASES
   run_c1
   run_c3
   run_c4
+  run_matcher_repair
   cat "$RUN_DIR/summary.tsv"
   echo 'All embedded schema, migration and SQL persistence checks passed.'
 }

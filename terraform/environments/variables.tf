@@ -86,6 +86,17 @@ variable "auth_refresh_hash_secret" {
   description = "HMAC secret for refresh token fingerprinting."
 }
 
+variable "matcher_signing_secret" {
+  type        = string
+  sensitive   = true
+  description = "Dedicated matcher workload signing key; must match CD's MATCHER_SIGNING_SECRET."
+
+  validation {
+    condition     = length(var.matcher_signing_secret) >= 32
+    error_message = "matcher_signing_secret must contain at least 32 characters."
+  }
+}
+
 variable "github_repository" {
   type        = string
   default     = "nus-iss-dmss-practice-module-team5/team5-ewaste-platform"

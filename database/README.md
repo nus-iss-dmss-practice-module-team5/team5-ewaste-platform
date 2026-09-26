@@ -11,7 +11,37 @@ see [the C1 test guide](tests/c1/README.md) and run:
 ```
 
 C1 batch fixtures require the explicit `c1-fixtures` context; the existing
-`seed` context continues to load only synthetic Sprint 1 identities.
+`seed` context loads synthetic Sprint 1 identities and the `binary-v1` matching
+policy from `seed/105-seed-matching-rule-sets.sql`. The policy seed runs once in
+dev/staging, references the active platform administrator `USR-001`, and becomes
+effective at migration time in UTC on an empty installation. An identical,
+active `binary-v1` policy with a valid UUIDv4 is retained with its original ID,
+creator and timestamps. The known manual seed ID
+`r2260000-0000-4000-8000-000000000001` is corrected to
+`a1290000-0000-4000-8000-000000000001` only if it has no references in matching
+decisions, frozen command responses, audit records or outbox events. Its policy
+and timestamps are preserved. Other invalid IDs, different policy content,
+future/retired policies, ID collisions, overlapping activation windows, and a
+missing/inactive administrator halt the migration without changing data.
+
+Repeated Liquibase updates leave the policy and its activation timestamp
+unchanged. Seed 105 accepts its original checksum explicitly so databases where
+it already succeeded retain their changelog entry without rerunning the seed.
+
+The policy JSON matches `contracts/matching/contracts/MatchingInput.v1.schema.json`.
+Recycler profiles, capabilities, capacity pools and service zones still require
+configuration before a receiver can qualify for a match. This seed creates no
+batches, matching results or recycler configuration. Production excludes the
+`seed` context and must provision the policy with its own approved administrator
+and activation time. Policies referenced by matching decisions are retained;
+this seed has no destructive rollback.
+
+For the reported dev configuration IDs (`p226...`, `c1`–`c8`, `z1`–`z10`), use
+the [migration and deployment recovery guide](maintenance/README.md).
+Changeset `EWCSB129-106` runs after seed 105 in the master changelog with the
+explicit `seed` context. It preserves business values and rejects historical
+references or reserved capacity. Databases without these old IDs are unchanged;
+Liquibase records a successful no-op. No manual SQL repair is required.
 
 For C3 claim repository, constraints and concurrent MySQL fixtures, see
 [the C3 test guide](tests/c3/README.md) and run:

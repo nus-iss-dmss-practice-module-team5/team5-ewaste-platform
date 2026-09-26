@@ -110,6 +110,11 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Validate Matcher Workload Configuration
+        env:
+          MATCHER_SIGNING_SECRET: ${{ secrets.MATCHER_SIGNING_SECRET }}
+        run: test "${#MATCHER_SIGNING_SECRET}" -ge 32
+
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
 
@@ -279,39 +284,45 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Build and Push Analytics Worker Image to ACR
         run: |
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          set -euo pipefail
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
-          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
-          IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_ENV}-${SHORT_SHA}"
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
 
-          echo "Building Analytics Worker image: $IMAGE_TAG"
-          docker build -t "$IMAGE_TAG" -f src/analytics/Dockerfile src/analytics/
+          if [ -n "${{ inputs.rollback_tag }}" ]; then
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${{ inputs.rollback_tag }}"
+            echo "Rolling back to existing Matcher image: $IMAGE_TAG"
+            docker pull "$IMAGE_TAG"
+            # A rollback must name an actual matcher image, not the old demo.
+            test "$(docker inspect --format '{{index .Config.Labels "ewaste.component"}}' "$IMAGE_TAG")" = matcher
+          else
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_ENV}-${SHORT_SHA}"
+            echo "Building Matcher Worker image: $IMAGE_TAG"
+            docker build -t "$IMAGE_TAG" -f src/matcher/Dockerfile .
+            echo "Pushing Matcher Worker image to ACR..."
+            docker push "$IMAGE_TAG"
+          fi
 
-          echo "Pushing Analytics Worker image to ACR..."
-          docker push "$IMAGE_TAG"
-
-          ANALYTICS_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
-          echo "ANALYTICS_IMMUTABLE_DIGEST=$ANALYTICS_DIGEST" >> $GITHUB_ENV
+          ANALYTICS_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG")
+          [[ "$ANALYTICS_DIGEST" == *@sha256:* ]] || { echo 'Matcher image digest is missing or mutable.' >&2; exit 1; }
+          echo "ANALYTICS_IMMUTABLE_DIGEST=$ANALYTICS_DIGEST" >> "$GITHUB_ENV"
 
       - name: Deploy Analytics Worker to Azure Container Apps
         id: analytics_deploy
+        env:
+          MATCHER_SIGNING_SECRET: ${{ secrets.MATCHER_SIGNING_SECRET }}
         run: |
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
-          RG="${{ needs.resolve-environment.outputs.resource_group }}"
+          export TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          export RG="${{ needs.resolve-environment.outputs.resource_group }}"
+          export MATCHER_IMAGE="${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
           APP_NAME="aca-ewaste-${TARGET_ENV}-analytics"
 
-          echo "Performing atomic container image update for $APP_NAME in $RG..."
-          echo "Target Image Digest: ${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+          echo "Configuring matcher integration and updating $APP_NAME in $RG..."
+          echo "Target Image Digest: $MATCHER_IMAGE"
 
-          az containerapp update \
-            --name "$APP_NAME" \
-            --resource-group "$RG" \
-            --image "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
-            --output none
-
-          ANALYTICS_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
-          echo "aca_analytics_fqdn=$ANALYTICS_FQDN" >> "$GITHUB_OUTPUT"
-          echo "Analytics Worker deployed successfully: https://$ANALYTICS_FQDN"
+          # Configure the API and worker, deploy the digest, check readiness and
+          # export aca_analytics_fqdn for the existing downstream steps.
+          bash scripts/deploy-matcher.sh
 
       # ------------------------------------------------------------------------
       # 1.4 LIVE CONTAINER READINESS PROBES (API, UI & ANALYTICS)
@@ -352,9 +363,9 @@ jobs:
           # Analytics uses external ingress only in dev; stg/prod runs with internal ingress.
           # The ACA environment handles internal health probing — no external curl needed.
           if [ -n "$ANALYTICS_FQDN" ] && [ "$TARGET_ENV" == "dev" ]; then
-            echo "Verifying Analytics ingress accessibility at: https://$ANALYTICS_FQDN/healthz"
+            echo "Verifying Analytics ingress accessibility at: https://$ANALYTICS_FQDN/readyz"
             for i in {1..12}; do
-              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$ANALYTICS_FQDN/healthz" || true)
+              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$ANALYTICS_FQDN/readyz" || true)
               echo "Analytics Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
               if [ "$STATUS_CODE" == "200" ]; then
                 echo "Analytics Worker verified successfully (HTTP 200)."
@@ -481,70 +492,32 @@ jobs:
       # ------------------------------------------------------------------------
       # 3.3 ANALYTICS WORKER & EVENT HUBS INTEGRATION SMOKE TEST
       # ------------------------------------------------------------------------
-      - name: Verify Live Kafka Event Publish and Consumer Loop
+      - name: Verify Matcher Without Synthetic Business Events
         run: |
           ANALYTICS_FQDN="${{ needs.deploy-application.outputs.aca_analytics_fqdn }}"
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
 
-          if [ -n "$ANALYTICS_FQDN" ]; then
-            echo "=========================================================="
-            echo " Verifying Analytics Worker — Environment: ${TARGET_ENV}"
-            echo "=========================================================="
-
-            if [ "$TARGET_ENV" == "dev" ]; then
-              # Dev: external ingress + ENABLE_TEST_ENDPOINTS=true — full live pub/sub round-trip
-              echo "1. Probing /healthz..."
-              HEALTH_RESP=$(curl -s -f "https://${ANALYTICS_FQDN}/healthz" || (echo "Healthcheck failed" && exit 1))
-              echo "Health Response: $HEALTH_RESP"
-
-              TEST_BATCH_ID="test-batch-$(date +%s)"
-              echo -e "\n2. Publishing test event with batch_id: $TEST_BATCH_ID..."
-
-              PUB_RESP=$(curl -s -f -X POST "https://${ANALYTICS_FQDN}/api/v1/publish-test" \
-                -H "Content-Type: application/json" \
-                -d "{\"batch_id\": \"$TEST_BATCH_ID\", \"category\": \"ICT_EQUIPMENT\", \"quantity\": 5, \"zone\": \"NORTH\"}")
-              echo "Publish Response: $PUB_RESP"
-
-              echo -e "\n3. Polling /api/v1/events for batch_id: $TEST_BATCH_ID..."
-              CONSUMED=false
-              for attempt in {1..10}; do
-                echo "Polling attempt $attempt/10..."
-                EVENTS_RESP=$(curl -s -f "https://${ANALYTICS_FQDN}/api/v1/events" || true)
-                if echo "$EVENTS_RESP" | grep -q "$TEST_BATCH_ID"; then
-                  echo "SUCCESS: Event '$TEST_BATCH_ID' was consumed and verified from Event Hubs!"
-                  CONSUMED=true
-                  break
-                fi
-                sleep 3
-              done
-
-              if [ "$CONSUMED" = false ]; then
-                echo "::error::Consumer did not record event '$TEST_BATCH_ID' within 30 seconds."
-                echo "Last /api/v1/events output: $EVENTS_RESP"
-                exit 1
+          if [ -n "$ANALYTICS_FQDN" ] && [ "$TARGET_ENV" == "dev" ]; then
+            echo "Verifying Analytics ingress accessibility at: https://$ANALYTICS_FQDN/readyz"
+            for i in {1..12}; do
+              STATUS_CODE=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" "https://$ANALYTICS_FQDN/readyz" || true)
+              echo "Analytics Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
+              if [ "$STATUS_CODE" == "200" ]; then
+                echo "Analytics Worker verified successfully (HTTP 200)."
+                break
               fi
-            else
-              # Stg/Prod: analytics uses internal ingress — test endpoints disabled.
-              # No external FQDN access from runner. Verify via ACA control plane.
-              RG="rg-ewaste-${TARGET_ENV}"
-              ANALYTICS_APP="aca-ewaste-${TARGET_ENV}-analytics"
-              echo "Analytics uses internal ingress in $TARGET_ENV — verifying via ACA control plane."
-
-              REV_STATE=$(az containerapp revision list \
-                --name "$ANALYTICS_APP" \
-                --resource-group "$RG" \
-                --query "[?properties.active==\`true\`].properties.runningState | [0]" \
-                -o tsv 2>/dev/null || echo "Unknown")
-
-              echo "Active revision running state: $REV_STATE"
-              if [ "$REV_STATE" = "Running" ] || [ "$REV_STATE" = "running" ]; then
-                echo "SUCCESS: Analytics Worker is Running in $TARGET_ENV (verified via ACA control plane)."
-              else
-                echo "::warning::Analytics Worker revision state is '$REV_STATE'. Inspect Azure portal for Kafka connectivity details."
-              fi
+              sleep 10
+            done
+            if [ "$STATUS_CODE" != "200" ]; then
+              echo "::error::Analytics Worker did not become ready after 12 attempts."
+              exit 1
             fi
+          elif [ -n "$ANALYTICS_FQDN" ]; then
+            echo "Matcher ingress is internal in $TARGET_ENV; the authenticated deployment step verified the new ACA revision's health."
+            echo "Broker readiness is available at /readyz from inside the ACA environment."
           else
-            echo "Analytics smoke test skipped: FQDN not yet assigned."
+            echo "::error::Analytics smoke test cannot run: FQDN not yet assigned."
+            exit 1
           fi
 
       # ------------------------------------------------------------------------
@@ -556,9 +529,9 @@ jobs:
           echo "  DEPLOYMENT & AUDIT SUITE COMPLETED SUCCESSFULLY"
           echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
           echo "  - Deployment Scope: ${{ needs.resolve-environment.outputs.deployment_desc }}"
-          echo "  - Database Status: Liquibase Migrations Applied"
+          echo "  - Database Status: Migrations are a prerequisite; authenticated matcher lookup verified"
           echo "  - Container Release: Multi-Container Verified (API, UI, & Analytics)"
-          echo "  - Event Streaming: Azure Event Hubs (Kafka) Integration Tested"
+          echo "  - Event Streaming: Kafka/MySQL persistence tested in matcher CI; live checks respect environment ingress"
           echo "  - Runtime Health: ACA Ingress Probes Verified (:8080, :3000, :8000)"
           echo "  - DAST Scan: OWASP ZAP Report Retained for Academic Review"
           echo "======================================================================"

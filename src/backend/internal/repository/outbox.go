@@ -74,21 +74,17 @@ func (r *GormOutboxRepository) ClaimPending(
 	var events []model.EventOutbox
 
 	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		err := tx.
-			Clauses(clause.Locking{
-				Strength: "UPDATE",
-				Options:  "SKIP LOCKED",
-			}).
-			Where(
-				"publish_state = ? AND "+
-					"(next_attempt_at IS NULL OR next_attempt_at <= ?)",
-				model.OutboxPublishStatePending,
-				now,
-			).
-			Order("created_at ASC, event_id ASC").
-			Limit(limit).
-			Find(&events).
-			Error
+		err := tx.Table("event_outbox AS candidate").Select("candidate.*").
+			Clauses(clause.Locking{Strength: "UPDATE", Options: "SKIP LOCKED"}).
+			Where("candidate.publish_state = ? AND candidate.next_attempt_at <= ?", model.OutboxPublishStatePending, now).
+			Where(`NOT EXISTS (SELECT 1 FROM event_outbox AS blocked
+                WHERE blocked.batch_id = candidate.batch_id AND blocked.publish_state = 'QUARANTINED')`).
+			Where(`NOT EXISTS (SELECT 1 FROM event_outbox AS predecessor
+                WHERE predecessor.batch_id = candidate.batch_id AND predecessor.publish_state = 'PENDING'
+                AND (predecessor.aggregate_version, predecessor.created_at, predecessor.event_id)
+                  < (candidate.aggregate_version, candidate.created_at, candidate.event_id))`).
+			Order("candidate.aggregate_version ASC, candidate.created_at ASC, candidate.event_id ASC").
+			Limit(limit).Find(&events).Error
 		if err != nil {
 			return err
 		}
