@@ -51,11 +51,11 @@ cd "$ROOT_DIR"
 git rev-parse HEAD > "$RUN_DIR/base-commit.txt"
 git branch --show-current > "$RUN_DIR/branch.txt"
 "${HASH[@]}" scripts/test-persistence.sh database/Dockerfile database/changelog-master.yaml \
-  database/changes/*.sql database/seed/10[12356]-*.sql > "$RUN_DIR/source-inputs.sha256"
+  database/changes/*.sql database/seed/10[123567]-*.sql > "$RUN_DIR/source-inputs.sha256"
 mkdir -p "$WORK_DIR/database/changes" "$WORK_DIR/database/seed"
 cp database/Dockerfile database/changelog-master.yaml "$WORK_DIR/database/"
 cp database/changes/*.sql "$WORK_DIR/database/changes/"
-cp database/seed/10[12356]-*.sql "$WORK_DIR/database/seed/"
+cp database/seed/10[123567]-*.sql "$WORK_DIR/database/seed/"
 
 mysql_query() {
   local db="$1"; shift
@@ -2361,12 +2361,15 @@ run_c4() {
   check_scalar c4_clean seed_excluded 'SELECT COUNT(*) FROM users' 0
   check_scalar c4_clean matching_seed_excluded 'SELECT COUNT(*) FROM matching_rule_sets' 0
   check_scalar c4_clean repair_excluded_without_seed "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 0
+  check_scalar c4_clean collector_seed_excluded 'SELECT COUNT(*) FROM recycler_collector_scopes' 0
   check_scalar c4_clean claims_empty 'SELECT COUNT(*) FROM batch_claims' 0
   reject_matching_seed c4_clean matching_seed_missing_creator
   lb c4_clean identities update --context-filter=seed
   check_scalar c4_clean unaffected_repair_recorded "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106' AND EXECTYPE='EXECUTED'" 1
   check_scalar c4_clean c1_fixtures_opt_in 'SELECT COUNT(*) FROM ewaste_batches' 0
   check_scalar c4_clean matching_seed_active "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND created_by='USR-001' AND effective_from=created_at AND effective_from<=UTC_TIMESTAMP(6) AND retired_at IS NULL" 1
+  check_scalar c4_clean collector_seed_pairs "SELECT GROUP_CONCAT(CONCAT(recycler_org_id,':',collector_org_id,':',zone) ORDER BY recycler_org_id,collector_org_id) FROM recycler_collector_scopes" 'PROC-001:COL-001:NORTH,PROC-001:COL-002:NORTH,PROC-002:COL-001:EAST'
+  check_scalar c4_clean collector_seed_activation "SELECT COUNT(*) FROM recycler_collector_scopes WHERE is_active=1 AND version=1 AND valid_from=created_at AND updated_at=created_at AND valid_from<=UTC_TIMESTAMP(6) AND valid_until IS NULL" 3
   # An already-applied original 105 checksum must remain valid and unchanged.
   mysql_query c4_clean -e "UPDATE DATABASECHANGELOG SET MD5SUM='9:e6bf826ee57fbbec596986f0f65ffe25' WHERE ID='EWCSB129-105'"
   dump_rows c4_clean "$EVIDENCE_DIR/original-105-before.sql" matching_rule_sets DATABASECHANGELOG
@@ -2433,7 +2436,7 @@ SQL_REFERENCED_POLICY
   lb c4_upgrade validate validate
   lb c4_upgrade preview update-sql --context-filter=seed,c1-fixtures
   lb c4_upgrade upgrade update --context-filter=seed,c1-fixtures
-  check_scalar c4_upgrade upgraded_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 34
+  check_scalar c4_upgrade upgraded_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 35
   check_scalar c4_upgrade matching_seed_active "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND created_by='USR-001' AND effective_from=created_at AND effective_from<=UTC_TIMESTAMP(6) AND retired_at IS NULL" 1
   check_scalar c4_upgrade matching_seed_uuid_repaired "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND id='a1290000-0000-4000-8000-000000000001'" 1
   mysql_query c4_upgrade -e "SELECT version,rules_json,effective_from,retired_at,created_by,created_at FROM matching_rule_sets WHERE version='binary-v1'" > "$EVIDENCE_DIR/repaired-policy-after.tsv"
@@ -2497,14 +2500,14 @@ reject_config_repair() {
 
 run_matcher_repair() {
   EVIDENCE_DIR="$RUN_DIR/matcher-repair"
-  CHANGELOG="changelog-master.yaml"
+  CHANGELOG="changelog-before-collector-scopes.yaml"
   mkdir -p "$EVIDENCE_DIR"
   printf '\nChecking the reported dev configuration repair and rejected histories.\n'
   printf 'test_name\tactual\texpected\n' > "$EVIDENCE_DIR/migration-checks.tsv"
   # Reproduce a database upgraded through 105 before the repair was introduced.
   # Keep include paths/changeset identities identical to the production master.
   awk '/^  - include:/ {block=$0 ORS; next} {block=block $0 ORS; if (/relativeToChangelogFile:/) {if (block !~ /106-repair-matching-config-ids/) printf "%s",block; block=""}} NR==1 {printf "%s",block; block=""}' \
-    database/changelog-master.yaml > database/changelog-before-config-repair.yaml
+    database/changelog-before-collector-scopes.yaml > database/changelog-before-config-repair.yaml
   lb matcher_repair migrate --changelog-file=changelog-before-config-repair.yaml update --context-filter=seed
   check_scalar matcher_repair repair_pending "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 0
   REPAIR_TABLES=(recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones
@@ -2603,9 +2606,139 @@ REPAIR_FIXTURES
   printf 'matcher-repair\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
 }
 
+reject_collector_seed() {
+  local name="$1"
+  dump_rows collector_seed "$EVIDENCE_DIR/$name-before.sql" recycler_collector_scopes organisations DATABASECHANGELOG
+  if lb collector_seed "$name" update --context-filter=seed; then
+    echo "FAIL: collector seed unexpectedly succeeded: $name" >&2; return 1
+  fi
+  grep -q 'SQL Precondition failed' "$EVIDENCE_DIR/collector_seed-$name.log"
+  dump_rows collector_seed "$EVIDENCE_DIR/$name-after.sql" recycler_collector_scopes organisations DATABASECHANGELOG
+  diff -u "$EVIDENCE_DIR/$name-before.sql" "$EVIDENCE_DIR/$name-after.sql" > "$EVIDENCE_DIR/$name-preserved.diff"
+  check_scalar collector_seed "$name-not-recorded" "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB4-107'" 0
+}
+
+run_collector_scope_seed() {
+  EVIDENCE_DIR="$RUN_DIR/collector-scopes"
+  CHANGELOG="changelog-master.yaml"
+  mkdir -p "$EVIDENCE_DIR"
+  printf '\nChecking collector scope seed, migration guards and SQL visibility.\n'
+  printf 'test_name\tactual\texpected\n' > "$EVIDENCE_DIR/migration-checks.tsv"
+  lb collector_seed baseline --changelog-file=changelog-before-collector-scopes.yaml update --context-filter=seed
+  check_scalar collector_seed initially_empty 'SELECT COUNT(*) FROM recycler_collector_scopes' 0
+
+  mysql_query collector_seed -e "UPDATE organisations SET status='DISABLED' WHERE organisation_id='COL-001'"
+  reject_collector_seed inactive_collector
+  mysql_query collector_seed -e "UPDATE organisations SET status='ACTIVE' WHERE organisation_id='COL-001'; UPDATE organisations SET status='DISABLED' WHERE organisation_id='COL-002'"
+  reject_collector_seed inactive_backup_collector
+  mysql_query collector_seed -e "UPDATE organisations SET status='ACTIVE' WHERE organisation_id='COL-002'"
+  mysql_query collector_seed -e "UPDATE organisations SET status='ACTIVE' WHERE organisation_id='COL-001'; UPDATE organisations SET organisation_type='DONOR' WHERE organisation_id='PROC-002'"
+  reject_collector_seed wrong_recycler_type
+  mysql_query collector_seed -e "UPDATE organisations SET organisation_type='PROCESSING_FACILITY' WHERE organisation_id='PROC-002'"
+
+  local scenario scope_id recycler zone active valid_from valid_until
+  for scenario in inactive expired future invalid_id collision backup_collision; do
+    scope_id=e1070000-0000-4000-8000-000000000001
+    recycler=PROC-001; zone=NORTH; active=1; valid_from="'2020-01-01'"; valid_until=NULL
+    case "$scenario" in
+      inactive) active=0 ;;
+      expired) valid_until="'2020-01-02'" ;;
+      future) valid_from='UTC_TIMESTAMP(6)+INTERVAL 1 DAY' ;;
+      invalid_id) scope_id=manual-scope ;;
+      collision) recycler=PROC-002 ;;
+      backup_collision) scope_id=e1070000-0000-4000-8000-000000000003 ;;
+    esac
+    mysql_query collector_seed -e "INSERT INTO recycler_collector_scopes VALUES('$scope_id','$recycler','COL-001','$zone',$active,7,$valid_from,$valid_until,'2020-01-01','2020-01-01')"
+    reject_collector_seed "$scenario-scope"
+    mysql_query collector_seed -e 'DELETE FROM recycler_collector_scopes'
+  done
+
+  # Adopt an existing usable identity and retain unrelated authorizations.
+  mysql_query collector_seed <<'COLLECTOR_EXISTING'
+INSERT INTO recycler_collector_scopes VALUES
+('e1079999-0000-4000-8000-000000000001','PROC-001','COL-001','NORTH',1,9,'2020-01-01','2099-01-01','2020-01-01','2020-01-02'),
+('e1079999-0000-4000-8000-000000000002','PROC-001','COL-002','SOUTH',1,3,'2020-01-01',NULL,'2020-01-01','2020-01-02');
+COLLECTOR_EXISTING
+  dump_rows collector_seed "$EVIDENCE_DIR/existing-before.sql" recycler_collector_scopes
+  lb collector_seed upgrade update --context-filter=seed
+  dump_rows collector_seed "$EVIDENCE_DIR/existing-after.sql" recycler_collector_scopes --where="id NOT IN ('e1070000-0000-4000-8000-000000000002','e1070000-0000-4000-8000-000000000003')"
+  diff -u "$EVIDENCE_DIR/existing-before.sql" "$EVIDENCE_DIR/existing-after.sql" > "$EVIDENCE_DIR/existing-preserved.diff"
+  check_scalar collector_seed confirmed_pairs "SELECT GROUP_CONCAT(CONCAT(recycler_org_id,':',zone) ORDER BY recycler_org_id) FROM recycler_collector_scopes WHERE collector_org_id='COL-001'" 'PROC-001:NORTH,PROC-002:EAST'
+  check_scalar collector_seed backup_uses_existing_account "SELECT COUNT(*) FROM recycler_collector_scopes s JOIN users u ON u.organisation_id=s.collector_org_id WHERE s.id='e1070000-0000-4000-8000-000000000003' AND s.recycler_org_id='PROC-001' AND s.zone='NORTH' AND u.user_id='USR-006' AND u.role_code='COLLECTOR' AND u.status='ACTIVE'" 1
+  check_scalar collector_seed recorded_once "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB4-107' AND EXECTYPE='EXECUTED'" 1
+  dump_rows collector_seed "$EVIDENCE_DIR/before-repeat.sql" recycler_collector_scopes DATABASECHANGELOG
+  lb collector_seed repeat update --context-filter=seed
+  dump_rows collector_seed "$EVIDENCE_DIR/after-repeat.sql" recycler_collector_scopes DATABASECHANGELOG
+  diff -u "$EVIDENCE_DIR/before-repeat.sql" "$EVIDENCE_DIR/after-repeat.sql" > "$EVIDENCE_DIR/repeat.diff"
+
+  # SQL-only fixtures exercise the collector read query's current-claim/zone
+  # predicate. They do not claim to execute API assignment or handoff commands.
+  mysql_query collector_seed <<'COLLECTOR_VISIBILITY'
+CREATE TEMPORARY TABLE scope_visibility_cases(n INT PRIMARY KEY, recycler VARCHAR(32), zone VARCHAR(16), actor VARCHAR(32));
+INSERT INTO scope_visibility_cases VALUES
+(1,'PROC-001','NORTH','USR-007'),(2,'PROC-002','NORTH','USR-008'),
+(3,'PROC-001','EAST','USR-007'),(4,'PROC-002','EAST','USR-008');
+INSERT INTO ewaste_batches(id,organization_id,created_by,category,quantity,estimated_weight_kg,condition_rating,zone,collection_deadline,created_at,updated_at)
+SELECT CONCAT('e1071000-0000-4000-8000-00000000000',n),'DON-001','USR-003','ICT_EQUIPMENT',1,10,'FUNCTIONAL',zone,'2026-01-04','2026-01-01','2026-01-01' FROM scope_visibility_cases;
+INSERT INTO batch_claims(id,batch_id,recycler_org_id,claimed_by,idempotency_key)
+SELECT CONCAT('e1072000-0000-4000-8000-00000000000',n),CONCAT('e1071000-0000-4000-8000-00000000000',n),recycler,actor,CONCAT('scope-visibility-claim-00',n) FROM scope_visibility_cases;
+UPDATE ewaste_batches b JOIN batch_claims c ON c.batch_id=b.id
+SET b.status='APPROVED',b.submitted_at='2026-01-01',b.current_claim_id=c.id;
+COLLECTOR_VISIBILITY
+  local visibility="SELECT COALESCE(GROUP_CONCAT(RIGHT(b.id,1) ORDER BY b.id),'') FROM ewaste_batches b WHERE b.status='APPROVED' AND EXISTS (SELECT 1 FROM batch_claims c JOIN recycler_collector_scopes s ON s.recycler_org_id=c.recycler_org_id AND s.collector_org_id='COL-001' AND s.zone=b.zone AND s.is_active=TRUE AND s.valid_from<=UTC_TIMESTAMP(6) AND (s.valid_until IS NULL OR s.valid_until>UTC_TIMESTAMP(6)) WHERE c.id=b.current_claim_id AND c.batch_id=b.id AND c.claim_epoch=b.claim_epoch AND c.claim_status='ACCEPTED')"
+  check_scalar collector_seed only_authorized_pairs_visible "$visibility" '1,4'
+  check_scalar collector_seed backup_sees_only_north_proc001 "${visibility//COL-001/COL-002}" '1'
+  check_scalar collector_seed inactive_scopes_hidden "START TRANSACTION; UPDATE recycler_collector_scopes SET is_active=0 WHERE collector_org_id='COL-001'; $visibility; ROLLBACK" ''
+  check_scalar collector_seed non_approved_batches_hidden "START TRANSACTION; UPDATE ewaste_batches SET status='MATCHED',current_claim_id=NULL; $visibility; ROLLBACK" ''
+  check_scalar collector_seed rejected_claims_hidden "START TRANSACTION; UPDATE batch_claims SET claim_status='REJECTED'; $visibility; ROLLBACK" ''
+  # The same seeded NORTH scopes support two eligible collectors competing
+  # for the one open assignment, then a different collector replacing rejection.
+  local side actor org scope assignment
+  printf 'case\tresult\twinner_exit\tloser_exit\tlock_wait_observed\trejected_key\n' > "$EVIDENCE_DIR/concurrency.tsv"
+  mkdir -p "$WORK_DIR/races"
+  for side in 1 2; do
+    if [[ "$side" == 1 ]]; then actor=USR-005; org=COL-001; else actor=USR-006; org=COL-002; fi
+    scope=$(mysql_query collector_seed --skip-column-names -e "SELECT id FROM recycler_collector_scopes WHERE recycler_org_id='PROC-001' AND collector_org_id='$org' AND zone='NORTH'")
+    assignment="e1073000-0000-4000-8000-00000000000$side"
+    cat > "$WORK_DIR/races/seeded-collector-$side.sql" <<SQL_SEEDED_COLLECTOR
+INSERT INTO batch_assignments(id,batch_id,claim_id,recycler_org_id,collector_org_id,collector_user_id,collector_scope_id,assignment_sequence,claim_epoch,assignment_status,assigned_at,responded_at,version,created_at,updated_at)
+VALUES('$assignment','e1071000-0000-4000-8000-000000000001','e1072000-0000-4000-8000-000000000001','PROC-001','$org','$actor','$scope',1,1,'ACCEPTED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),1,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));
+UPDATE ewaste_batches SET status='ASSIGNED',current_assignment_id='$assignment',version=version+1 WHERE id='e1071000-0000-4000-8000-000000000001';
+SQL_SEEDED_COLLECTOR
+  done
+  run_sql_race collector_seed seeded_collector_assignment \
+    "SELECT id FROM ewaste_batches WHERE id='e1071000-0000-4000-8000-000000000001' FOR UPDATE" \
+    "$WORK_DIR/races/seeded-collector-1.sql" "$WORK_DIR/races/seeded-collector-2.sql" 'uq_assignment_(open|sequence)'
+  check_scalar collector_seed exactly_one_open_assignment 'SELECT COUNT(*) FROM batch_assignments WHERE active_batch_id IS NOT NULL' 1
+  mysql_query collector_seed <<'SQL_SEEDED_REPLACEMENT'
+START TRANSACTION;
+UPDATE batch_assignments SET assignment_status='SUPERSEDED',closure_reason='REJECTED',rejection_reason='SQL test rejection',closed_at=UTC_TIMESTAMP(6),updated_at=UTC_TIMESTAMP(6),version=version+1
+WHERE id='e1073000-0000-4000-8000-000000000001';
+UPDATE ewaste_batches SET status='APPROVED',current_assignment_id=NULL,version=version+1 WHERE id='e1071000-0000-4000-8000-000000000001';
+INSERT INTO batch_assignments(id,batch_id,claim_id,recycler_org_id,collector_org_id,collector_user_id,collector_scope_id,assignment_sequence,claim_epoch,previous_assignment_id,reassignment_reason,assignment_status,assigned_at,responded_at,version,created_at,updated_at)
+VALUES('e1073000-0000-4000-8000-000000000002','e1071000-0000-4000-8000-000000000001','e1072000-0000-4000-8000-000000000001','PROC-001','COL-002','USR-006','e1070000-0000-4000-8000-000000000003',2,1,'e1073000-0000-4000-8000-000000000001','SQL test replacement','ACCEPTED',UTC_TIMESTAMP(6),UTC_TIMESTAMP(6),1,UTC_TIMESTAMP(6),UTC_TIMESTAMP(6));
+UPDATE ewaste_batches SET status='ASSIGNED',current_assignment_id='e1073000-0000-4000-8000-000000000002',version=version+1 WHERE id='e1071000-0000-4000-8000-000000000001';
+COMMIT;
+SQL_SEEDED_REPLACEMENT
+  check_scalar collector_seed replacement_preserves_history "SELECT GROUP_CONCAT(CONCAT(collector_org_id,':',assignment_status) ORDER BY assignment_sequence) FROM batch_assignments" 'COL-001:SUPERSEDED,COL-002:ACCEPTED'
+  check_scalar collector_seed replacement_retains_claim "SELECT COUNT(*) FROM ewaste_batches b JOIN batch_assignments a ON a.id=b.current_assignment_id AND a.claim_id=b.current_claim_id WHERE a.collector_user_id='USR-006' AND a.collector_scope_id='e1070000-0000-4000-8000-000000000003' AND a.previous_assignment_id='e1073000-0000-4000-8000-000000000001'" 1
+  printf 'PASS\n' > "$EVIDENCE_DIR/result.txt"
+  printf 'collector-scopes\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
+}
+
 main() {
   write_embedded_tests
   cd "$WORK_DIR"
+  # Prior release for upgrade tests; retain canonical relative include paths.
+  awk '
+    NR == 1 { print; next }
+    /^  - include:/ { block = $0 ORS; next }
+    { block = block $0 ORS }
+    /relativeToChangelogFile:/ {
+      if (block !~ /107-seed-recycler-collector-scopes/) printf "%s", block
+      block = ""
+    }
+  ' database/changelog-master.yaml > database/changelog-before-collector-scopes.yaml
   "${HASH[@]}" -c approved-migrations.sha256 > "$RUN_DIR/approved-migrations.txt"
   printf 'suite\tresult\tevidence_directory\n' > "$RUN_DIR/summary.tsv"
   echo 'Starting one isolated MySQL instance for all schema boundaries.'
@@ -2618,12 +2751,14 @@ CREATE DATABASE c3_clean CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c3_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c4_clean CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c4_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE collector_seed CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE matcher_repair CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 GRANT ALL ON c1_upgrade.* TO 'persistence_test'@'%';
 GRANT ALL ON c3_clean.* TO 'persistence_test'@'%';
 GRANT ALL ON c3_upgrade.* TO 'persistence_test'@'%';
 GRANT ALL ON c4_clean.* TO 'persistence_test'@'%';
 GRANT ALL ON c4_upgrade.* TO 'persistence_test'@'%';
+GRANT ALL ON collector_seed.* TO 'persistence_test'@'%';
 GRANT ALL ON matcher_repair.* TO 'persistence_test'@'%';
 GRANT SELECT ON performance_schema.data_lock_waits TO 'persistence_test'@'%';
 PERSISTENCE_DATABASES
@@ -2633,6 +2768,7 @@ PERSISTENCE_DATABASES
   run_c3
   run_c4
   run_matcher_repair
+  run_collector_scope_seed
   cat "$RUN_DIR/summary.tsv"
   echo 'All embedded schema, migration and SQL persistence checks passed.'
 }
