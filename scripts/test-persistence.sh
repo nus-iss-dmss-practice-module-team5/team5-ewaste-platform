@@ -2365,6 +2365,22 @@ run_c4() {
   lb c4_clean identities update --context-filter=seed
   check_scalar c4_clean c1_fixtures_opt_in 'SELECT COUNT(*) FROM ewaste_batches' 0
   check_scalar c4_clean matching_seed_active "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND created_by='USR-001' AND effective_from=created_at AND effective_from<=UTC_TIMESTAMP(6) AND retired_at IS NULL" 1
+  # An already-applied original 105 checksum must remain valid and unchanged.
+  mysql_query c4_clean -e "UPDATE DATABASECHANGELOG SET MD5SUM='9:e6bf826ee57fbbec596986f0f65ffe25' WHERE ID='EWCSB129-105'"
+  dump_rows c4_clean "$EVIDENCE_DIR/original-105-before.sql" matching_rule_sets DATABASECHANGELOG
+  lb c4_clean original-checksum validate
+  lb c4_clean original-checksum-repeat update --context-filter=seed
+  dump_rows c4_clean "$EVIDENCE_DIR/original-105-after.sql" matching_rule_sets DATABASECHANGELOG
+  diff -u "$EVIDENCE_DIR/original-105-before.sql" "$EVIDENCE_DIR/original-105-after.sql" > "$EVIDENCE_DIR/original-105-preserved-diff.txt"
+
+  # Reuse the isolated, completed C3 database to verify an identical manual
+  # policy with a different valid ID/creator is adopted without changing it.
+  mysql_query c3_clean -e "INSERT INTO matching_rule_sets SELECT 'a1299999-0000-4000-8000-000000000002',version,rules_json,'2026-01-01',NULL,'USR-002','2026-01-01' FROM c4_clean.matching_rule_sets WHERE version='binary-v1'"
+  dump_rows c3_clean "$EVIDENCE_DIR/manual-policy-before.sql" matching_rule_sets
+  lb c3_clean adopt-manual-policy --changelog-file=seed/105-seed-matching-rule-sets.sql update --context-filter=seed
+  dump_rows c3_clean "$EVIDENCE_DIR/manual-policy-after.sql" matching_rule_sets
+  diff -u "$EVIDENCE_DIR/manual-policy-before.sql" "$EVIDENCE_DIR/manual-policy-after.sql" > "$EVIDENCE_DIR/manual-policy-preserved-diff.txt"
+  check_scalar c3_clean manual_policy_adopted "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-105' AND EXECTYPE='EXECUTED'" 1
 
   echo '[2/6] Upgrading existing C3 claims while preserving all rows and changelog identities.'
   lb c4_upgrade c3-baseline --changelog-file=tests/c3/changelog-c3.yaml update --context-filter=seed,c1-fixtures
@@ -2378,15 +2394,48 @@ run_c4() {
   mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET version='binary-v1',effective_from='2026-01-01',retired_at='2026-01-02' WHERE version='overlap-test'"
   reject_matching_seed c4_upgrade matching_seed_existing_version
   mysql_query c4_upgrade -e "DELETE FROM matching_rule_sets WHERE id='a1299999-0000-4000-8000-000000000001'"
+  # Reproduce the reported dev row, including its invalid UUID and old dates.
+  mysql_query c4_upgrade -e "INSERT INTO matching_rule_sets SELECT 'r2260000-0000-4000-8000-000000000001',version,rules_json,'2026-01-01',NULL,'USR-001','2026-01-01' FROM c4_clean.matching_rule_sets WHERE version='binary-v1'"
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET rules_json=JSON_SET(rules_json,'$.ranking',TRUE) WHERE version='binary-v1'"
+  reject_matching_seed c4_upgrade matching_seed_different_content
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET rules_json=(SELECT rules_json FROM c4_clean.matching_rule_sets WHERE version='binary-v1'),effective_from=UTC_TIMESTAMP(6)+INTERVAL 1 DAY WHERE version='binary-v1'"
+  reject_matching_seed c4_upgrade matching_seed_future_policy
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET effective_from='2026-01-01',id='x2260000-0000-4000-8000-000000000001' WHERE version='binary-v1'"
+  reject_matching_seed c4_upgrade matching_seed_unknown_invalid_id
+  mysql_query c4_upgrade -e "UPDATE matching_rule_sets SET id='r2260000-0000-4000-8000-000000000001' WHERE version='binary-v1'"
+  mysql_query c4_upgrade -e "INSERT INTO matching_rule_sets(id,version,rules_json,effective_from,retired_at,created_by,created_at) VALUES('a1290000-0000-4000-8000-000000000001','retired-collision',JSON_OBJECT(),'2026-01-01','2026-01-02','USR-001','2026-01-01')"
+  reject_matching_seed c4_upgrade matching_seed_id_collision
+  mysql_query c4_upgrade -e "DELETE FROM matching_rule_sets WHERE version='retired-collision'"
+  local table column
+  for table in command_idempotency event_outbox batch_audit_events; do
+    case "$table" in
+      command_idempotency) column=response_json ;;
+      event_outbox) column=payload_json ;;
+      batch_audit_events) column=details_json ;;
+    esac
+    mysql_query c4_upgrade -e "UPDATE $table SET $column=JSON_SET($column,'$.seed_reference_fixture','r2260000-0000-4000-8000-000000000001')"
+    reject_matching_seed c4_upgrade "matching_seed_referenced_by_$table"
+    mysql_query c4_upgrade -e "UPDATE $table SET $column=JSON_REMOVE($column,'$.seed_reference_fixture')"
+  done
+  mysql_query c4_upgrade <<'SQL_REFERENCED_POLICY'
+INSERT INTO matching_decisions(id,batch_id,trigger_id,trigger_type,batch_version,claim_epoch,rule_set_id,evaluation_at,input_hash,profile_snapshot_hash,input_snapshot_json,outcome,primary_reason,evaluated_count,eligible_count,correlation_id,created_at,completed_at)
+VALUES('a1299999-0000-4000-8000-000000000003','b3000000-0000-4000-8000-000000000001','a1299999-0000-4000-8000-000000000004','EXPLICIT_RUN',3,1,'r2260000-0000-4000-8000-000000000001','2026-09-18',REPEAT('a',64),REPEAT('b',64),JSON_OBJECT(),'NO_MATCH','NO_APPROVED_ORGANISATION',0,0,'seed-reference-fixture','2026-09-18','2026-09-18');
+SQL_REFERENCED_POLICY
+  reject_matching_seed c4_upgrade matching_seed_referenced_by_decision
+  mysql_query c4_upgrade -e "DELETE FROM matching_decisions WHERE id='a1299999-0000-4000-8000-000000000003'"
   C3_TABLES=(organisations roles users sessions login_audit ewaste_batches command_idempotency batch_audit_events event_outbox recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones matching_decisions matched_results batch_claims capacity_reservations)
   dump_rows c4_upgrade "$EVIDENCE_DIR/c3-before.sql" "${C3_TABLES[@]}"
-  dump_rows c4_upgrade "$EVIDENCE_DIR/c3-rules-before.sql" matching_rule_sets
+  dump_rows c4_upgrade "$EVIDENCE_DIR/c3-rules-before.sql" matching_rule_sets --where="id <> 'r2260000-0000-4000-8000-000000000001'"
+  mysql_query c4_upgrade -e "SELECT version,rules_json,effective_from,retired_at,created_by,created_at FROM matching_rule_sets WHERE version='binary-v1'" > "$EVIDENCE_DIR/repaired-policy-before.tsv"
   mysql_query c4_upgrade -e 'SELECT ID,AUTHOR,FILENAME,MD5SUM,DATEEXECUTED FROM DATABASECHANGELOG ORDER BY ID' > "$EVIDENCE_DIR/changelog-before.tsv"
   lb c4_upgrade validate validate
   lb c4_upgrade preview update-sql --context-filter=seed,c1-fixtures
   lb c4_upgrade upgrade update --context-filter=seed,c1-fixtures
   check_scalar c4_upgrade upgraded_changes 'SELECT COUNT(*) FROM DATABASECHANGELOG' 33
   check_scalar c4_upgrade matching_seed_active "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND created_by='USR-001' AND effective_from=created_at AND effective_from<=UTC_TIMESTAMP(6) AND retired_at IS NULL" 1
+  check_scalar c4_upgrade matching_seed_uuid_repaired "SELECT COUNT(*) FROM matching_rule_sets WHERE version='binary-v1' AND id='a1290000-0000-4000-8000-000000000001'" 1
+  mysql_query c4_upgrade -e "SELECT version,rules_json,effective_from,retired_at,created_by,created_at FROM matching_rule_sets WHERE version='binary-v1'" > "$EVIDENCE_DIR/repaired-policy-after.tsv"
+  diff -u "$EVIDENCE_DIR/repaired-policy-before.tsv" "$EVIDENCE_DIR/repaired-policy-after.tsv" > "$EVIDENCE_DIR/repaired-policy-preserved-diff.txt"
   dump_rows c4_upgrade "$EVIDENCE_DIR/c3-after.sql" "${C3_TABLES[@]}"
   diff -u "$EVIDENCE_DIR/c3-before.sql" "$EVIDENCE_DIR/c3-after.sql" > "$EVIDENCE_DIR/c3-preserved-diff.txt"
   dump_rows c4_upgrade "$EVIDENCE_DIR/c3-rules-after.sql" matching_rule_sets --where="id <> 'a1290000-0000-4000-8000-000000000001'"
