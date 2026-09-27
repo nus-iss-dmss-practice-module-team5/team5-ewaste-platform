@@ -71,6 +71,7 @@ describe("collector work", () => {
     newIdempotencyKey.mockReturnValue("idem-collector");
     listBatches.mockResolvedValue(page([approved]));
     listAssignments.mockResolvedValue(page([accepted]));
+    sessionStorage.clear();
   });
 
   it("selects an approved batch into an accepted assignment", async () => {
@@ -142,6 +143,10 @@ describe("collector work", () => {
     recordHandoff.mockRejectedValue(
       new WorkflowError("offline", "network", "NETWORK", "c"),
     );
+    sessionStorage.setItem(
+      "collector-batch-versions",
+      JSON.stringify({ "batch-1": 5 }),
+    );
     const keysSent = () => recordHandoff.mock.calls.map((call) => call[4]);
     render(<CollectorWork />);
     await user.click(await screen.findByTestId("collector-open-asg-1"));
@@ -185,6 +190,10 @@ describe("collector work", () => {
       assignmentStatus: "FAILED",
       version: 2,
     });
+    sessionStorage.setItem(
+      "collector-batch-versions",
+      JSON.stringify({ "batch-1": 5 }),
+    );
     render(<CollectorWork />);
     await user.click(await screen.findByTestId("collector-open-asg-1"));
     await user.selectOptions(
@@ -198,7 +207,7 @@ describe("collector work", () => {
     expect(reportFailedPickup).toHaveBeenCalledWith(
       "access-token",
       "asg-1",
-      1,
+      5,
       { failureReason: "DONOR_UNAVAILABLE", observedDetails: "" },
       "idem-collector",
     );
@@ -251,6 +260,38 @@ describe("collector work", () => {
     await user.type(screen.getByTestId("collector-hash"), "a".repeat(64));
     await user.click(screen.getByTestId("collector-handoff-submit"));
   }
+
+  it("sends the post-select batch version on handoff", async () => {
+    const user = userEvent.setup();
+    selectAssignment.mockResolvedValue(accepted);
+    recordHandoff.mockResolvedValue({
+      ...accepted,
+      assignmentStatus: "COMPLETED",
+    });
+    render(<CollectorWork />);
+    await user.click(await screen.findByTestId("collector-select-batch-1"));
+    await screen.findByTestId("collector-accepted");
+    await fillHandoff(user, "4");
+    await waitFor(() =>
+      expect(recordHandoff).toHaveBeenCalledWith(
+        "access-token",
+        "asg-1",
+        5,
+        expect.objectContaining({ actualItemCount: 4 }),
+        "idem-collector",
+      ),
+    );
+  });
+
+  it("does not hand off an assignment selected before the batch version was recorded", async () => {
+    const user = userEvent.setup();
+    render(<CollectorWork />);
+    await fillHandoff(user, "4");
+    expect(
+      await screen.findByTestId("collector-action-validation"),
+    ).toHaveTextContent("no batch version from selection");
+    expect(recordHandoff).not.toHaveBeenCalled();
+  });
 
   it("rejects an empty actual item count before calling handoff", async () => {
     const user = userEvent.setup();
