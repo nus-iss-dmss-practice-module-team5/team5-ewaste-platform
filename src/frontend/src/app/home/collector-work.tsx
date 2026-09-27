@@ -37,6 +37,50 @@ const FAILURE_REASON_LABELS: Record<FailureReason, string> = {
 };
 
 const MAX_ACTUAL_ITEM_COUNT = 100000;
+const BATCH_VERSIONS_KEY = "collector-batch-versions";
+const MISSING_BATCH_VERSION =
+  "This assignment has no batch version from selection, so the update cannot be sent.";
+
+// The handoff API compares If-Match-Version to the batch version. Selection
+// increments that version by one. The assignment's own version stays 1 and
+// must not be sent. The batch is no longer on the APPROVED list afterwards,
+// so the post-select version is kept for this browser session.
+function readBatchVersions(): Record<string, number> {
+  try {
+    const raw = sessionStorage.getItem(BATCH_VERSIONS_KEY);
+    if (!raw) {
+      return {};
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+    const versions: Record<string, number> = {};
+    for (const [batchId, version] of Object.entries(parsed)) {
+      if (typeof version === "number" && Number.isInteger(version)) {
+        versions[batchId] = version;
+      }
+    }
+    return versions;
+  } catch {
+    return {};
+  }
+}
+
+function rememberBatchVersion(batchId: string, version: number) {
+  try {
+    const versions = readBatchVersions();
+    versions[batchId] = version;
+    sessionStorage.setItem(BATCH_VERSIONS_KEY, JSON.stringify(versions));
+  } catch {
+    // The command can still proceed in this render if the caller kept the
+    // version. A later reload will ask the collector to select again.
+  }
+}
+
+function batchMatchVersion(batchId: string): number | null {
+  return readBatchVersions()[batchId] ?? null;
+}
 
 // Kept until the command succeeds or its payload changes, so retrying after a
 // timeout replays the same command instead of sending a new one.
@@ -167,6 +211,7 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
         ),
       );
       selectKey.clear();
+      rememberBatchVersion(batch.batchId, batch.version + 1);
       setNotice({
         testId: "collector-accepted",
         text: `Batch selected. Assignment ${created.assignmentId} is ${created.assignmentStatus}.`,
@@ -179,16 +224,25 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
     if (!session || !active || !rejectionReason.trim()) {
       return;
     }
+    const matchVersion = batchMatchVersion(active.batchId);
+    if (matchVersion === null) {
+      setActionError({
+        testId: "collector-action-validation",
+        tone: "warning",
+        text: MISSING_BATCH_VERSION,
+      });
+      return;
+    }
     await finish(async () => {
       await rejectAssignment(
         session.tokens.accessToken,
         active.assignmentId,
-        active.version,
+        matchVersion,
         rejectionReason,
         rejectKey.keyFor(
           JSON.stringify([
             active.assignmentId,
-            active.version,
+            matchVersion,
             rejectionReason.trim(),
           ]),
         ),
@@ -215,16 +269,25 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
       });
       return;
     }
+    const matchVersion = batchMatchVersion(active.batchId);
+    if (matchVersion === null) {
+      setActionError({
+        testId: "collector-action-validation",
+        tone: "warning",
+        text: MISSING_BATCH_VERSION,
+      });
+      return;
+    }
     await finish(async () => {
       await reportFailedPickup(
         session.tokens.accessToken,
         active.assignmentId,
-        active.version,
+        matchVersion,
         { failureReason, observedDetails },
         failKey.keyFor(
           JSON.stringify([
             active.assignmentId,
-            active.version,
+            matchVersion,
             failureReason,
             observedDetails.trim(),
           ]),
@@ -275,6 +338,15 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
       });
       return;
     }
+    const matchVersion = batchMatchVersion(active.batchId);
+    if (matchVersion === null) {
+      setActionError({
+        testId: "collector-action-validation",
+        tone: "warning",
+        text: MISSING_BATCH_VERSION,
+      });
+      return;
+    }
     const handoff = {
       pickupOccurredAt,
       donorRepresentativeName: representative,
@@ -286,12 +358,12 @@ export function CollectorWork({ history = false }: { history?: boolean }) {
       const updated = await recordHandoff(
         session.tokens.accessToken,
         active.assignmentId,
-        active.version,
+        matchVersion,
         handoff,
         handoffKey.keyFor(
           JSON.stringify([
             active.assignmentId,
-            active.version,
+            matchVersion,
             pickupOccurredAt,
             representative.trim(),
             actualItemCount,
