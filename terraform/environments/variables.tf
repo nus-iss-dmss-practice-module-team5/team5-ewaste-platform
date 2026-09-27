@@ -85,3 +85,39 @@ variable "auth_refresh_hash_secret" {
   sensitive   = true
   description = "HMAC secret for refresh token fingerprinting."
 }
+
+variable "matcher_signing_secret" {
+  type        = string
+  sensitive   = true
+  description = "Dedicated matcher workload signing key; must match CD's MATCHER_SIGNING_SECRET."
+
+  validation {
+    condition     = length(var.matcher_signing_secret) >= 32
+    error_message = "matcher_signing_secret must contain at least 32 characters."
+  }
+}
+
+variable "github_repository" {
+  type        = string
+  default     = "nus-iss-dmss-practice-module-team5/team5-ewaste-platform"
+  description = "Target GitHub repository in 'owner/repo' format for self-hosted runner registration."
+}
+
+variable "github_pat" {
+  type        = string
+  sensitive   = true
+  default     = ""
+  description = "GitHub Personal Access Token (PAT) with 'repo' scope for runner registration."
+}
+
+variable "runner_vm_size" {
+  type        = string
+  default     = "Standard_B2als_v2"
+  description = "Azure VM SKU for the VNet self-hosted GitHub runner."
+}
+
+variable "enable_self_hosted_runner" {
+  type        = bool
+  default     = true
+  description = "Whether to provision the VNet-injected self-hosted GitHub runner VM."
+}

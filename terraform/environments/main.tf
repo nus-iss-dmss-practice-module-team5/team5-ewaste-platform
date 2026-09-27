@@ -75,11 +75,11 @@ resource "azurerm_subnet" "aca_subnet" {
 
 # Private endpoints must use a subnet separate from the delegated MySQL and ACA subnets.
 resource "azurerm_subnet" "private_endpoints_subnet" {
-  name                                      = "snet-private-endpoints"
-  resource_group_name                       = azurerm_resource_group.env_rg.name
-  virtual_network_name                      = azurerm_virtual_network.vnet.name
-  address_prefixes                          = ["10.0.3.0/24"]
-  private_endpoint_network_policies         = "Disabled"
+  name                              = "snet-private-endpoints"
+  resource_group_name               = azurerm_resource_group.env_rg.name
+  virtual_network_name              = azurerm_virtual_network.vnet.name
+  address_prefixes                  = ["10.0.3.0/24"]
+  private_endpoint_network_policies = "Disabled"
 }
 
 # Private DNS zone used by the private MySQL Flexible Server.
@@ -162,6 +162,7 @@ resource "azurerm_private_endpoint" "acr" {
 
 resource "azurerm_key_vault" "kv" {
   # checkov:skip=CKV_AZURE_110:Sprint 1 baseline permits clean environment teardown/recreation.
+  # checkov:skip=CKV_AZURE_42:Purge protection is intentionally disabled (see CKV_AZURE_110); recoverability requires purge protection which blocks name reuse during iterative dev teardowns.
   name                          = "kv-${local.name_prefix}"
   location                      = azurerm_resource_group.env_rg.location
   resource_group_name           = azurerm_resource_group.env_rg.name
@@ -218,6 +219,20 @@ resource "azurerm_role_assignment" "acr_pull" {
   principal_id         = azurerm_user_assigned_identity.aca_identity.principal_id
 }
 
+data "azurerm_client_config" "current" {}
+
+resource "azurerm_role_assignment" "sp_acr_pull" {
+  scope                = data.azurerm_container_registry.shared_acr.id
+  role_definition_name = "AcrPull"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
+resource "azurerm_role_assignment" "sp_acr_push" {
+  scope                = data.azurerm_container_registry.shared_acr.id
+  role_definition_name = "AcrPush"
+  principal_id         = data.azurerm_client_config.current.object_id
+}
+
 # ============================================================================
 # 5. DATA TIER: MYSQL FLEXIBLE SERVER & REDIS
 # ============================================================================
@@ -233,6 +248,10 @@ resource "azurerm_mysql_flexible_server" "db" {
 
   sku_name = "B_Standard_B1ms"
   version  = "8.0.21"
+
+  # 100% Private VNet Delegation: No public IP, no public internet access
+  delegated_subnet_id = azurerm_subnet.mysql_subnet.id
+  private_dns_zone_id = azurerm_private_dns_zone.mysql_dns.id
 
   storage {
     size_gb           = 20
@@ -251,14 +270,6 @@ resource "azurerm_mysql_flexible_server" "db" {
   }
 }
 
-# Allow Azure Container Apps and GitHub Actions runners to connect
-resource "azurerm_mysql_flexible_server_firewall_rule" "allow_azure_services" {
-  name                = "allow-azure-and-runners"
-  resource_group_name = azurerm_resource_group.env_rg.name
-  server_name         = azurerm_mysql_flexible_server.db.name
-  start_ip_address    = "0.0.0.0"
-  end_ip_address      = "255.255.255.255"
-}
 
 resource "azurerm_mysql_flexible_database" "ewastedb" {
   name                = "ewastedb"
@@ -379,7 +390,6 @@ resource "azurerm_role_assignment" "eventhub_receiver" {
   principal_id         = azurerm_user_assigned_identity.aca_identity.principal_id
 }
 
-
 # ============================================================================
 # 6. COMPUTE: AZURE CONTAINER APPS
 # ============================================================================
@@ -402,6 +412,7 @@ resource "azurerm_container_app_environment" "aca_env" {
 # 6.1 Backend API / workflow Container App
 resource "azurerm_container_app" "api" {
   name                         = "aca-${local.name_prefix}-api"
+  workload_profile_name        = "Consumption"
   container_app_environment_id = azurerm_container_app_environment.aca_env.id
   resource_group_name          = azurerm_resource_group.env_rg.name
   revision_mode                = "Single"
@@ -448,6 +459,12 @@ resource "azurerm_container_app" "api" {
     value = azurerm_eventhub_namespace_authorization_rule.app_auth.primary_connection_string
   }
 
+  # Shared with CD; IaC must retain the matcher workload identity on reapply.
+  secret {
+    name  = "matching-signing-key"
+    value = var.matcher_signing_secret
+  }
+
   template {
     min_replicas = 1
     max_replicas = 2
@@ -456,7 +473,7 @@ resource "azurerm_container_app" "api" {
       name   = "workflow-api"
       image  = var.image_digest
       cpu    = 0.5
-      memory = "1.0Gi"
+      memory = "1Gi"
 
       env {
         name  = "EWASTE_MODE"
@@ -603,6 +620,27 @@ resource "azurerm_container_app" "api" {
         value = "true"
       }
 
+      # ---- Matcher API facade (same settings as scripts/deploy-matcher.sh) ----
+      env {
+        name  = "EWASTE_MATCHING_ENABLED"
+        value = "true"
+      }
+
+      env {
+        name  = "EWASTE_MATCHING_ISSUER"
+        value = "ewaste-matching-${var.environment}"
+      }
+
+      env {
+        name  = "EWASTE_MATCHING_AUDIENCE"
+        value = "ewaste-matching-api-${var.environment}"
+      }
+
+      env {
+        name        = "EWASTE_MATCHING_SIGNING_SECRET"
+        secret_name = "matching-signing-key"
+      }
+
       # ---- Kafka / Event Hubs outbox relay ----
       env {
         name  = "EWASTE_KAFKA_ENABLED"
@@ -630,8 +668,28 @@ resource "azurerm_container_app" "api" {
       }
 
       env {
-        name        = "EWASTE_KAFKA_SASL_PASSWORD"
+        name        = "KAFKA_CONNECTION_STRING"
         secret_name = "kafka-conn"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_PUBLISH_TIMEOUT"
+        value = "60s"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_BATCH_SIZE"
+        value = "1"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_LEASE_DURATION"
+        value = "180s"
+      }
+
+      env {
+        name  = "EWASTE_KAFKA_LEADER_LEASE_DURATION"
+        value = "300s"
       }
     }
   }
@@ -649,7 +707,9 @@ resource "azurerm_container_app" "api" {
 
   lifecycle {
     ignore_changes = [
-      template[0].container[0].image
+      template[0].container[0].image,
+      template[0].container[0].memory,
+      workload_profile_name
     ]
   }
 
@@ -666,6 +726,7 @@ resource "azurerm_container_app" "api" {
 # 6.2 Frontend UI (Next.js) Container App
 resource "azurerm_container_app" "ui" {
   name                         = "aca-${local.name_prefix}-ui"
+  workload_profile_name        = "Consumption"
   container_app_environment_id = azurerm_container_app_environment.aca_env.id
   resource_group_name          = azurerm_resource_group.env_rg.name
   revision_mode                = "Single"
@@ -689,7 +750,7 @@ resource "azurerm_container_app" "ui" {
       name   = "workflow-ui"
       image  = var.ui_image_digest
       cpu    = 0.5
-      memory = "1.0Gi"
+      memory = "1Gi"
 
       env {
         name  = "APP_ENV"
@@ -741,7 +802,9 @@ resource "azurerm_container_app" "ui" {
 
   lifecycle {
     ignore_changes = [
-      template[0].container[0].image
+      template[0].container[0].image,
+      template[0].container[0].memory,
+      workload_profile_name
     ]
   }
 
@@ -755,6 +818,7 @@ resource "azurerm_container_app" "ui" {
 # 6.3 Analytics & Matching Worker Container App
 resource "azurerm_container_app" "analytics" {
   name                         = "aca-${local.name_prefix}-analytics"
+  workload_profile_name        = "Consumption"
   container_app_environment_id = azurerm_container_app_environment.aca_env.id
   resource_group_name          = azurerm_resource_group.env_rg.name
   revision_mode                = "Single"
@@ -775,6 +839,12 @@ resource "azurerm_container_app" "analytics" {
     value = azurerm_eventhub_namespace_authorization_rule.app_auth.primary_connection_string
   }
 
+  # Shared with CD; IaC must retain the matcher workload identity on reapply.
+  secret {
+    name  = "matching-signing-key"
+    value = var.matcher_signing_secret
+  }
+
   template {
     min_replicas = 1
     max_replicas = 2
@@ -783,7 +853,7 @@ resource "azurerm_container_app" "analytics" {
       name   = "workflow-analytics"
       image  = var.analytics_image_digest
       cpu    = 0.5
-      memory = "1.0Gi"
+      memory = "1Gi"
 
       env {
         name  = "KAFKA_BOOTSTRAP_SERVERS"
@@ -795,38 +865,112 @@ resource "azurerm_container_app" "analytics" {
         secret_name = "kafka-conn"
       }
 
+      # Keep the worker startup contract aligned with scripts/deploy-matcher.sh.
       env {
-        name  = "KAFKA_TOPIC_BATCH_EVENTS"
+        name        = "MATCHER_SIGNING_SECRET"
+        secret_name = "matching-signing-key"
+      }
+
+      env {
+        name  = "MATCHER_TOPIC"
         value = "ewaste.batch.events"
       }
 
       env {
-        name  = "KAFKA_TOPIC_DLQ"
+        name  = "MATCHER_DLQ_TOPIC"
         value = "ewaste.batch.events.matching.dlq.v1"
       }
 
       env {
-        name  = "KAFKA_CONSUMER_GROUP"
-        value = "matching-worker"
+        name  = "MATCHER_GROUP_ID"
+        value = "matching-worker-v1"
       }
 
       env {
-        name  = "ENABLE_TEST_ENDPOINTS"
-        value = var.environment == "dev" ? "true" : "false"
+        name  = "MATCHER_OFFSET_RESET"
+        value = "earliest"
       }
 
       env {
-        name  = "LOG_LEVEL"
-        value = "INFO"
+        name  = "MATCHER_FACADE_URL"
+        value = "https://${azurerm_container_app.api.ingress[0].fqdn}"
+      }
+
+      env {
+        name  = "MATCHER_LOCAL_TEST"
+        value = "0"
+      }
+
+      env {
+        name  = "MATCHER_TOKEN_ISSUER"
+        value = "ewaste-matching-${var.environment}"
+      }
+
+      env {
+        name  = "MATCHER_TOKEN_AUDIENCE"
+        value = "ewaste-matching-api-${var.environment}"
+      }
+
+      env {
+        name  = "MATCHER_MAX_POLL_MS"
+        value = "300000"
+      }
+
+      env {
+        name  = "MATCHER_SESSION_TIMEOUT_MS"
+        value = "30000"
+      }
+
+      env {
+        name  = "MATCHER_WORKERS"
+        value = "1"
+      }
+
+      env {
+        name  = "MATCHER_HTTP_TIMEOUT_SECONDS"
+        value = "30"
+      }
+
+      env {
+        name  = "MATCHER_MAX_RESPONSE_BYTES"
+        value = "16777216"
+      }
+
+      env {
+        name  = "MATCHER_MAX_RECORD_BYTES"
+        value = "1000000"
+      }
+
+      env {
+        name  = "MATCHER_DELIVERY_TIMEOUT_SECONDS"
+        value = "120"
+      }
+
+      env {
+        name  = "MATCHER_RETRY_BASE_SECONDS"
+        value = "1"
+      }
+
+      env {
+        name  = "MATCHER_RETRY_MAX_SECONDS"
+        value = "30"
+      }
+
+      env {
+        name  = "MATCHER_MAX_REFRESHES"
+        value = "5"
+      }
+
+      env {
+        name  = "MATCHER_HEALTH_PORT"
+        value = "8000"
       }
     }
   }
 
   ingress {
-    # External ingress only in dev — the smoke test's publish-test and /events
-    # endpoints require an externally reachable FQDN from the GitHub Actions runner.
-    # In stg/prod, the analytics worker runs as an internal consumer-only service;
-    # ENABLE_TEST_ENDPOINTS is false and no external callers need to reach it.
+    # Dev exposes /readyz for the CD smoke check. Stg/prod retain internal
+    # ingress; deployment checks the exact revision's platform health there.
     external_enabled = var.environment == "dev" ? true : false
     target_port      = 8000
     transport        = "auto"
@@ -839,7 +983,9 @@ resource "azurerm_container_app" "analytics" {
 
   lifecycle {
     ignore_changes = [
-      template[0].container[0].image
+      template[0].container[0].image,
+      template[0].container[0].memory,
+      workload_profile_name
     ]
   }
 

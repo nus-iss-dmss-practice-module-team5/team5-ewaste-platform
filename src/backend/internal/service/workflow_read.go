@@ -117,11 +117,12 @@ func (s *WorkflowReadService) ListOpportunities(
 	if err := validatePage(page); err != nil {
 		return OpportunityListResult{}, err
 	}
-	if !isRole(actor.RoleCode, "RECYCLER") || strings.TrimSpace(actor.OrganisationID) == "" {
-		return OpportunityListResult{}, ErrWorkflowReadForbidden
+	organisationID, err := s.repository.FindRecyclerOrganisation(ctx, actor.UserID)
+	if err != nil {
+		return OpportunityListResult{}, mapWorkflowReadRepositoryError(err)
 	}
 
-	opportunities, total, err := s.repository.ListOpportunities(ctx, actor.OrganisationID, toRepositoryPage(page))
+	opportunities, total, err := s.repository.ListOpportunities(ctx, organisationID, toRepositoryPage(page))
 	if err != nil {
 		return OpportunityListResult{}, mapWorkflowReadRepositoryError(err)
 	}
@@ -140,11 +141,12 @@ func (s *WorkflowReadService) GetOpportunity(
 	if strings.TrimSpace(batchID) == "" {
 		return dto.OpportunityView{}, ErrWorkflowReadInvalid
 	}
-	if !isRole(actor.RoleCode, "RECYCLER") || strings.TrimSpace(actor.OrganisationID) == "" {
-		return dto.OpportunityView{}, ErrWorkflowReadForbidden
+	organisationID, err := s.repository.FindRecyclerOrganisation(ctx, actor.UserID)
+	if err != nil {
+		return dto.OpportunityView{}, mapWorkflowReadRepositoryError(err)
 	}
 
-	opportunity, err := s.repository.FindOpportunity(ctx, batchID, actor.OrganisationID)
+	opportunity, err := s.repository.FindOpportunity(ctx, batchID, organisationID)
 	if err != nil {
 		return dto.OpportunityView{}, mapWorkflowReadRepositoryError(err)
 	}

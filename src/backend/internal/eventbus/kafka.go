@@ -10,12 +10,14 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/segmentio/kafka-go"
 	"github.com/segmentio/kafka-go/sasl/plain"
 
 	"workflow-api/internal/config"
+	"workflow-api/internal/matchingcontract"
 	"workflow-api/internal/model"
 )
 
@@ -97,6 +99,17 @@ func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
 
 	saslUsername := strings.TrimSpace(cfg.SASLUsername)
 	saslPassword := cfg.SASLPassword
+	// Keep the matcher's fail-closed transport rules on PR #41's native fields.
+	if (saslUsername != "" || saslPassword != "") && !cfg.TLSEnabled {
+		return nil, errors.New("kafka SASL credentials require TLS")
+	}
+	for _, broker := range brokers {
+		host := strings.TrimSuffix(strings.ToLower(kafkaServerName(broker)), ".")
+		if strings.HasSuffix(host, ".servicebus.windows.net") &&
+			(!cfg.TLSEnabled || saslUsername != "$ConnectionString" || saslPassword == "") {
+			return nil, errors.New("Event Hubs requires TLS and connection-string SASL credentials")
+		}
+	}
 	if saslUsername != "" || saslPassword != "" {
 		if saslUsername == "" || saslPassword == "" {
 			return nil, errors.New("kafka sasl username and password must be configured together")
@@ -119,15 +132,16 @@ func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
 		// WriterConfig/NewWriter are deprecated in kafka-go v0.4.51.
 		// Configure Writer directly so broker acknowledgements remain explicit.
 		writer: &kafka.Writer{
-			Addr:         kafka.TCP(brokers...),
-			Balancer:     &kafka.Hash{},
-			RequiredAcks: kafka.RequireAll,
-			BatchSize:    1,
-			MaxAttempts:  cfg.MaxAttempts,
-			ReadTimeout:  publishTimeout,
-			WriteTimeout: publishTimeout,
-			Async:        false,
-			Transport:    transport,
+			Addr:                   kafka.TCP(brokers...),
+			Balancer:               &kafka.Hash{},
+			RequiredAcks:           kafka.RequireAll,
+			BatchSize:              1,
+			MaxAttempts:            cfg.MaxAttempts,
+			ReadTimeout:            publishTimeout,
+			WriteTimeout:           publishTimeout,
+			Async:                  false,
+			Transport:              transport,
+			AllowAutoTopicCreation: false,
 		},
 	}, nil
 }
@@ -143,6 +157,10 @@ func kafkaServerName(address string) string {
 // validateEvent checks routing identity before the network call. The payload
 // is sent exactly as persisted; it is never reconstructed from live tables.
 func validateEvent(event model.EventOutbox) error {
+	body, err := matchingcontract.Decode(event.PayloadJSON)
+	if err != nil || matchingcontract.Validate(event.EventType, body) != nil {
+		return &InvalidEventError{cause: errors.New("persisted event violates approved schema")}
+	}
 	if strings.TrimSpace(event.Topic) == "" {
 		return &InvalidEventError{cause: ErrKafkaTopicMissing}
 	}
@@ -175,7 +193,7 @@ func validateEvent(event model.EventOutbox) error {
 			cause: errors.New("kafka event sequence must be positive"),
 		}
 	}
-	if len(event.CorrelationID) == 0 || len(event.CorrelationID) > 128 {
+	if len(event.CorrelationID) == 0 || utf8.RuneCountInString(event.CorrelationID) > 128 {
 		return &InvalidEventError{
 			cause: errors.New("kafka correlation id is invalid"),
 		}

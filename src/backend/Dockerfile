@@ -12,6 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux \
     -o /out/server ./cmd/server
 
 FROM alpine:3.20
+RUN apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app

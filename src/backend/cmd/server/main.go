@@ -21,6 +21,7 @@ import (
 	"workflow-api/internal/health"
 	"workflow-api/internal/lease"
 	"workflow-api/internal/logger"
+	"workflow-api/internal/matching"
 	"workflow-api/internal/outbox"
 	"workflow-api/internal/ratelimit"
 	"workflow-api/internal/repository"
@@ -205,6 +206,10 @@ func run() error {
 		appLogger.Logger,
 		workflowReadController,
 	)
+
+	if err := matching.RegisterFromEnv(appRouter, db); err != nil {
+		return fmt.Errorf("configure matching facade: %w", err)
+	}
 
 	if cfg.Mode != config.ModeProduction {
 		docs.Register(appRouter)

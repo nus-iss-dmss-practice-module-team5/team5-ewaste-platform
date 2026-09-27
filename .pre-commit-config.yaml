@@ -26,15 +26,17 @@ repos:
     hooks:
       - id: go-fmt
         name: go-fmt
-        entry: python -c "import subprocess, sys; sys.exit(subprocess.run(['go', 'fmt', './...'], cwd='src/backend').returncode)"
-        language: system
+        entry: go -C src/backend fmt ./...
+        language: golang
+        language_version: '1.26.0'
         files: ^src/backend/
         pass_filenames: false
 
       - id: go-vet
         name: go-vet
-        entry: python -c "import subprocess, sys; sys.exit(subprocess.run(['go', 'vet', './...'], cwd='src/backend').returncode)"
-        language: system
+        entry: go -C src/backend vet ./...
+        language: golang
+        language_version: '1.26.0'
         files: ^src/backend/
         pass_filenames: false
 

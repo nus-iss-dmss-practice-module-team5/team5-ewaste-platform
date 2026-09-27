@@ -106,43 +106,47 @@ func (r *Relay) Run(ctx context.Context) {
 	}
 }
 
+// Heartbeats run independently of broker calls. Losing leadership cancels all
+// in-flight work; publication remains at-least-once and consumers deduplicate IDs.
 func (r *Relay) runAsLeader(ctx context.Context, lease LeaderLease) {
-	workTicker := time.NewTicker(r.config.PollInterval)
-	defer workTicker.Stop()
-
-	renewInterval := r.config.LeaderLeaseDuration / 3
-	if renewInterval <= 0 {
-		renewInterval = time.Second
+	leasedContext, cancel := context.WithCancel(ctx)
+	renewed := make(chan struct{})
+	interval := r.config.LeaderLeaseDuration / 3
+	if interval <= 0 {
+		interval = time.Second
 	}
-	renewTicker := time.NewTicker(renewInterval)
-	defer renewTicker.Stop()
-
+	go func() {
+		defer close(renewed)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-leasedContext.Done():
+				return
+			case <-ticker.C:
+				renewContext, stopRenew := context.WithTimeout(leasedContext, interval)
+				err := lease.Renew(renewContext, r.config.LeaderLeaseDuration)
+				stopRenew()
+				if err != nil {
+					r.logger.Error("outbox leadership lost", zap.Error(err))
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	defer func() {
-		releaseContext, cancel := context.WithTimeout(
-			context.Background(),
-			time.Second,
-		)
-		defer cancel()
-
+		cancel()
+		<-renewed
+		releaseContext, stopRelease := context.WithTimeout(context.Background(), time.Second)
+		defer stopRelease()
 		if err := lease.Release(releaseContext); err != nil {
 			r.logger.Warn("release outbox relay lease", zap.Error(err))
 		}
 	}()
-
-	r.processOnce(ctx)
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-workTicker.C:
-			r.processOnce(ctx)
-		case <-renewTicker.C:
-			if err := lease.Renew(ctx, r.config.LeaderLeaseDuration); err != nil {
-				r.logger.Error("renew outbox relay lease", zap.Error(err))
-				return
-			}
-		}
+	for leasedContext.Err() == nil {
+		r.processOnce(leasedContext)
+		r.wait(leasedContext, r.config.PollInterval)
 	}
 }
 
@@ -173,6 +177,9 @@ func (r *Relay) processOnce(ctx context.Context) {
 		)
 		publishErr := r.publisher.Publish(publishContext, event)
 		cancel()
+		if ctx.Err() != nil {
+			return
+		}
 
 		if publishErr != nil {
 			var permanentError interface{ Permanent() bool }
@@ -191,20 +198,8 @@ func (r *Relay) processOnce(ctx context.Context) {
 				continue
 			}
 
-			if event.AttemptCount+1 >= uint32(r.config.MaxAttempts) {
-				if quarantineErr := r.repository.MarkQuarantined(
-					ctx,
-					event.EventID,
-					"KAFKA_MAX_ATTEMPTS",
-				); quarantineErr != nil {
-					r.logger.Error(
-						"quarantine exhausted outbox event",
-						zap.String("event_id", event.EventID),
-						zap.Error(quarantineErr),
-					)
-				}
-				continue
-			}
+			// Transient broker outages remain PENDING and recover automatically.
+			// MaxAttempts bounds each Kafka send, not the lifetime of durable intent.
 
 			if retryErr := r.repository.MarkRetry(
 				ctx,

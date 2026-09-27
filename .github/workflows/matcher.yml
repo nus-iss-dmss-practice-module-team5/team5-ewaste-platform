@@ -1,0 +1,28 @@
+name: Matcher Contracts, Kafka Delivery and MySQL Persistence
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ['src/matcher/**', 'src/backend/**', 'contracts/matching/**', 'database/**', 'scripts/test-matcher.sh', 'scripts/deploy-matcher.sh', '.github/workflows/cd-pipeline.yml', '.github/workflows/matcher.yml']
+  push:
+    branches: [dev, main]
+    paths: ['src/matcher/**', 'src/backend/**', 'contracts/matching/**', 'database/**', 'scripts/test-matcher.sh', 'scripts/deploy-matcher.sh', '.github/workflows/cd-pipeline.yml', '.github/workflows/matcher.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  matcher:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify matcher against disposable Go, MySQL and Kafka services
+        run: ./scripts/test-matcher.sh
+      - name: Retain verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: matcher-persistence-evidence
+          path: artifacts/matcher/
+          retention-days: 14
