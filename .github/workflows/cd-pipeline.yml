@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
+    branches: [feature/ewcsb-188-acr-rollback-tag]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -405,6 +405,26 @@ jobs:
             else
               echo "Repository $REPO has 3 or fewer tags. Nothing to prune."
             fi
+          done
+
+      # ------------------------------------------------------------------------
+      # 1.6 PUBLISH ROLLBACK CANDIDATES TO GITHUB ACTIONS SUMMARY
+      # ------------------------------------------------------------------------
+      - name: Publish Rollback Tag Catalog to Job Summary
+        if: always()
+        run: |
+          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
+          ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
+
+          echo "## Verified Container Images & Rollback Candidates" >> $GITHUB_STEP_SUMMARY
+          echo "Public network access to ACR is disabled. Use the verified tags below for the \`rollback_tag\` workflow input." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Latest Available Tags (Newest First) | Target Environment |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- | :---: |" >> $GITHUB_STEP_SUMMARY
+
+          for REPO in "${{ env.IMAGE_NAME_API }}" "${{ env.IMAGE_NAME_UI }}" "${{ env.IMAGE_NAME_ANALYTICS }}"; do
+            TAGS=$(az acr repository show-tags --name "$ACR_NAME" --repository "$REPO" --orderby time_desc --output tsv 2>/dev/null | head -n 5 | paste -sd ", " - || echo "None")
+            echo "| \`$REPO\` | \`$TAGS\` | \`${{ needs.resolve-environment.outputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
           done
 
   # ============================================================================
