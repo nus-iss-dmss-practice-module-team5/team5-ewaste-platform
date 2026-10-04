@@ -128,11 +128,20 @@ export function ProcessingWork() {
   }, [session?.tokens.accessToken]);
 
   function invalid(text: string) {
+    setNotice(null);
     setActionError({
       testId: "processing-action-validation",
       tone: "warning",
       text,
     });
+  }
+
+  // A warning about a field is dropped once that form is edited. Server
+  // errors stay until the next command or refresh.
+  function edited() {
+    setActionError((current) =>
+      current?.testId === "processing-action-validation" ? null : current,
+    );
   }
 
   async function finish(task: () => Promise<void>) {
@@ -349,7 +358,7 @@ export function ProcessingWork() {
               <tr>
                 <th className="py-2 pr-3">Category</th>
                 <th className="py-2 pr-3">Status</th>
-                <th className="py-2 pr-3">Declared</th>
+                <th className="hidden py-2 pr-3 sm:table-cell">Declared</th>
                 <th className="py-2">Action</th>
               </tr>
             </thead>
@@ -358,7 +367,7 @@ export function ProcessingWork() {
                 <tr key={row.batchId} className="border-t border-slate-200">
                   <td className="py-2 pr-3">{row.category ?? row.batchId}</td>
                   <td className="py-2 pr-3">{row.status}</td>
-                  <td className="py-2 pr-3">
+                  <td className="hidden py-2 pr-3 sm:table-cell">
                     {row.quantity ?? "—"} items · {kg(row.estimatedWeightKg)}
                   </td>
                   <td className="py-2">
@@ -381,8 +390,9 @@ export function ProcessingWork() {
 
       {detail ? (
         <div data-testid="processing-detail" className="mt-6 grid gap-6">
-          <p className="break-all text-sm text-slate-700">
-            Batch {detail.batchId} is {detail.status}.
+          <p className="text-sm text-slate-700">
+            Batch <span className="break-all">{detail.batchId}</span> is{" "}
+            {detail.status}.
           </p>
           <div className="overflow-x-auto">
             <table
@@ -430,11 +440,12 @@ export function ProcessingWork() {
                   <select
                     data-testid="processing-actual-category"
                     value={actualCategory}
-                    onChange={(event) =>
+                    onChange={(event) => {
                       setActualCategory(
                         event.target.value as EwasteCategory | "",
-                      )
-                    }
+                      );
+                      edited();
+                    }}
                     className={INPUT_CLASS}
                   >
                     <option value="">Choose a category</option>
@@ -451,7 +462,10 @@ export function ProcessingWork() {
                     data-testid="processing-actual-count"
                     inputMode="numeric"
                     value={actualCount}
-                    onChange={(event) => setActualCount(event.target.value)}
+                    onChange={(event) => {
+                      setActualCount(event.target.value);
+                      edited();
+                    }}
                     className={INPUT_CLASS}
                   />
                 </label>
@@ -461,7 +475,10 @@ export function ProcessingWork() {
                     data-testid="processing-actual-weight"
                     inputMode="decimal"
                     value={actualWeight}
-                    onChange={(event) => setActualWeight(event.target.value)}
+                    onChange={(event) => {
+                      setActualWeight(event.target.value);
+                      edited();
+                    }}
                     placeholder="0.00"
                     className={INPUT_CLASS}
                   />
@@ -502,7 +519,10 @@ export function ProcessingWork() {
                     data-testid="processing-reused"
                     inputMode="decimal"
                     value={reused}
-                    onChange={(event) => setReused(event.target.value)}
+                    onChange={(event) => {
+                      setReused(event.target.value);
+                      edited();
+                    }}
                     className={INPUT_CLASS}
                   />
                 </label>
@@ -512,7 +532,10 @@ export function ProcessingWork() {
                     data-testid="processing-recycled-kg"
                     inputMode="decimal"
                     value={recycled}
-                    onChange={(event) => setRecycled(event.target.value)}
+                    onChange={(event) => {
+                      setRecycled(event.target.value);
+                      edited();
+                    }}
                     className={INPUT_CLASS}
                   />
                 </label>
@@ -522,7 +545,10 @@ export function ProcessingWork() {
                     data-testid="processing-disposed"
                     inputMode="decimal"
                     value={disposed}
-                    onChange={(event) => setDisposed(event.target.value)}
+                    onChange={(event) => {
+                      setDisposed(event.target.value);
+                      edited();
+                    }}
                     className={INPUT_CLASS}
                   />
                 </label>

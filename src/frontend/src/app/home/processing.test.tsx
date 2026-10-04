@@ -170,6 +170,54 @@ describe("processing work", () => {
     },
   );
 
+  it("drops a validation warning once the field is corrected", async () => {
+    const user = userEvent.setup();
+    await openBatch(user);
+    await fillReceipt(user, "ICT_EQUIPMENT", "10", "12.000");
+    await user.click(screen.getByTestId("processing-receipt-submit"));
+    await screen.findByTestId("processing-action-validation");
+
+    await user.clear(screen.getByTestId("processing-actual-weight"));
+    expect(
+      screen.queryByTestId("processing-action-validation"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps a conflict on screen while the form is edited", async () => {
+    const user = userEvent.setup();
+    verifyReceipt.mockRejectedValue(
+      new WorkflowError("stale", "conflict", "STALE_VERSION", "c", 409),
+    );
+    await openBatch(user);
+    await fillReceipt(user, "ICT_EQUIPMENT", "12", "4.50");
+    await user.click(screen.getByTestId("processing-receipt-submit"));
+    await screen.findByTestId("processing-action-conflict");
+
+    await user.type(screen.getByTestId("processing-actual-weight"), "1");
+    expect(
+      screen.getByTestId("processing-action-conflict"),
+    ).toBeInTheDocument();
+  });
+
+  it("replaces the saved notice when the next form is invalid", async () => {
+    const user = userEvent.setup();
+    verifyReceipt.mockResolvedValue({
+      batchId: "batch-1",
+      status: "VERIFIED",
+      version: 7,
+    });
+    await openBatch(user);
+    await fillReceipt(user, "ICT_EQUIPMENT", "5", "12.00");
+    getProcessingBatch.mockResolvedValue(verified);
+    await user.click(screen.getByTestId("processing-receipt-submit"));
+    await screen.findByTestId("processing-verified");
+
+    await fillTreatment(user, "2.00", "", "1.00");
+    await user.click(screen.getByTestId("processing-treatment-submit"));
+    await screen.findByTestId("processing-action-validation");
+    expect(screen.queryByTestId("processing-verified")).not.toBeInTheDocument();
+  });
+
   it("disables the receipt button while the command is pending", async () => {
     const user = userEvent.setup();
     verifyReceipt.mockReturnValue(new Promise(() => {}));
