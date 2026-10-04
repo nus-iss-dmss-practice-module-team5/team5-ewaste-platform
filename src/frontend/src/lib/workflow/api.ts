@@ -25,6 +25,13 @@ import {
   mockListOpportunities,
 } from "./local-opportunity-mock";
 import {
+  USE_LOCAL_PROCESSING_MOCK,
+  mockGetProcessingBatch,
+  mockListProcessingBatches,
+  mockRecordTreatment,
+  mockVerifyReceipt,
+} from "./local-processing-mock";
+import {
   parseAssignment,
   parseAssignmentPage,
   parseBatch,
@@ -33,6 +40,9 @@ import {
   parseData,
   parseOpportunity,
   parseOpportunityPage,
+  parseProcessingBatch,
+  parseProcessingBatchPage,
+  parseProcessingResult,
 } from "./parse";
 import type {
   Assignment,
@@ -46,7 +56,12 @@ import type {
   HandoffCommand,
   Opportunity,
   Page,
+  ProcessingBatch,
+  ProcessingResult,
+  ProcessingStatus,
+  ReceiptCommand,
   SelectAssignmentCommand,
+  TreatmentCommand,
 } from "./types";
 
 export function newIdempotencyKey(): string {
@@ -422,5 +437,102 @@ export async function reportFailedPickup(
       commandHeaders(accessToken, idempotencyKey, version),
     ),
     (data) => parseData(data, parseAssignment, "Assignment"),
+  );
+}
+
+export async function listProcessingBatches(
+  accessToken: string,
+  query: {
+    status?: Exclude<ProcessingStatus, "COMPLETED">;
+    page?: number;
+    pageSize?: number;
+  } = {},
+): Promise<Page<ProcessingBatch>> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockListProcessingBatches(query.status);
+  }
+  return call(
+    api.get("/api/v1/processing/batches", {
+      ...authHeaders(accessToken),
+      params: {
+        page: query.page ?? 1,
+        page_size: query.pageSize ?? 20,
+        ...(query.status ? { status: query.status } : {}),
+      },
+    }),
+    parseProcessingBatchPage,
+  );
+}
+
+export async function getProcessingBatch(
+  accessToken: string,
+  batchId: string,
+): Promise<ProcessingBatch> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockGetProcessingBatch(batchId);
+  }
+  return call(
+    api.get(`/api/v1/processing/batches/${batchId}`, authHeaders(accessToken)),
+    (data) => parseData(data, parseProcessingBatch, "Processing batch"),
+  );
+}
+
+export async function verifyReceipt(
+  accessToken: string,
+  batchId: string,
+  version: number,
+  command: ReceiptCommand,
+  idempotencyKey: string,
+): Promise<ProcessingResult> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockVerifyReceipt(batchId, version, command);
+  }
+  return call(
+    api.post(
+      `/api/v1/batches/${batchId}/receipt`,
+      {
+        actual_category: command.actualCategory,
+        actual_item_count: command.actualItemCount,
+        actual_weight_kg: command.actualWeightKg,
+      },
+      commandHeaders(accessToken, idempotencyKey, version),
+    ),
+    (data) => parseData(data, parseProcessingResult, "Receipt"),
+  );
+}
+
+export async function recordTreatment(
+  accessToken: string,
+  batchId: string,
+  version: number,
+  command: TreatmentCommand,
+  idempotencyKey: string,
+): Promise<ProcessingResult> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockRecordTreatment(batchId, version, command);
+  }
+  // The amounts are sent together or left out together. A missing amount is
+  // never sent as zero.
+  const body: {
+    reused_kg?: string;
+    recycled_kg?: string;
+    disposed_kg?: string;
+    evidence_id?: string;
+  } = {};
+  if (command.amounts) {
+    body.reused_kg = command.amounts.reusedKg;
+    body.recycled_kg = command.amounts.recycledKg;
+    body.disposed_kg = command.amounts.disposedKg;
+  }
+  if (command.evidenceId) {
+    body.evidence_id = command.evidenceId;
+  }
+  return call(
+    api.post(
+      `/api/v1/batches/${batchId}/treatment`,
+      body,
+      commandHeaders(accessToken, idempotencyKey, version),
+    ),
+    (data) => parseData(data, parseProcessingResult, "Treatment"),
   );
 }

@@ -6,6 +6,9 @@ export const BATCH_STATUSES = [
   "ASSIGNED",
   "COLLECTED",
   "FAILED_COLLECTION",
+  "VERIFIED",
+  "RECYCLED",
+  "COMPLETED",
 ] as const;
 
 export type BatchStatus = (typeof BATCH_STATUSES)[number];
@@ -132,4 +135,78 @@ export type FailureReason = (typeof FAILURE_REASONS)[number];
 export type FailPickupCommand = {
   failureReason: FailureReason;
   observedDetails?: string;
+};
+
+export const EWASTE_CATEGORIES = [
+  "ICT_EQUIPMENT",
+  "LARGE_APPLIANCE",
+  "BATTERIES",
+  "CONSUMER_ELECTRONICS",
+] as const;
+
+export type EwasteCategory = (typeof EWASTE_CATEGORIES)[number];
+
+export const PROCESSING_STATUSES = [
+  "COLLECTED",
+  "VERIFIED",
+  "RECYCLED",
+  "COMPLETED",
+] as const;
+
+export type ProcessingStatus = (typeof PROCESSING_STATUSES)[number];
+
+export const DATA_QUALITIES = ["COMPLETE", "PARTIAL", "MISSING"] as const;
+
+export type DataQuality = (typeof DATA_QUALITIES)[number];
+
+export type Receipt = {
+  actualCategory: string;
+  actualItemCount: number;
+  actualWeightKg: string;
+};
+
+// The three amounts are all recorded or all null. Null is an absent outcome,
+// not zero.
+export type Treatment = {
+  reusedKg: string | null;
+  recycledKg: string | null;
+  disposedKg: string | null;
+  unknownKg?: string;
+  dataQuality?: DataQuality;
+  evidenceId?: string;
+};
+
+// Weights are two-decimal kilogram strings, as the API stores them.
+export type ProcessingBatch = {
+  batchId: string;
+  status: ProcessingStatus;
+  version: number;
+  category?: string;
+  quantity?: number;
+  estimatedWeightKg?: string;
+  receipt?: Receipt;
+  treatment?: Treatment;
+};
+
+export type ProcessingResult = {
+  batchId: string;
+  status: ProcessingStatus;
+  version: number;
+};
+
+export type ReceiptCommand = {
+  actualCategory: EwasteCategory;
+  actualItemCount: number;
+  actualWeightKg: string;
+};
+
+export type TreatmentAmounts = {
+  reusedKg: string;
+  recycledKg: string;
+  disposedKg: string;
+};
+
+export type TreatmentCommand = {
+  amounts?: TreatmentAmounts;
+  evidenceId?: string;
 };

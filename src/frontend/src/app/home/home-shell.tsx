@@ -7,6 +7,7 @@ import { ClaimAction } from "./claim-action";
 import { CollectorWork } from "./collector-work";
 import { DonorBatchForm, DonorBatchList } from "./donor-batches";
 import { OpportunityView } from "./opportunities";
+import { ProcessingWork } from "./processing";
 
 export function HomeShell() {
   const { session, justRenewed, logout } = useSession();
@@ -30,6 +31,8 @@ export function HomeShell() {
       <OpportunityView />
     ) : user.role === "RECYCLER" && current === "claim" ? (
       <ClaimAction />
+    ) : user.role === "RECYCLER" && current === "processing" ? (
+      <ProcessingWork />
     ) : user.role === "COLLECTOR" && current === "assignments" ? (
       <CollectorWork />
     ) : user.role === "COLLECTOR" && current === "history" ? (
