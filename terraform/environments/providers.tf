@@ -25,13 +25,7 @@ terraform {
 }
 
 provider "azurerm" {
-  features {
-    key_vault {
-      # Sprint 1 baseline favors clean teardown/recreation for the academic environment.
-      purge_soft_delete_on_destroy    = true
-      recover_soft_deleted_key_vaults = false
-    }
-  }
+  features {}
 }
 
 locals {
