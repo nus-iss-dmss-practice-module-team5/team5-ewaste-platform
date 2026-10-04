@@ -2,11 +2,11 @@ name: CI Quality Gate & Security Baseline
 
 on:
   pull_request:
-    branches: [feature/ewcsb-188-acr-rollback-tag]
+    branches: [dev, main]
     types: [opened, synchronize, reopened]
 
   push:
-    branches: [dev, main]
+    branches: [feature/ewcsb-188-acr-rollback-tag]
 
 permissions:
   contents: read
