@@ -2729,7 +2729,7 @@ SQL_SEEDED_REPLACEMENT
 reject_recycler_seed() {
   local name="$1"
   dump_rows recycler_upgrade "$EVIDENCE_DIR/$name-before.sql" "${RECYCLER_TABLES[@]}" DATABASECHANGELOG
-  if lb recycler_upgrade "$name" update --context-filter=seed; then
+  if lb recycler_upgrade "$name" --changelog-file=seed/108-seed-recycler-matching-config.sql update --context-filter=seed; then
     echo "FAIL: recycler seed unexpectedly succeeded: $name" >&2; return 1
   fi
   grep -q 'SQL Precondition failed' "$EVIDENCE_DIR/recycler_upgrade-$name.log"
@@ -2795,7 +2795,7 @@ RECYCLER_REJECTIONS
   dump_rows recycler_upgrade "$EVIDENCE_DIR/profile-before.sql" recycler_matching_profiles
   dump_rows recycler_upgrade "$EVIDENCE_DIR/existing-before.sql" "${RECYCLER_TABLES[@]:1}"
   dump_rows recycler_upgrade "$EVIDENCE_DIR/scopes-before.sql" recycler_collector_scopes
-  lb recycler_upgrade upgrade update --context-filter=seed
+  lb recycler_upgrade upgrade --changelog-file=seed/108-seed-recycler-matching-config.sql update --context-filter=seed
   check_scalar recycler_upgrade filled_counts 'SELECT CONCAT((SELECT COUNT(*) FROM recycler_matching_profiles),":",(SELECT COUNT(*) FROM recycler_capacity_pools),":",(SELECT COUNT(*) FROM recycler_category_capabilities),":",(SELECT COUNT(*) FROM recycler_service_zones))' '2:2:8:10'
   check_scalar recycler_upgrade shared_existing_pool "SELECT COUNT(*) FROM recycler_category_capabilities WHERE recycler_org_id='PROC-001' AND capacity_pool_id='f1080000-0000-4000-8000-000000000001'" 4
   check_scalar recycler_upgrade reservation_preserved "SELECT total_kg-reserved_kg FROM recycler_capacity_pools WHERE recycler_org_id='PROC-001' AND pool_code='MAIN'" '49875.00'
@@ -2808,7 +2808,7 @@ RECYCLER_REJECTIONS
   # Simulate data committed before changelog recording in this disposable DB.
   mysql_query recycler_upgrade -e "DELETE FROM DATABASECHANGELOG WHERE ID='EWCSB129-108'"
   dump_rows recycler_upgrade "$EVIDENCE_DIR/adopt-before.sql" "${RECYCLER_TABLES[@]}"
-  lb recycler_upgrade adopt update --context-filter=seed
+  lb recycler_upgrade adopt --changelog-file=seed/108-seed-recycler-matching-config.sql update --context-filter=seed
   dump_rows recycler_upgrade "$EVIDENCE_DIR/adopt-after.sql" "${RECYCLER_TABLES[@]}"
   diff -u "$EVIDENCE_DIR/adopt-before.sql" "$EVIDENCE_DIR/adopt-after.sql" > "$EVIDENCE_DIR/adopt.diff"
   check_scalar recycler_upgrade recorded_once "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-108' AND EXECTYPE='EXECUTED'" 1
