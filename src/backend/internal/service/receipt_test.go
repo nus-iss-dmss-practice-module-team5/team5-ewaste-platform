@@ -48,21 +48,16 @@ func TestBatchServiceVerifyReceiptRollsBackAllWritesWhenOutboxFails(t *testing.T
 }
 
 func collectedReceiptBatch() *model.Batch {
-	claimID := "claim-001"
-	assignmentID := "assignment-001"
-	category := "ICT_EQUIPMENT"
-	quantity := 12
-	weight := "11.00"
 	return &model.Batch{
 		ID:                  "batch-receipt-001",
 		OrganizationID:      "donor-001",
 		Status:              model.BatchStatusCollected,
-		Category:            &category,
-		Quantity:            &quantity,
-		EstimatedWeightKg:   &weight,
+		Category:            new("ICT_EQUIPMENT"),
+		Quantity:            new(12),
+		EstimatedWeightKg:   new("11.00"),
 		ClaimEpoch:          3,
-		CurrentClaimID:      &claimID,
-		CurrentAssignmentID: &assignmentID,
+		CurrentClaimID:      new("claim-001"),
+		CurrentAssignmentID: new("assignment-001"),
 		Version:             5,
 	}
 }

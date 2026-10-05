@@ -11,7 +11,7 @@ test:
 	go test ./...
 
 dummy_precommit:
-	pre-commit run --all-files --show-diff-on-failure
+	python -m pre_commit run --all-files --show-diff-on-failure
 
 vet:
 	go vet ./...
