@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [dev, main]
+    branches: [dev, main, feature/EWCSB-192-security-remediation]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
