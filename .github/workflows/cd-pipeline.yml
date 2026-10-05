@@ -125,7 +125,7 @@ jobs:
   # Runs on VNet-injected self-hosted runner with direct Private Link to ACR
   # ============================================================================
   deploy-application:
-    name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})\
+    name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
     runs-on: [self-hosted, azure-vnet, "${{ needs.resolve-environment.outputs.environment }}"]
     environment: ${{ needs.resolve-environment.outputs.environment }}
@@ -194,7 +194,7 @@ jobs:
           echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
 
 #      - name: Sign API Container Image Digest with Cosign
-#        run: |\
+#        run: |
 #          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"\
 #          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
 #            cosign sign --yes \
