@@ -1,7 +1,9 @@
 package controller
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -132,6 +134,39 @@ func (h *BatchController) Submit(c *gin.Context) {
 	writeBatchMutation(c, http.StatusOK, result)
 }
 
+func (h *BatchController) VerifyReceipt(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		h.writeError(c, apierror.InvalidSession, nil)
+		return
+	}
+
+	var params dto.BatchIDParams
+	if err := c.ShouldBindUri(&params); err != nil {
+		h.writeError(c, apierror.InvalidRequest, err)
+		return
+	}
+
+	var request dto.ReceiptRequest
+	if !decodeBatchJSON(c, &request) {
+		return
+	}
+
+	metadata, err := batchMetadata(c, claims, true)
+	if err != nil {
+		h.writeError(c, apierror.InvalidRequest, err)
+		return
+	}
+
+	result, err := h.service.VerifyReceipt(c.Request.Context(), params.BatchID, request, metadata)
+	if err != nil {
+		h.writeError(c, mapBatchError(err), err)
+		return
+	}
+
+	response.JSON(c, http.StatusOK, result)
+}
+
 func batchMetadata(
 	c *gin.Context,
 	claims *token.Claims,
@@ -186,6 +221,22 @@ func writeBatchMutation(
 		EventID:       result.EventID,
 		EventState:    result.EventState,
 	})
+}
+
+func decodeBatchJSON(c *gin.Context, target any) bool {
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		response.Error(c, apierror.InvalidRequest, middleware.GetCorrelationID(c))
+		return false
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		response.Error(c, apierror.InvalidRequest, middleware.GetCorrelationID(c))
+		return false
+	}
+	return true
 }
 
 func (h *BatchController) writeError(

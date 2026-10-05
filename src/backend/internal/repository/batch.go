@@ -11,10 +11,11 @@ import (
 )
 
 var (
-	ErrBatchNotFound      = errors.New("repository: batch not found")
-	ErrCommandNotFound    = errors.New("repository: command not found")
-	ErrBatchConcurrency   = errors.New("repository: batch concurrency conflict")
-	ErrCommandConcurrency = errors.New("repository: command concurrency conflict")
+	ErrBatchNotFound         = errors.New("repository: batch not found")
+	ErrCommandNotFound       = errors.New("repository: command not found")
+	ErrBatchConcurrency      = errors.New("repository: batch concurrency conflict")
+	ErrCommandConcurrency    = errors.New("repository: command concurrency conflict")
+	ErrBatchActorNotEligible = errors.New("repository: receipt actor is not eligible")
 )
 
 type BatchRepository interface {
@@ -23,6 +24,8 @@ type BatchRepository interface {
 
 type BatchTransaction interface {
 	FindBatchForUpdate(ctx context.Context, batchID string) (*model.Batch, error)
+	ValidateRecyclerActor(ctx context.Context, userID string, organisationID string) error
+	ValidateReceiptScope(ctx context.Context, batchID string, claimID string, assignmentID string, claimEpoch uint64, organisationID string) error
 
 	FindCommand(
 		ctx context.Context,
@@ -51,6 +54,9 @@ type BatchTransaction interface {
 		expectedVersion uint32,
 		submittedAt time.Time,
 	) (*model.Batch, error)
+
+	CreateReceipt(ctx context.Context, receipt *model.BatchReceipt) error
+	UpdateBatchReceipt(ctx context.Context, batchID string, expectedVersion uint32, now time.Time) (*model.Batch, error)
 
 	CompleteCommand(
 		ctx context.Context,
@@ -87,6 +93,73 @@ func (r *GormBatchRepository) Transaction(
 
 type gormBatchTransaction struct {
 	db *gorm.DB
+}
+
+func (t *gormBatchTransaction) ValidateRecyclerActor(
+	ctx context.Context,
+	userID string,
+	organisationID string,
+) error {
+	var count int64
+	err := t.db.WithContext(ctx).
+		Table("users AS u").
+		Joins("INNER JOIN roles AS role ON role.role_code = u.role_code").
+		Joins("INNER JOIN organisations AS org ON org.organisation_id = u.organisation_id").
+		Where(`
+			u.user_id = ?
+			AND u.organisation_id = ?
+			AND u.status = 'ACTIVE'
+			AND u.role_code = 'RECYCLER'
+			AND role.is_active = TRUE
+			AND role.allowed_organisation_type = 'PROCESSING_FACILITY'
+			AND org.organisation_id = ?
+			AND org.organisation_type = 'PROCESSING_FACILITY'
+			AND org.status = 'ACTIVE'
+		`, userID, organisationID, organisationID).
+		Count(&count).
+		Error
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrBatchActorNotEligible
+	}
+	return nil
+}
+
+func (t *gormBatchTransaction) ValidateReceiptScope(
+	ctx context.Context,
+	batchID string,
+	claimID string,
+	assignmentID string,
+	claimEpoch uint64,
+	organisationID string,
+) error {
+	var count int64
+	err := t.db.WithContext(ctx).
+		Table("ewaste_batches AS b").
+		Joins("INNER JOIN batch_claims AS c ON c.id = b.current_claim_id AND c.batch_id = b.id AND c.claim_epoch = b.claim_epoch").
+		Joins("INNER JOIN batch_assignments AS a ON a.id = b.current_assignment_id AND a.batch_id = b.id AND a.claim_id = c.id AND a.claim_epoch = b.claim_epoch").
+		Where(
+			"b.id = ? AND b.current_claim_id = ? AND b.current_assignment_id = ? AND b.claim_epoch = ? AND c.recycler_org_id = ? AND c.claim_status = ? AND c.superseded_at IS NULL AND a.recycler_org_id = ? AND a.assignment_status = ?",
+			batchID,
+			claimID,
+			assignmentID,
+			claimEpoch,
+			organisationID,
+			model.ClaimStatusAccepted,
+			organisationID,
+			model.AssignmentStatusAccepted,
+		).
+		Count(&count).
+		Error
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrBatchActorNotEligible
+	}
+	return nil
 }
 
 func (t *gormBatchTransaction) FindBatchForUpdate(
@@ -247,6 +320,49 @@ func (t *gormBatchTransaction) SubmitDraft(
 		return nil, err
 	}
 
+	return &batch, nil
+}
+
+func (t *gormBatchTransaction) CreateReceipt(
+	ctx context.Context,
+	receipt *model.BatchReceipt,
+) error {
+	if receipt == nil {
+		return errors.New("repository: receipt is nil")
+	}
+	return t.db.WithContext(ctx).Create(receipt).Error
+}
+
+func (t *gormBatchTransaction) UpdateBatchReceipt(
+	ctx context.Context,
+	batchID string,
+	expectedVersion uint32,
+	now time.Time,
+) (*model.Batch, error) {
+	result := t.db.WithContext(ctx).
+		Model(&model.Batch{}).
+		Where(
+			"id = ? AND status = ? AND version = ?",
+			batchID,
+			model.BatchStatusCollected,
+			expectedVersion,
+		).
+		Updates(map[string]any{
+			"status":     model.BatchStatusVerified,
+			"version":    gorm.Expr("version + 1"),
+			"updated_at": now,
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, ErrBatchConcurrency
+	}
+
+	var batch model.Batch
+	if err := t.db.WithContext(ctx).Where("id = ?", batchID).First(&batch).Error; err != nil {
+		return nil, err
+	}
 	return &batch, nil
 }
 

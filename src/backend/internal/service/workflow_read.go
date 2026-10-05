@@ -208,7 +208,7 @@ func validatePage(page WorkflowReadPage) error {
 func parseBatchStatus(value string) (model.BatchStatus, bool) {
 	status := model.BatchStatus(strings.ToUpper(strings.TrimSpace(value)))
 	switch status {
-	case model.BatchStatusDraft, model.BatchStatusSubmitted, model.BatchStatusMatched, model.BatchStatusApproved, model.BatchStatusAssigned, model.BatchStatusCollected, model.BatchStatusFailedCollection:
+	case model.BatchStatusDraft, model.BatchStatusSubmitted, model.BatchStatusMatched, model.BatchStatusApproved, model.BatchStatusAssigned, model.BatchStatusCollected, model.BatchStatusVerified, model.BatchStatusRecycled, model.BatchStatusCompleted, model.BatchStatusFailedCollection:
 		return status, true
 	default:
 		return "", false
