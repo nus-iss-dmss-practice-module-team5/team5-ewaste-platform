@@ -3,9 +3,17 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 on:
   push:
     branches: [dev, main]
+    paths-ignore:
+      - 'terraform/**'
+      - 'database/**'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
+  workflow_run:
+    workflows: ["Database - Liquibase Migration"]
+    branches: [dev, main]
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       target_env:
@@ -39,23 +47,47 @@ env:
 
 jobs:
   # ============================================================================
-  # STAGE 0: DYNAMIC ENVIRONMENT RESOLUTION (2-Branch Strategy Mapping)
+  # STAGE 0: DYNAMIC ENVIRONMENT RESOLUTION & FAILURE HALT GATE
   # ============================================================================
   resolve-environment:
     name: Resolve Target Environment
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
       environment: ${{ steps.env_resolver.outputs.environment }}
       is_production: ${{ steps.env_resolver.outputs.is_production }}
       deployment_desc: ${{ steps.env_resolver.outputs.deployment_desc }}
       resource_group: ${{ steps.env_resolver.outputs.resource_group }}
     steps:
+      - name: Download Target Environment Artifact from Upstream
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: migration-target-env
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/pipeline-env
+
       - name: Determine Target Environment from Git Context
         id: env_resolver
         run: |
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             TARGET="${{ inputs.target_env }}"
             DESC="Manual workflow dispatch to Azure $(echo $TARGET | tr '[:lower:]' '[:upper:]')"
+          elif [ "${{ github.event_name }}" == "workflow_run" ]; then
+            if [ -f "/tmp/pipeline-env/target_env.txt" ]; then
+              TARGET=$(cat /tmp/pipeline-env/target_env.txt | xargs)
+            fi
+            if [ -z "$TARGET" ]; then
+              HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
+              if [ "$HEAD_BRANCH" == "main" ]; then
+                TARGET="prod"
+              else
+                TARGET="dev"
+              fi
+            fi
+            DESC="Automated pipeline chain from Database Migration (${TARGET})"
           elif [ "${{ github.event_name }}" == "pull_request" ] && [ "${{ github.base_ref }}" == "main" ]; then
             TARGET="stg"
             DESC="48-Hour Feature Freeze PR Staging Deployment (Azure STG for Evaluation)"
@@ -93,7 +125,7 @@ jobs:
   # Runs on VNet-injected self-hosted runner with direct Private Link to ACR
   # ============================================================================
   deploy-application:
-    name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})
+    name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})\
     needs: [resolve-environment]
     runs-on: [self-hosted, azure-vnet, "${{ needs.resolve-environment.outputs.environment }}"]
     environment: ${{ needs.resolve-environment.outputs.environment }}
@@ -104,6 +136,8 @@ jobs:
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Authenticate to Microsoft Azure
         uses: azure/login@v2
@@ -146,7 +180,8 @@ jobs:
             echo "Rolling back to existing API image: $IMAGE_TAG"
             docker pull "$IMAGE_TAG" || true
           else
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+            SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
             IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${TARGET_ENV}-${SHORT_SHA}"
             echo "Building API image: $IMAGE_TAG"
             docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
@@ -159,8 +194,8 @@ jobs:
           echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
 
 #      - name: Sign API Container Image Digest with Cosign
-#        run: |
-#          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
+#        run: |\
+#          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"\
 #          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
 #            cosign sign --yes \
 #              --key env://COSIGN_PRIVATE_KEY \
@@ -172,7 +207,7 @@ jobs:
 #            fi
 #            cosign sign --yes --key cosign.key ${{ env.API_IMMUTABLE_DIGEST }}
 #          fi
-#        env:
+#        env:\
 #          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
 #          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
@@ -224,7 +259,8 @@ jobs:
             echo "Rolling back to existing UI image: $IMAGE_TAG"
             docker pull "$IMAGE_TAG" || true
           else
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+            SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
             IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${TARGET_ENV}-${SHORT_SHA}"
             echo "Building UI image: $IMAGE_TAG"
             docker build -t "$IMAGE_TAG" \
@@ -243,7 +279,7 @@ jobs:
 
 #      - name: Sign UI Container Image Digest with Cosign
 #        run: |
-#          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
+#          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"\
 #          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
 #            cosign sign --yes \
 #              --key env://COSIGN_PRIVATE_KEY \
@@ -280,11 +316,10 @@ jobs:
           echo "UI deployed successfully: https://$UI_FQDN"
 
       # ------------------------------------------------------------------------
-      # 1.3 ANALYTICS WORKER CONTAINER
+      # 1.3 ANALYTICS WORKER CONTAINER (Async Matcher)
       # ------------------------------------------------------------------------
-      - name: Build and Push Analytics Worker Image to ACR
+      - name: Build & Publish Analytics Worker Container
         run: |
-          set -euo pipefail
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
 
@@ -295,7 +330,8 @@ jobs:
             # A rollback must name an actual matcher image, not the old demo.
             test "$(docker inspect --format '{{index .Config.Labels "ewaste.component"}}' "$IMAGE_TAG")" = matcher
           else
-            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
+            SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
             IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_ENV}-${SHORT_SHA}"
             echo "Building Matcher Worker image: $IMAGE_TAG"
             docker build -t "$IMAGE_TAG" -f src/matcher/Dockerfile .
@@ -365,7 +401,7 @@ jobs:
           if [ -n "$ANALYTICS_FQDN" ] && [ "$TARGET_ENV" == "dev" ]; then
             echo "Verifying Analytics ingress accessibility at: https://$ANALYTICS_FQDN/readyz"
             for i in {1..12}; do
-              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$ANALYTICS_FQDN/readyz" || true)
+              STATUS_CODE=$(curl -s --max-time 15 -o /dev/null -w "%{http_code}" "https://$ANALYTICS_FQDN/readyz" || true)
               echo "Analytics Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
               if [ "$STATUS_CODE" == "200" ]; then
                 echo "Analytics Worker verified successfully (HTTP 200)."

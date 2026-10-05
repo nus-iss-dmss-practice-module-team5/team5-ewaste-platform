@@ -6,11 +6,18 @@ on:
     paths:
       - 'database/**'
       - '.github/workflows/database-migration.yml'
+    paths-ignore:
+      - 'terraform/**'
   pull_request:
     branches: [main]
     paths:
       - 'database/**'
       - '.github/workflows/database-migration.yml'
+  workflow_run:
+    workflows: ["IaC - Create Cloud Resources (Dev, Stg, Prod)"]
+    branches: [dev, main]
+    types:
+      - completed
   workflow_dispatch:
     inputs:
       target_env:
@@ -43,22 +50,46 @@ concurrency:
 
 jobs:
   # ============================================================================
-  # STAGE 0: ENVIRONMENT RESOLUTION, DB EXISTENCE CHECK
+  # STAGE 0: ENVIRONMENT RESOLUTION & FAILURE HALT GATE
   # ============================================================================
   resolve-environment:
     name: Resolve Target Environment
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
       environment: ${{ steps.env_resolver.outputs.environment }}
       is_production: ${{ steps.env_resolver.outputs.is_production }}
     steps:
+      - name: Download Target Environment Artifact from Upstream
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: terraform-target-env
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: /tmp/pipeline-env
+
       - name: Determine Target Environment from Git Context
         id: env_resolver
         run: |
+          TARGET=""
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             TARGET="${{ inputs.target_env }}"
           elif [ "${{ github.event_name }}" == "workflow_call" ]; then
             TARGET="${{ inputs.target_env }}"
+          elif [ "${{ github.event_name }}" == "workflow_run" ]; then
+            if [ -f "/tmp/pipeline-env/target_env.txt" ]; then
+              TARGET=$(cat /tmp/pipeline-env/target_env.txt | xargs)
+            fi
+            if [ -z "$TARGET" ]; then
+              HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
+              if [ "$HEAD_BRANCH" == "main" ]; then
+                TARGET="prod"
+              else
+                TARGET="dev"
+              fi
+            fi
           elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
             TARGET="prod"
           elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/dev" ]; then
@@ -87,6 +118,8 @@ jobs:
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
 
       - name: Authenticate to Microsoft Azure
         uses: azure/login@v2
@@ -150,7 +183,7 @@ jobs:
 
           CONTEXT_PARAM=""
           if [ "$TARGET_ENV" != "prod" ]; then
-            CONTEXT_PARAM="--contexts=seed"
+            CONTEXT_PARAM="--contexts=@seed,seed"
           fi
 
           liquibase \
@@ -162,3 +195,20 @@ jobs:
             $COMMAND
 
           echo "Liquibase $COMMAND executed successfully."
+
+      # ------------------------------------------------------------------------
+      # 1.1 PIPELINE CHAINING ARTIFACT (Target Environment Passing)
+      # ------------------------------------------------------------------------
+      - name: Save Migration Target Environment Artifact
+        if: success()
+        run: |
+          mkdir -p /tmp/pipeline-env
+          echo "${{ needs.resolve-environment.outputs.environment }}" > /tmp/pipeline-env/target_env.txt
+
+      - name: Upload Migration Target Environment Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: migration-target-env
+          path: /tmp/pipeline-env/target_env.txt
+          retention-days: 1

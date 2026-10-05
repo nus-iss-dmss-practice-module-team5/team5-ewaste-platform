@@ -350,3 +350,20 @@ jobs:
             echo "aca_ui_fqdn=${ACA_UI_FQDN}"
             echo "aca_analytics_fqdn=${ACA_ANALYTICS_FQDN}"
           } >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------------
+      # 1.4 PIPELINE CHAINING ARTIFACT (Target Environment Passing)
+      # ------------------------------------------------------------------------
+      - name: Save Pipeline Target Environment Artifact
+        if: success()
+        run: |
+          mkdir -p /tmp/pipeline-env
+          echo "${{ needs.resolve-environment.outputs.environment }}" > /tmp/pipeline-env/target_env.txt
+
+      - name: Upload Target Environment Artifact
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-target-env
+          path: /tmp/pipeline-env/target_env.txt
+          retention-days: 1
