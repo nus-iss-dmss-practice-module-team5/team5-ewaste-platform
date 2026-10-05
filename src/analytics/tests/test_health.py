@@ -3,14 +3,14 @@ import json
 import unittest
 from unittest.mock import patch
 
-from matcher.health import Health
-from matcher.worker import Delivery, Record
+from analytics.health import Health
+from analytics.worker import Delivery, Record
 
 
 class HealthTests(unittest.TestCase):
     def setUp(self):
         self.health = Health()
-        self.clock = patch("matcher.health.time.monotonic", return_value=1000)
+        self.clock = patch("analytics.health.time.monotonic", return_value=1000)
         self.now = self.clock.start()
         self.addCleanup(self.clock.stop)
 

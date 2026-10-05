@@ -5,8 +5,8 @@ import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from matcher.contract import canonical, loads
-from matcher.facade import FacadeClient, FacadeError, transport_trace
+from analytics.contract import canonical, loads
+from analytics.facade import FacadeClient, FacadeError, transport_trace
 from helpers import event, fixture
 
 

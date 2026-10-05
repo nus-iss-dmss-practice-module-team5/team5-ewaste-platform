@@ -4,8 +4,8 @@ import subprocess
 import sys
 import unittest
 
-from matcher.contract import ContractError, canonical, loads, normalize
-from matcher.core import evaluate
+from analytics.contract import ContractError, canonical, loads, normalize
+from analytics.core import evaluate
 from helpers import fixture, frozen
 
 
@@ -102,7 +102,7 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(2, evaluate(data)["eligible_count"])
         for zone in ["UTC", "Pacific/Honolulu", "Asia/Singapore"]:
             env = {**os.environ, "TZ": zone}
-            run = subprocess.run([sys.executable, "-m", "matcher", "evaluate"], input=canonical(data), capture_output=True, env=env, check=True)
+            run = subprocess.run([sys.executable, "-m", "analytics", "evaluate"], input=canonical(data), capture_output=True, env=env, check=True)
             self.assertEqual(run.stdout.strip(), expected)
 
     def test_invalid_values_and_types(self):

@@ -71,7 +71,7 @@ approved JSON schemas remain unchanged.
 
 ## Verification
 
-Run `./scripts/test-matcher.sh` from the repository root. The Go tests verify
+Run `./scripts/test-analytics.sh` from the repository root. The Go tests verify
 cross-language golden parity, authentication failures, source forgery, concurrent
 commits, replay after restart, stale candidate-set refresh, `NO_MATCH`, scoped
 reads, and rollback after an actual MySQL trigger rejects the outbox insertion.

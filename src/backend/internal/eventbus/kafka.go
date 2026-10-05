@@ -99,7 +99,7 @@ func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
 
 	saslUsername := strings.TrimSpace(cfg.SASLUsername)
 	saslPassword := cfg.SASLPassword
-	// Keep the matcher's fail-closed transport rules on PR #41's native fields.
+	// Keep the analytics's fail-closed transport rules on PR #41's native fields.
 	if (saslUsername != "" || saslPassword != "") && !cfg.TLSEnabled {
 		return nil, errors.New("kafka SASL credentials require TLS")
 	}

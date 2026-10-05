@@ -57,8 +57,8 @@ func TestKafkaServerNameSupportsHostAndHostPort(t *testing.T) {
 	}
 }
 
-// Preserve the matcher checks while keeping PR #41's transport tests above.
-func TestMatcherEventHubsTransportSafeguards(t *testing.T) {
+// Preserve the analytics checks while keeping PR #41's transport tests above.
+func TestAnalyticsEventHubsTransportSafeguards(t *testing.T) {
 	cfg := config.KafkaConfig{Brokers: []string{"test.servicebus.windows.net:9093"}, TLSEnabled: true,
 		SASLMechanism: "PLAIN", SASLUsername: "$ConnectionString",
 		SASLPassword: "Endpoint=sb://test.servicebus.windows.net/;SharedAccessKeyName=test;SharedAccessKey=test"}
@@ -68,7 +68,7 @@ func TestMatcherEventHubsTransportSafeguards(t *testing.T) {
 	}
 	defer p.Close()
 	if p.writer.RequiredAcks != kafka.RequireAll || p.writer.AllowAutoTopicCreation || p.writer.Async {
-		t.Fatal("matcher requires synchronous acknowledged publication without topic creation")
+		t.Fatal("analytics requires synchronous acknowledged publication without topic creation")
 	}
 	for _, tc := range []struct {
 		name  string

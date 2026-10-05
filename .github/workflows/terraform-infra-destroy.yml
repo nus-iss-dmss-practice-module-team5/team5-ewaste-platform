@@ -118,7 +118,7 @@ jobs:
 
       - name: Execute Terraform Destroy
         env:
-          TF_VAR_matcher_signing_secret: ${{ secrets.MATCHER_SIGNING_SECRET }}
+          TF_VAR_analytics_signing_secret: ${{ secrets.ANALYTICS_SIGNING_SECRET || secrets.MATCHER_SIGNING_SECRET }}
         run: |
           TARGET_ENV="${{ inputs.target_env }}"
           cd terraform/environments

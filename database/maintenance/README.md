@@ -1,4 +1,4 @@
-# Recover the reported dev matcher configuration
+# Recover the reported dev analytics configuration
 
 Changeset `EWCSB129-106` in
 [`106-repair-matching-config-ids.sql`](../seed/106-repair-matching-config-ids.sql)
@@ -61,12 +61,14 @@ The infrastructure repair is already included in code:
   publisher configuration, worker startup settings and shared signing-key
   references on every apply.
 - `terraform/environments/variables.tf` declares and validates the sensitive
-  matcher signing key.
+  analytics signing key.
 - `.github/workflows/terraform-infra-create.yml` passes the environment's
-  existing `MATCHER_SIGNING_SECRET` to Terraform and checks the configuration
+  existing `ANALYTICS_SIGNING_SECRET` to Terraform and checks the configuration
   before applying it.
 
-Keep the existing `MATCHER_SIGNING_SECRET` in the dev GitHub environment. Both
+Use `ANALYTICS_SIGNING_SECRET` in the dev GitHub environment; the previous
+`MATCHER_SIGNING_SECRET` remains a workflow fallback. Preserve its existing value
+when renaming the secret. Both
 IaC and CD use that same secret; do not put its value in repository files or
 generate a new key just for this recovery.
 
@@ -78,7 +80,7 @@ ingress, identity and scaling conventions.
 ## 3. Deploy and restart through CD
 
 The existing **CD - Multi-Environment Deployment & Evidence Pipeline** calls
-`scripts/deploy-matcher.sh` from its analytics deployment step. That code
+`scripts/deploy-analytics.sh` from its analytics deployment step. That code
 restores both applications' settings and secret references, deploys the immutable
 worker image, restarts revisions, verifies authenticated API access and checks
 worker readiness. No separate Cloud Shell command or portal edit is required.
@@ -93,7 +95,7 @@ reload it.
 The deployment preserves `matching-worker-v1` and existing Kafka offsets.
 Pending delivery retries automatically; do not recreate the batch or publish a
 replacement event. Keep the corrected Terraform definitions in the branch so a
-later infrastructure apply retains the matcher settings.
+later infrastructure apply retains the analytics settings.
 
 ## Verification
 
@@ -104,7 +106,7 @@ execute the repair through Liquibase and verify its changelog entry,
 no-op behavior on unaffected databases, and adoption of already repaired data.
 
 The IaC workflow runs `terraform validate` and the mocked-provider tests in
-`terraform/environments/tests/matcher.tftest.hcl` before applying infrastructure.
+`terraform/environments/tests/analytics.tftest.hcl` before applying infrastructure.
 Those tests require Terraform 1.8 and never contact Azure.
 
 After recovery, check `/readyz` and the worker's console logs. The expected

@@ -12,11 +12,11 @@ from datetime import datetime, timedelta, timezone
 from confluent_kafka import Consumer, Producer, TopicPartition
 from confluent_kafka.admin import AdminClient, NewTopic
 
-from matcher.contract import canonical, loads, validate
-from matcher.facade import FacadeClient, FacadeError
-from matcher.kafka import KafkaRunner, QuarantinePublisher
-from matcher.worker import Processor
-from matcher.runtime import token_provider
+from analytics.contract import canonical, loads, validate
+from analytics.facade import FacadeClient, FacadeError
+from analytics.kafka import KafkaRunner, QuarantinePublisher
+from analytics.worker import Processor
+from analytics.runtime import token_provider
 
 
 def eventually(check, seconds=40):
@@ -29,15 +29,15 @@ def eventually(check, seconds=40):
     raise AssertionError("condition did not become true within timeout")
 
 
-@unittest.skipUnless(os.environ.get("MATCHER_TEST_API"), "real Go/MySQL integration not configured")
+@unittest.skipUnless(os.environ.get("ANALYTICS_TEST_API"), "real Go/MySQL integration not configured")
 class PersistenceTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         import pymysql
-        cls.db = pymysql.connect(host=os.environ["MATCHER_TEST_MYSQL"], user="matcher", password="matcher-local-only",
-                                 database="matcher_test", autocommit=True, cursorclass=pymysql.cursors.DictCursor)
-        cls.broker = os.environ["MATCHER_TEST_BROKER"]
-        cls.url = os.environ["MATCHER_TEST_API"]
+        cls.db = pymysql.connect(host=os.environ["ANALYTICS_TEST_MYSQL"], user="analytics", password="analytics-local-only",
+                                 database="analytics_test", autocommit=True, cursorclass=pymysql.cursors.DictCursor)
+        cls.broker = os.environ["ANALYTICS_TEST_BROKER"]
+        cls.url = os.environ["ANALYTICS_TEST_API"]
         topics = ["ewaste.batch.events", "ewaste.claim.events", "batch.collector.assigned",
                   "batch.collection.completed", "batch.collection.failed", "ewaste.batch.events.matching.dlq.v1"]
         admin = AdminClient({"bootstrap.servers": cls.broker})
@@ -95,8 +95,8 @@ class PersistenceTests(unittest.TestCase):
 
     def start_worker(self, group, lose_response=False):
         common = {"bootstrap.servers": self.broker, "security.protocol": "PLAINTEXT"}
-        provider = token_provider({"MATCHER_SIGNING_SECRET": "local-matching-secret-at-least-32-characters",
-                                   "MATCHER_TOKEN_ISSUER": "matcher-integration-test", "MATCHER_TOKEN_AUDIENCE": "matching-api"})
+        provider = token_provider({"ANALYTICS_SIGNING_SECRET": "local-matching-secret-at-least-32-characters",
+                                   "ANALYTICS_TOKEN_ISSUER": "analytics-integration-test", "ANALYTICS_TOKEN_AUDIENCE": "matching-api"})
         client = FacadeClient(self.url, None, 5, 16 << 20, local=True, token_provider=provider)
         if lose_response:
             original = client.run

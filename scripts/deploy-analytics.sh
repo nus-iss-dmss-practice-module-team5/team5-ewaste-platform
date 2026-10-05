@@ -2,11 +2,14 @@
 # Called by CD after the compatible API image is deployed.
 # Approved migrations/configuration must already exist in the target database.
 set -Eeuo pipefail
+# Transitional input aliases for existing callers; explicit new values win.
+ANALYTICS_IMAGE="${ANALYTICS_IMAGE-${MATCHER_IMAGE-}}"
+export ANALYTICS_SIGNING_SECRET="${ANALYTICS_SIGNING_SECRET-${MATCHER_SIGNING_SECRET-}}"
 : "${TARGET_ENV:?dev, stg or prod is required}"
-: "${MATCHER_IMAGE:?an immutable matcher image digest is required}"
-: "${MATCHER_SIGNING_SECRET:?configure the dedicated matcher secret for this environment}"
+: "${ANALYTICS_IMAGE:?an immutable analytics image digest is required}"
+: "${ANALYTICS_SIGNING_SECRET:?configure the dedicated analytics secret for this environment}"
 [[ "$TARGET_ENV" =~ ^(dev|stg|prod)$ ]] || exit 2
-[[ ${#MATCHER_SIGNING_SECRET} -ge 32 ]] || { echo 'Matcher signing secret must contain at least 32 characters.' >&2; exit 2; }
+[[ ${#ANALYTICS_SIGNING_SECRET} -ge 32 ]] || { echo 'Analytics signing secret must contain at least 32 characters.' >&2; exit 2; }
 RG="${RG:-rg-ewaste-${TARGET_ENV}}"
 NAMESPACE="evh-ewaste-${TARGET_ENV}"
 API="aca-ewaste-${TARGET_ENV}-api"
@@ -36,7 +39,7 @@ API_FQDN=$(az containerapp show --name "$API" --resource-group "$RG" --query pro
 # Infrastructure owns creation, identity, registry, scaling and ingress policy.
 az containerapp show --name "$APP" --resource-group "$RG" --output none
 
-az containerapp secret set --name "$API" --resource-group "$RG" --secrets kafka-conn="$CONNECTION" matching-signing-key="$MATCHER_SIGNING_SECRET" --output none
+az containerapp secret set --name "$API" --resource-group "$RG" --secrets kafka-conn="$CONNECTION" matching-signing-key="$ANALYTICS_SIGNING_SECRET" --output none
 az containerapp update --name "$API" --resource-group "$RG" --set-env-vars \
   EWASTE_MATCHING_ENABLED=true EWASTE_MATCHING_ISSUER="$ISSUER" EWASTE_MATCHING_AUDIENCE="$AUDIENCE" \
   EWASTE_MATCHING_SIGNING_SECRET=secretref:matching-signing-key \
@@ -49,18 +52,18 @@ API_REVISION=$(az containerapp show --name "$API" --resource-group "$RG" --query
 az containerapp revision restart --name "$API" --resource-group "$RG" --revision "$API_REVISION" --output none
 
 # Read-only authentication/API check. No synthetic business event or row is created.
-MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE" MATCHER_API_FQDN="$API_FQDN" python3 - <<'PYPROBE'
+ANALYTICS_TOKEN_ISSUER="$ISSUER" ANALYTICS_TOKEN_AUDIENCE="$AUDIENCE" ANALYTICS_API_FQDN="$API_FQDN" python3 - <<'PYPROBE'
 import base64, hashlib, hmac, json, os, time, urllib.error, urllib.request, uuid
 encode = lambda value: base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
 for attempt in range(30):
     now = int(time.time())
     parts = [encode({"alg": "HS256", "typ": "JWT", "kid": "worker"}), encode({
-        "iss": os.environ["MATCHER_TOKEN_ISSUER"], "aud": os.environ["MATCHER_TOKEN_AUDIENCE"],
+        "iss": os.environ["ANALYTICS_TOKEN_ISSUER"], "aud": os.environ["ANALYTICS_TOKEN_AUDIENCE"],
         "sub": "matching-worker", "scope": "matching.read", "iat": now, "exp": now + 300})]
     unsigned = b".".join(parts)
-    signature = base64.urlsafe_b64encode(hmac.new(os.environ["MATCHER_SIGNING_SECRET"].encode(), unsigned, hashlib.sha256).digest()).rstrip(b"=")
+    signature = base64.urlsafe_b64encode(hmac.new(os.environ["ANALYTICS_SIGNING_SECRET"].encode(), unsigned, hashlib.sha256).digest()).rstrip(b"=")
     token = (unsigned + b"." + signature).decode()
-    req = urllib.request.Request("https://" + os.environ["MATCHER_API_FQDN"] + "/internal/v1/matching/runs/" + str(uuid.uuid4()), headers={"Authorization": "Bearer " + token})
+    req = urllib.request.Request("https://" + os.environ["ANALYTICS_API_FQDN"] + "/internal/v1/matching/runs/" + str(uuid.uuid4()), headers={"Authorization": "Bearer " + token})
     try:
         with urllib.request.urlopen(req, timeout=10) as response:
             pass
@@ -82,24 +85,31 @@ PYPROBE
 ENVIRONMENT=(
   KAFKA_BOOTSTRAP_SERVERS="${NAMESPACE}.servicebus.windows.net:9093"
   KAFKA_CONNECTION_STRING=secretref:kafka-conn
-  MATCHER_TOPIC=ewaste.batch.events MATCHER_DLQ_TOPIC=ewaste.batch.events.matching.dlq.v1
-  # New group avoids inheriting offsets acknowledged by the old analytics demo.
-  MATCHER_GROUP_ID=matching-worker-v1 MATCHER_OFFSET_RESET=earliest
-  MATCHER_FACADE_URL="https://${API_FQDN}" MATCHER_LOCAL_TEST=0
-  MATCHER_SIGNING_SECRET=secretref:matching-signing-key MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE"
-  MATCHER_MAX_POLL_MS=300000 MATCHER_SESSION_TIMEOUT_MS=30000 MATCHER_WORKERS=1
-  MATCHER_HTTP_TIMEOUT_SECONDS=30 MATCHER_MAX_RESPONSE_BYTES=16777216 MATCHER_MAX_RECORD_BYTES=1000000
-  MATCHER_DELIVERY_TIMEOUT_SECONDS=120 MATCHER_RETRY_BASE_SECONDS=1 MATCHER_RETRY_MAX_SECONDS=30
-  MATCHER_MAX_REFRESHES=5 MATCHER_HEALTH_PORT=8000
+  ANALYTICS_TOPIC=ewaste.batch.events ANALYTICS_DLQ_TOPIC=ewaste.batch.events.matching.dlq.v1
+  # Preserve the established group and its offsets across the component rename.
+  ANALYTICS_GROUP_ID=matching-worker-v1 ANALYTICS_OFFSET_RESET=earliest
+  ANALYTICS_FACADE_URL="https://${API_FQDN}" ANALYTICS_LOCAL_TEST=0
+  ANALYTICS_SIGNING_SECRET=secretref:matching-signing-key ANALYTICS_TOKEN_ISSUER="$ISSUER" ANALYTICS_TOKEN_AUDIENCE="$AUDIENCE"
+  ANALYTICS_MAX_POLL_MS=300000 ANALYTICS_SESSION_TIMEOUT_MS=30000 ANALYTICS_WORKERS=1
+  ANALYTICS_HTTP_TIMEOUT_SECONDS=30 ANALYTICS_MAX_RESPONSE_BYTES=16777216 ANALYTICS_MAX_RECORD_BYTES=1000000
+  ANALYTICS_DELIVERY_TIMEOUT_SECONDS=120 ANALYTICS_RETRY_BASE_SECONDS=1 ANALYTICS_RETRY_MAX_SECONDS=30
+  ANALYTICS_MAX_REFRESHES=5 ANALYTICS_HEALTH_PORT=8000
 )
-az containerapp secret set --name "$APP" --resource-group "$RG" --secrets kafka-conn="$CONNECTION" matching-signing-key="$MATCHER_SIGNING_SECRET" --output none
-az containerapp update --name "$APP" --resource-group "$RG" --image "$MATCHER_IMAGE" --set-env-vars "${ENVIRONMENT[@]}" --output none
+# Older rollback images understand only the legacy prefix. Keep aliases equal
+# to the canonical settings; Kafka group, JWT identity and secret refs stay fixed.
+for setting in "${ENVIRONMENT[@]}"; do
+  if [[ "$setting" == ANALYTICS_* ]]; then
+    ENVIRONMENT+=("MATCHER_${setting#ANALYTICS_}")
+  fi
+done
+az containerapp secret set --name "$APP" --resource-group "$RG" --secrets kafka-conn="$CONNECTION" matching-signing-key="$ANALYTICS_SIGNING_SECRET" --output none
+az containerapp update --name "$APP" --resource-group "$RG" --image "$ANALYTICS_IMAGE" --set-env-vars "${ENVIRONMENT[@]}" --output none
 # A secret-only redeployment must reload the current secret as well.
 REVISION=$(az containerapp show --name "$APP" --resource-group "$RG" --query properties.latestRevisionName -o tsv)
-[[ -n "$REVISION" ]] || { echo 'Matcher revision was not assigned.' >&2; exit 1; }
+[[ -n "$REVISION" ]] || { echo 'Analytics revision was not assigned.' >&2; exit 1; }
 az containerapp revision restart --name "$APP" --resource-group "$RG" --revision "$REVISION" --output none
 FQDN=$(az containerapp show --name "$APP" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)
-[[ -n "$FQDN" ]] || { echo 'Matcher hostname was not assigned.' >&2; exit 1; }
+[[ -n "$FQDN" ]] || { echo 'Analytics hostname was not assigned.' >&2; exit 1; }
 ready=false
 for attempt in {1..30}; do
   if [[ "$TARGET_ENV" == dev ]]; then
@@ -113,6 +123,6 @@ for attempt in {1..30}; do
   fi
   sleep 10
 done
-[[ "$ready" == true ]] || { echo 'Matcher did not become ready; inspect API/worker logs.' >&2; exit 1; }
+[[ "$ready" == true ]] || { echo 'Analytics did not become ready; inspect API/worker logs.' >&2; exit 1; }
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then printf 'aca_analytics_fqdn=%s\n' "$FQDN" >> "$GITHUB_OUTPUT"; fi
-printf 'Matcher revision healthy: %s; readiness endpoint: https://%s/readyz\n' "$REVISION" "$FQDN"
+printf 'Analytics revision healthy: %s; readiness endpoint: https://%s/readyz\n' "$REVISION" "$FQDN"

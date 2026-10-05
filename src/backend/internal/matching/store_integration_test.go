@@ -25,7 +25,7 @@ import (
 
 func integrationStore(t *testing.T) *Store {
 	t.Helper()
-	dsn := os.Getenv("MATCHER_TEST_DSN")
+	dsn := os.Getenv("ANALYTICS_TEST_DSN")
 	if dsn == "" {
 		t.Skip("isolated MySQL integration DSN not set")
 	}
@@ -247,10 +247,10 @@ func TestMySQLInvalidResultAndAtomicRollback(t *testing.T) {
 	if count(t, s, "matching_decisions", batch) != 0 {
 		t.Fatal("invalid result persisted")
 	}
-	if err := s.DB.Exec("CREATE TRIGGER matcher_reject_outbox BEFORE INSERT ON event_outbox FOR EACH ROW BEGIN IF NEW.event_type = 'MatchingCompleted' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected failure'; END IF; END").Error; err != nil {
+	if err := s.DB.Exec("CREATE TRIGGER analytics_reject_outbox BEFORE INSERT ON event_outbox FOR EACH ROW BEGIN IF NEW.event_type = 'MatchingCompleted' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected failure'; END IF; END").Error; err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.DB.Exec("DROP TRIGGER IF EXISTS matcher_reject_outbox") })
+	t.Cleanup(func() { s.DB.Exec("DROP TRIGGER IF EXISTS analytics_reject_outbox") })
 	if _, err := s.Commit(context.Background(), id, out); err == nil {
 		t.Fatal("expected injected persistence failure")
 	}
@@ -266,7 +266,7 @@ func TestMySQLInvalidResultAndAtomicRollback(t *testing.T) {
 	if b.Status != model.BatchStatusSubmitted || b.Version != 2 {
 		t.Fatal("batch escaped rollback")
 	}
-	s.DB.Exec("DROP TRIGGER matcher_reject_outbox")
+	s.DB.Exec("DROP TRIGGER analytics_reject_outbox")
 	if _, err := s.Commit(context.Background(), id, out); err != nil {
 		t.Fatal(err)
 	}

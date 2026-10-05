@@ -15,7 +15,7 @@ import (
 
 func golden(t *testing.T, name string) object {
 	t.Helper()
-	raw, err := os.ReadFile("../../../matcher/tests/fixtures/" + name + ".json")
+	raw, err := os.ReadFile("../../../analytics/tests/fixtures/" + name + ".json")
 	if err != nil {
 		t.Fatal(err)
 	}

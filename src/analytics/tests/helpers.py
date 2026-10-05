@@ -1,7 +1,7 @@
 from copy import deepcopy
 from pathlib import Path
 
-from matcher.contract import hashes, loads
+from analytics.contract import hashes, loads
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

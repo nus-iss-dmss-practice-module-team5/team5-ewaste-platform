@@ -2488,18 +2488,18 @@ SQL_REFERENCED_POLICY
 
 reject_config_repair() {
   local name="$1" expected="$2"
-  dump_rows matcher_repair "$EVIDENCE_DIR/$name-before.sql" "${REPAIR_TABLES[@]}"
-  if lb matcher_repair "$name" update --context-filter=seed; then
+  dump_rows analytics_repair "$EVIDENCE_DIR/$name-before.sql" "${REPAIR_TABLES[@]}"
+  if lb analytics_repair "$name" update --context-filter=seed; then
     echo "FAIL: configuration repair unexpectedly succeeded: $name" >&2; return 1
   fi
-  grep -Fq "$expected" "$EVIDENCE_DIR/matcher_repair-$name.log"
-  check_scalar matcher_repair "$name-not-recorded" "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 0
-  dump_rows matcher_repair "$EVIDENCE_DIR/$name-after.sql" "${REPAIR_TABLES[@]}"
+  grep -Fq "$expected" "$EVIDENCE_DIR/analytics_repair-$name.log"
+  check_scalar analytics_repair "$name-not-recorded" "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 0
+  dump_rows analytics_repair "$EVIDENCE_DIR/$name-after.sql" "${REPAIR_TABLES[@]}"
   diff -u "$EVIDENCE_DIR/$name-before.sql" "$EVIDENCE_DIR/$name-after.sql" > "$EVIDENCE_DIR/$name-diff.txt"
 }
 
-run_matcher_repair() {
-  EVIDENCE_DIR="$RUN_DIR/matcher-repair"
+run_analytics_repair() {
+  EVIDENCE_DIR="$RUN_DIR/analytics-repair"
   CHANGELOG="changelog-before-collector-scopes.yaml"
   mkdir -p "$EVIDENCE_DIR"
   printf '\nChecking the reported dev configuration repair and rejected histories.\n'
@@ -2508,11 +2508,11 @@ run_matcher_repair() {
   # Keep include paths/changeset identities identical to the production master.
   awk '/^  - include:/ {block=$0 ORS; next} {block=block $0 ORS; if (/relativeToChangelogFile:/) {if (block !~ /106-repair-matching-config-ids/) printf "%s",block; block=""}} NR==1 {printf "%s",block; block=""}' \
     database/changelog-before-collector-scopes.yaml > database/changelog-before-config-repair.yaml
-  lb matcher_repair migrate --changelog-file=changelog-before-config-repair.yaml update --context-filter=seed
-  check_scalar matcher_repair repair_pending "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 0
+  lb analytics_repair migrate --changelog-file=changelog-before-config-repair.yaml update --context-filter=seed
+  check_scalar analytics_repair repair_pending "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 0
   REPAIR_TABLES=(recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones
     ewaste_batches command_idempotency matching_decisions matched_results batch_claims capacity_reservations event_outbox batch_audit_events)
-  mysql_query matcher_repair <<'REPAIR_FIXTURES'
+  mysql_query analytics_repair <<'REPAIR_FIXTURES'
 INSERT INTO recycler_matching_profiles VALUES
 ('PROC-001',1,1,'2026-01-01','2026-01-01'),('PROC-002',1,1,'2026-01-01','2026-01-01');
 INSERT INTO recycler_capacity_pools VALUES
@@ -2549,61 +2549,61 @@ REPAIR_FIXTURES
   local table column spec
   for spec in 'command_idempotency response_json' 'matching_decisions input_snapshot_json' 'matched_results evidence_json' 'event_outbox payload_json' 'batch_audit_events details_json'; do
     read -r table column <<< "$spec"
-    mysql_query matcher_repair -e "UPDATE $table SET $column=JSON_OBJECT('capability_id','c1')"
+    mysql_query analytics_repair -e "UPDATE $table SET $column=JSON_OBJECT('capability_id','c1')"
     reject_config_repair "history-$table" 'Historical or prepared records reference the old IDs'
-    mysql_query matcher_repair -e "UPDATE $table SET $column=JSON_OBJECT()"
+    mysql_query analytics_repair -e "UPDATE $table SET $column=JSON_OBJECT()"
   done
-  mysql_query matcher_repair -e "UPDATE matched_results SET capacity_pool_id='p2260000-0000-4000-8000-000000000001'"
+  mysql_query analytics_repair -e "UPDATE matched_results SET capacity_pool_id='p2260000-0000-4000-8000-000000000001'"
   reject_config_repair matched_pool 'Historical or prepared records reference the old IDs'
-  mysql_query matcher_repair -e 'UPDATE matched_results SET capacity_pool_id=NULL'
-  mysql_query matcher_repair -e "INSERT INTO capacity_reservations(id,batch_id,claim_id,capacity_pool_id,reserved_kg,status,reserved_at,version) VALUES('fe000000-0000-4000-8000-000000000009','fe000000-0000-4000-8000-000000000001','fe000000-0000-4000-8000-000000000008','p2260000-0000-4000-8000-000000000001',1,'RESERVED','2026-01-01',1)"
+  mysql_query analytics_repair -e 'UPDATE matched_results SET capacity_pool_id=NULL'
+  mysql_query analytics_repair -e "INSERT INTO capacity_reservations(id,batch_id,claim_id,capacity_pool_id,reserved_kg,status,reserved_at,version) VALUES('fe000000-0000-4000-8000-000000000009','fe000000-0000-4000-8000-000000000001','fe000000-0000-4000-8000-000000000008','p2260000-0000-4000-8000-000000000001',1,'RESERVED','2026-01-01',1)"
   reject_config_repair reserved_history 'Historical or prepared records reference the old IDs'
-  mysql_query matcher_repair -e 'DELETE FROM capacity_reservations'
-  mysql_query matcher_repair -e 'UPDATE recycler_capacity_pools SET reserved_kg=1'
+  mysql_query analytics_repair -e 'DELETE FROM capacity_reservations'
+  mysql_query analytics_repair -e 'UPDATE recycler_capacity_pools SET reserved_kg=1'
   reject_config_repair nonzero_reservation 'Reserved capacity'
-  mysql_query matcher_repair -e 'UPDATE recycler_capacity_pools SET reserved_kg=0'
-  mysql_query matcher_repair -e "UPDATE recycler_service_zones SET id='unexpected-zone-id' WHERE id='z10'"
+  mysql_query analytics_repair -e 'UPDATE recycler_capacity_pools SET reserved_kg=0'
+  mysql_query analytics_repair -e "UPDATE recycler_service_zones SET id='unexpected-zone-id' WHERE id='z10'"
   reject_config_repair partial_state 'Reported IDs, owners or configuration keys differ'
-  mysql_query matcher_repair -e "UPDATE recycler_service_zones SET id='z10' WHERE id='unexpected-zone-id'"
-  mysql_query matcher_repair -e "INSERT INTO recycler_capacity_pools VALUES('b2260000-0000-4000-8000-000000000001','PROC-001','COLLISION',1,0,1,1,'2026-01-01')"
+  mysql_query analytics_repair -e "UPDATE recycler_service_zones SET id='z10' WHERE id='unexpected-zone-id'"
+  mysql_query analytics_repair -e "INSERT INTO recycler_capacity_pools VALUES('b2260000-0000-4000-8000-000000000001','PROC-001','COLLISION',1,0,1,1,'2026-01-01')"
   reject_config_repair collision 'Replacement UUID already exists'
-  mysql_query matcher_repair -e "DELETE FROM recycler_capacity_pools WHERE pool_code='COLLISION'"
+  mysql_query analytics_repair -e "DELETE FROM recycler_capacity_pools WHERE pool_code='COLLISION'"
   # Fail after replacement pools and capability rows have been written.
-  mysql_query matcher_repair -e "CREATE TABLE extra_pool_reference(id INT PRIMARY KEY,pool_id VARCHAR(36),FOREIGN KEY(pool_id) REFERENCES recycler_capacity_pools(id)); INSERT INTO extra_pool_reference VALUES(1,'p2260000-0000-4000-8000-000000000001')"
+  mysql_query analytics_repair -e "CREATE TABLE extra_pool_reference(id INT PRIMARY KEY,pool_id VARCHAR(36),FOREIGN KEY(pool_id) REFERENCES recycler_capacity_pools(id)); INSERT INTO extra_pool_reference VALUES(1,'p2260000-0000-4000-8000-000000000001')"
   reject_config_repair late_foreign_key 'Cannot delete or update a parent row'
-  mysql_query matcher_repair -e 'DROP TABLE extra_pool_reference'
+  mysql_query analytics_repair -e 'DROP TABLE extra_pool_reference'
 
   local business_query="SELECT recycler_org_id,pool_code,total_kg,reserved_kg,is_active FROM recycler_capacity_pools ORDER BY recycler_org_id,pool_code; SELECT recycler_org_id,category,accepted_conditions_json,supports_data_bearing,is_active FROM recycler_category_capabilities ORDER BY recycler_org_id,category; SELECT recycler_org_id,zone,minimum_lead_minutes,is_active FROM recycler_service_zones ORDER BY recycler_org_id,zone;"
-  mysql_query matcher_repair -e "$business_query" > "$EVIDENCE_DIR/business-before.tsv"
-  dump_rows matcher_repair "$EVIDENCE_DIR/history-before.sql" "${REPAIR_TABLES[@]:4}" recycler_matching_profiles matching_rule_sets
-  dump_rows matcher_repair "$EVIDENCE_DIR/changelog-before.sql" DATABASECHANGELOG
-  lb matcher_repair repair update --context-filter=seed
-  check_scalar matcher_repair repair_recorded "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106' AND EXECTYPE='EXECUTED'" 1
-  dump_rows matcher_repair "$EVIDENCE_DIR/changelog-after.sql" DATABASECHANGELOG --where="ID <> 'EWCSB129-106'"
+  mysql_query analytics_repair -e "$business_query" > "$EVIDENCE_DIR/business-before.tsv"
+  dump_rows analytics_repair "$EVIDENCE_DIR/history-before.sql" "${REPAIR_TABLES[@]:4}" recycler_matching_profiles matching_rule_sets
+  dump_rows analytics_repair "$EVIDENCE_DIR/changelog-before.sql" DATABASECHANGELOG
+  lb analytics_repair repair update --context-filter=seed
+  check_scalar analytics_repair repair_recorded "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106' AND EXECTYPE='EXECUTED'" 1
+  dump_rows analytics_repair "$EVIDENCE_DIR/changelog-after.sql" DATABASECHANGELOG --where="ID <> 'EWCSB129-106'"
   diff -u "$EVIDENCE_DIR/changelog-before.sql" "$EVIDENCE_DIR/changelog-after.sql" > "$EVIDENCE_DIR/changelog-preserved.diff"
-  mysql_query matcher_repair -e "$business_query" > "$EVIDENCE_DIR/business-after.tsv"
+  mysql_query analytics_repair -e "$business_query" > "$EVIDENCE_DIR/business-after.tsv"
   diff -u "$EVIDENCE_DIR/business-before.tsv" "$EVIDENCE_DIR/business-after.tsv" > "$EVIDENCE_DIR/business-preserved.diff"
-  dump_rows matcher_repair "$EVIDENCE_DIR/history-after.sql" "${REPAIR_TABLES[@]:4}" recycler_matching_profiles matching_rule_sets
+  dump_rows analytics_repair "$EVIDENCE_DIR/history-after.sql" "${REPAIR_TABLES[@]:4}" recycler_matching_profiles matching_rule_sets
   diff -u "$EVIDENCE_DIR/history-before.sql" "$EVIDENCE_DIR/history-after.sql" > "$EVIDENCE_DIR/history-preserved.diff"
-  check_scalar matcher_repair repaired_versions "SELECT COUNT(*) FROM (SELECT version FROM recycler_capacity_pools UNION ALL SELECT version FROM recycler_category_capabilities UNION ALL SELECT version FROM recycler_service_zones) x WHERE version=2" 20
-  check_scalar matcher_repair valid_ids "SELECT COUNT(*) FROM (SELECT id FROM recycler_capacity_pools UNION ALL SELECT id FROM recycler_category_capabilities UNION ALL SELECT id FROM recycler_service_zones) x WHERE REGEXP_LIKE(id,'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$','c')" 20
-  check_scalar matcher_repair owned_links 'SELECT COUNT(*) FROM recycler_category_capabilities c JOIN recycler_capacity_pools p ON c.capacity_pool_id=p.id AND c.recycler_org_id=p.recycler_org_id' 8
-  check_scalar matcher_repair fk_checks 'SELECT @@foreign_key_checks' 1
-  dump_rows matcher_repair "$EVIDENCE_DIR/before-repeat.sql" "${REPAIR_TABLES[@]}"
-  lb matcher_repair repeat update --context-filter=seed
-  check_scalar matcher_repair repair_recorded_once "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 1
-  dump_rows matcher_repair "$EVIDENCE_DIR/after-repeat.sql" "${REPAIR_TABLES[@]}"
+  check_scalar analytics_repair repaired_versions "SELECT COUNT(*) FROM (SELECT version FROM recycler_capacity_pools UNION ALL SELECT version FROM recycler_category_capabilities UNION ALL SELECT version FROM recycler_service_zones) x WHERE version=2" 20
+  check_scalar analytics_repair valid_ids "SELECT COUNT(*) FROM (SELECT id FROM recycler_capacity_pools UNION ALL SELECT id FROM recycler_category_capabilities UNION ALL SELECT id FROM recycler_service_zones) x WHERE REGEXP_LIKE(id,'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$','c')" 20
+  check_scalar analytics_repair owned_links 'SELECT COUNT(*) FROM recycler_category_capabilities c JOIN recycler_capacity_pools p ON c.capacity_pool_id=p.id AND c.recycler_org_id=p.recycler_org_id' 8
+  check_scalar analytics_repair fk_checks 'SELECT @@foreign_key_checks' 1
+  dump_rows analytics_repair "$EVIDENCE_DIR/before-repeat.sql" "${REPAIR_TABLES[@]}"
+  lb analytics_repair repeat update --context-filter=seed
+  check_scalar analytics_repair repair_recorded_once "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'" 1
+  dump_rows analytics_repair "$EVIDENCE_DIR/after-repeat.sql" "${REPAIR_TABLES[@]}"
   diff -u "$EVIDENCE_DIR/before-repeat.sql" "$EVIDENCE_DIR/after-repeat.sql" > "$EVIDENCE_DIR/repeat.diff"
   # Isolated test only: emulate manual repair, or a crash after data commit but
   # before Liquibase recorded completion. Do not edit live changelog records.
-  mysql_query matcher_repair -e "DELETE FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'"
-  lb matcher_repair adopt-repaired update --context-filter=seed
-  check_scalar matcher_repair repaired_state_adopted "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106' AND EXECTYPE='EXECUTED'" 1
-  dump_rows matcher_repair "$EVIDENCE_DIR/after-adopt.sql" "${REPAIR_TABLES[@]}"
+  mysql_query analytics_repair -e "DELETE FROM DATABASECHANGELOG WHERE ID='EWCSB129-106'"
+  lb analytics_repair adopt-repaired update --context-filter=seed
+  check_scalar analytics_repair repaired_state_adopted "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-106' AND EXECTYPE='EXECUTED'" 1
+  dump_rows analytics_repair "$EVIDENCE_DIR/after-adopt.sql" "${REPAIR_TABLES[@]}"
   diff -u "$EVIDENCE_DIR/before-repeat.sql" "$EVIDENCE_DIR/after-adopt.sql" > "$EVIDENCE_DIR/adopt-repaired.diff"
-  check_scalar matcher_repair helper_removed "SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema='matcher_repair' AND routine_name='repair_ewcsb129_config_ids'" 0
+  check_scalar analytics_repair helper_removed "SELECT COUNT(*) FROM information_schema.routines WHERE routine_schema='analytics_repair' AND routine_name='repair_ewcsb129_config_ids'" 0
   printf 'PASS\n' > "$EVIDENCE_DIR/result.txt"
-  printf 'matcher-repair\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
+  printf 'analytics-repair\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
 }
 
 reject_collector_seed() {
@@ -2851,7 +2851,7 @@ CREATE DATABASE c3_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c4_clean CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c4_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE collector_seed CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
-CREATE DATABASE matcher_repair CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE analytics_repair CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE recycler_seed CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE recycler_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 GRANT ALL ON c1_upgrade.* TO 'persistence_test'@'%';
@@ -2860,7 +2860,7 @@ GRANT ALL ON c3_upgrade.* TO 'persistence_test'@'%';
 GRANT ALL ON c4_clean.* TO 'persistence_test'@'%';
 GRANT ALL ON c4_upgrade.* TO 'persistence_test'@'%';
 GRANT ALL ON collector_seed.* TO 'persistence_test'@'%';
-GRANT ALL ON matcher_repair.* TO 'persistence_test'@'%';
+GRANT ALL ON analytics_repair.* TO 'persistence_test'@'%';
 GRANT ALL ON recycler_seed.* TO 'persistence_test'@'%';
 GRANT ALL ON recycler_upgrade.* TO 'persistence_test'@'%';
 GRANT SELECT ON performance_schema.data_lock_waits TO 'persistence_test'@'%';
@@ -2870,7 +2870,7 @@ PERSISTENCE_DATABASES
   run_c1
   run_c3
   run_c4
-  run_matcher_repair
+  run_analytics_repair
   run_collector_scope_seed
   run_recycler_matching_seed
   cat "$RUN_DIR/summary.tsv"

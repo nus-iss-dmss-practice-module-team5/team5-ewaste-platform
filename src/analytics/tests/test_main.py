@@ -5,29 +5,29 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from matcher.__main__ import main, positive, required
-from matcher.contract import ContractError, canonical, loads
+from analytics.__main__ import main, positive, required
+from analytics.contract import ContractError, canonical, loads
 from helpers import fixture
 
 
 class MainTests(unittest.TestCase):
     def environment(self):
         return {
-            "MATCHER_LOCAL_TEST": "1", "KAFKA_BOOTSTRAP_SERVERS": "kafka:9092",
-            "MATCHER_TOPIC": "ewaste.batch.events", "MATCHER_DLQ_TOPIC": "ewaste.matching.dlq",
-            "MATCHER_GROUP_ID": "matching-worker-v1", "MATCHER_FACADE_URL": "http://api:8080",
-            "MATCHER_TOKEN_FILE": "/test-fixtures/token", "MATCHER_HTTP_TIMEOUT_SECONDS": "5",
-            "MATCHER_MAX_RESPONSE_BYTES": "100000", "MATCHER_DELIVERY_TIMEOUT_SECONDS": "10",
-            "MATCHER_MAX_RECORD_BYTES": "100000", "MATCHER_RETRY_BASE_SECONDS": "1",
-            "MATCHER_RETRY_MAX_SECONDS": "30", "MATCHER_MAX_REFRESHES": "3",
-            "MATCHER_OFFSET_RESET": "earliest", "MATCHER_MAX_POLL_MS": "300000",
-            "MATCHER_SESSION_TIMEOUT_MS": "6000", "MATCHER_WORKERS": "2",
+            "ANALYTICS_LOCAL_TEST": "1", "KAFKA_BOOTSTRAP_SERVERS": "kafka:9092",
+            "ANALYTICS_TOPIC": "ewaste.batch.events", "ANALYTICS_DLQ_TOPIC": "ewaste.matching.dlq",
+            "ANALYTICS_GROUP_ID": "matching-worker-v1", "ANALYTICS_FACADE_URL": "http://api:8080",
+            "ANALYTICS_TOKEN_FILE": "/test-fixtures/token", "ANALYTICS_HTTP_TIMEOUT_SECONDS": "5",
+            "ANALYTICS_MAX_RESPONSE_BYTES": "100000", "ANALYTICS_DELIVERY_TIMEOUT_SECONDS": "10",
+            "ANALYTICS_MAX_RECORD_BYTES": "100000", "ANALYTICS_RETRY_BASE_SECONDS": "1",
+            "ANALYTICS_RETRY_MAX_SECONDS": "30", "ANALYTICS_MAX_REFRESHES": "3",
+            "ANALYTICS_OFFSET_RESET": "earliest", "ANALYTICS_MAX_POLL_MS": "300000",
+            "ANALYTICS_SESSION_TIMEOUT_MS": "6000", "ANALYTICS_WORKERS": "2",
         }
 
     def test_evaluate_command_writes_the_canonical_golden_result(self):
         golden = fixture()
         output = io.BytesIO()
-        with patch("sys.argv", ["matcher", "evaluate"]), \
+        with patch("sys.argv", ["analytics", "evaluate"]), \
                 patch("sys.stdin", SimpleNamespace(buffer=io.BytesIO(canonical(golden["input"])))), \
                 patch("sys.stdout", SimpleNamespace(buffer=output)):
             self.assertEqual(main(), 0)
@@ -36,7 +36,7 @@ class MainTests(unittest.TestCase):
 
     def test_evaluate_command_reports_invalid_input_without_partial_output(self):
         output, errors = io.BytesIO(), io.StringIO()
-        with patch("sys.argv", ["matcher", "evaluate"]), \
+        with patch("sys.argv", ["analytics", "evaluate"]), \
                 patch("sys.stdin", SimpleNamespace(buffer=io.BytesIO(b'{"private":"invalid",'))), \
                 patch("sys.stdout", SimpleNamespace(buffer=output)), patch("sys.stderr", errors):
             self.assertEqual(main(), 2)
@@ -45,38 +45,40 @@ class MainTests(unittest.TestCase):
 
     def test_invalid_command_and_missing_or_nonpositive_settings_fail_closed(self):
         for args in ([], ["unknown"], ["run", "extra"]):
-            with self.subTest(args=args), patch("sys.argv", ["matcher", *args]), self.assertRaises(ContractError):
+            with self.subTest(args=args), patch("sys.argv", ["analytics", *args]), self.assertRaises(ContractError):
                 main()
         for value in (None, "", "0", "-1"):
-            env = {} if value is None else {"MATCHER_WORKERS": value}
+            env = {} if value is None else {"ANALYTICS_WORKERS": value}
             with self.subTest(value=value), patch.dict(os.environ, env, clear=True), self.assertRaises(ContractError):
-                positive("MATCHER_WORKERS")
-        with patch.dict(os.environ, {"MATCHER_WORKERS": "2"}, clear=True):
-            self.assertEqual(required("MATCHER_WORKERS"), "2")
-            self.assertEqual(positive("MATCHER_WORKERS"), 2)
+                positive("ANALYTICS_WORKERS")
+        with patch.dict(os.environ, {"ANALYTICS_WORKERS": "2"}, clear=True):
+            self.assertEqual(required("ANALYTICS_WORKERS"), "2")
+            self.assertEqual(positive("ANALYTICS_WORKERS"), 2)
 
     def test_run_wires_local_and_azure_settings_and_signal_shutdown(self):
-        for azure in (False, True):
-            with self.subTest(azure=azure):
+        for azure, legacy in ((False, False), (True, False), (False, True), (True, True)):
+            with self.subTest(azure=azure, legacy=legacy):
                 env = self.environment()
                 if azure:
-                    env.pop("MATCHER_LOCAL_TEST")
-                    env.pop("MATCHER_TOKEN_FILE")
+                    env.pop("ANALYTICS_LOCAL_TEST")
+                    env.pop("ANALYTICS_TOKEN_FILE")
                     env.update(KAFKA_BOOTSTRAP_SERVERS="test.servicebus.windows.net:9093",
                                KAFKA_CONNECTION_STRING="test-only-connection",
-                               MATCHER_FACADE_URL="https://api.example.test",
-                               MATCHER_SIGNING_SECRET="x" * 32, MATCHER_TOKEN_ISSUER="test",
-                               MATCHER_TOKEN_AUDIENCE="matching-api", MATCHER_HEALTH_PORT="8000")
-                    for source, fallback in (("MATCHER_TOPIC", "KAFKA_TOPIC_BATCH_EVENTS"),
-                                             ("MATCHER_DLQ_TOPIC", "KAFKA_TOPIC_DLQ"),
-                                             ("MATCHER_GROUP_ID", "KAFKA_CONSUMER_GROUP")):
+                               ANALYTICS_FACADE_URL="https://api.example.test",
+                               ANALYTICS_SIGNING_SECRET="x" * 32, ANALYTICS_TOKEN_ISSUER="test",
+                               ANALYTICS_TOKEN_AUDIENCE="matching-api", ANALYTICS_HEALTH_PORT="8000")
+                    for source, fallback in (("ANALYTICS_TOPIC", "KAFKA_TOPIC_BATCH_EVENTS"),
+                                             ("ANALYTICS_DLQ_TOPIC", "KAFKA_TOPIC_DLQ"),
+                                             ("ANALYTICS_GROUP_ID", "KAFKA_CONSUMER_GROUP")):
                         env[fallback] = env.pop(source)
-                with patch.dict(os.environ, env, clear=True), patch("sys.argv", ["matcher", "run"]), \
-                        patch("matcher.facade.FacadeClient") as facade, \
-                        patch("matcher.kafka.QuarantinePublisher") as publisher, \
-                        patch("matcher.kafka.KafkaRunner") as runner, \
-                        patch("matcher.kafka.observe") as observe, \
-                        patch("matcher.health.Health") as health, patch("signal.signal") as signals:
+                if legacy:
+                    env = {key.replace("ANALYTICS_", "MATCHER_", 1): value for key, value in env.items()}
+                with patch.dict(os.environ, env, clear=True), patch("sys.argv", ["analytics", "run"]), \
+                        patch("analytics.facade.FacadeClient") as facade, \
+                        patch("analytics.kafka.QuarantinePublisher") as publisher, \
+                        patch("analytics.kafka.KafkaRunner") as runner, \
+                        patch("analytics.kafka.observe") as observe, \
+                        patch("analytics.health.Health") as health, patch("signal.signal") as signals:
                     def stop_on_signal(stop):
                         self.assertFalse(stop.is_set())
                         for call in signals.call_args_list:
@@ -111,10 +113,10 @@ class MainTests(unittest.TestCase):
                     health.return_value.observe.assert_called_once_with("consumer_error", None, code="test")
 
     def test_run_closes_health_server_when_runner_fails(self):
-        env = {**self.environment(), "MATCHER_HEALTH_PORT": "8000"}
-        with patch.dict(os.environ, env, clear=True), patch("sys.argv", ["matcher", "run"]), \
-                patch("matcher.facade.FacadeClient"), patch("matcher.kafka.QuarantinePublisher"), \
-                patch("matcher.kafka.KafkaRunner") as runner, patch("matcher.health.Health") as health, \
+        env = {**self.environment(), "ANALYTICS_HEALTH_PORT": "8000"}
+        with patch.dict(os.environ, env, clear=True), patch("sys.argv", ["analytics", "run"]), \
+                patch("analytics.facade.FacadeClient"), patch("analytics.kafka.QuarantinePublisher"), \
+                patch("analytics.kafka.KafkaRunner") as runner, patch("analytics.health.Health") as health, \
                 patch("signal.signal"):
             runner.return_value.run.side_effect = RuntimeError("test failure")
             with self.assertRaisesRegex(RuntimeError, "test failure"):
@@ -123,10 +125,10 @@ class MainTests(unittest.TestCase):
             health.return_value.serve.return_value.server_close.assert_called_once_with()
 
     def test_invalid_topics_or_retry_bounds_do_not_start_consumer(self):
-        for update in ({"MATCHER_DLQ_TOPIC": "ewaste.batch.events"}, {"MATCHER_RETRY_BASE_SECONDS": "31"}):
+        for update in ({"ANALYTICS_DLQ_TOPIC": "ewaste.batch.events"}, {"ANALYTICS_RETRY_BASE_SECONDS": "31"}):
             with self.subTest(update=update), patch.dict(os.environ, {**self.environment(), **update}, clear=True), \
-                    patch("sys.argv", ["matcher", "run"]), patch("matcher.facade.FacadeClient"), \
-                    patch("matcher.kafka.QuarantinePublisher"), patch("matcher.kafka.KafkaRunner") as runner:
+                    patch("sys.argv", ["analytics", "run"]), patch("analytics.facade.FacadeClient"), \
+                    patch("analytics.kafka.QuarantinePublisher"), patch("analytics.kafka.KafkaRunner") as runner:
                 with self.assertRaises(ContractError):
                     main()
                 runner.assert_not_called()

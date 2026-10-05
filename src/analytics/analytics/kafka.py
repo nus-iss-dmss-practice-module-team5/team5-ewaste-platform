@@ -10,7 +10,7 @@ from confluent_kafka import Consumer, KafkaException, Producer, TopicPartition
 from .contract import loads, require, validate
 from .worker import Delivery, PublishError, Record, utc_now
 
-LOG = logging.getLogger("matcher")
+LOG = logging.getLogger("analytics")
 
 
 def observe(name, delivery=None, **fields):
