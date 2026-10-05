@@ -39,19 +39,9 @@ output "aca_identity_id" {
   description = "Resource ID of the user-assigned managed identity for ACA."
 }
 
-output "key_vault_uri" {
-  value       = azurerm_key_vault.kv.vault_uri
-  description = "Target environment Key Vault URI."
-}
-
 output "acr_private_endpoint_ip" {
   value       = azurerm_private_endpoint.acr.private_service_connection[0].private_ip_address
   description = "Private IP allocated to the shared ACR endpoint in this environment."
-}
-
-output "key_vault_private_endpoint_ip" {
-  value       = azurerm_private_endpoint.key_vault.private_service_connection[0].private_ip_address
-  description = "Private IP allocated to the environment Key Vault endpoint."
 }
 
 output "redis_private_endpoint_ip" {
