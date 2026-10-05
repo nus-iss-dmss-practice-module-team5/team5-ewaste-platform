@@ -2,7 +2,7 @@ name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
   push:
-    branches: [feature/ewcsb-188-acr-rollback-tag]
+    branches: [dev, main]
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -133,7 +133,7 @@ jobs:
           echo "$ACR_TOKEN" | docker login "$ACR_NAME".azurecr.io -u 00000000-0000-0000-0000-000000000000 --password-stdin
 
       # ------------------------------------------------------------------------
-      # 1.0 RESOLVE TARGET DEPLOYMENT IMAGE TAGS (STANDARD, EXPLICIT, OR SMART PREVIOUS)
+      # Resolve Target Deployment Image Tags (STANDARD, EXPLICIT, OR SMART PREVIOUS)
       # ------------------------------------------------------------------------
       - name: Resolve Effective Deployment Image Tags
         id: resolve_tags

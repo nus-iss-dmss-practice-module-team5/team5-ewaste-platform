@@ -6,7 +6,7 @@ on:
     types: [opened, synchronize, reopened]
 
   push:
-    branches: [feature/ewcsb-188-acr-rollback-tag]
+    branches: [dev, main]
 
 permissions:
   contents: read
