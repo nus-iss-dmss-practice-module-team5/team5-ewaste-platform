@@ -15,23 +15,27 @@ import (
 type fakeBatchRepository struct {
 	state        *fakeBatchState
 	transactionN int
+	failOutbox   bool
 }
 
 type fakeBatchState struct {
 	batches  map[string]*model.Batch
+	receipts map[string]*model.BatchReceipt
 	commands []*model.CommandIdempotency
 	audits   []*model.BatchAuditEvent
 	outbox   []*model.EventOutbox
 }
 
 type fakeBatchTransaction struct {
-	state *fakeBatchState
+	state      *fakeBatchState
+	failOutbox bool
 }
 
 func newFakeBatchRepository() *fakeBatchRepository {
 	return &fakeBatchRepository{
 		state: &fakeBatchState{
-			batches: make(map[string]*model.Batch),
+			batches:  make(map[string]*model.Batch),
+			receipts: make(map[string]*model.BatchReceipt),
 		},
 	}
 }
@@ -46,7 +50,12 @@ func (r *fakeBatchRepository) Transaction(
 		return errors.New("callback is nil")
 	}
 
-	return fn(&fakeBatchTransaction{state: r.state})
+	snapshot := cloneFakeBatchState(r.state)
+	err := fn(&fakeBatchTransaction{state: r.state, failOutbox: r.failOutbox})
+	if err != nil {
+		r.state = snapshot
+	}
+	return err
 }
 
 func (t *fakeBatchTransaction) FindBatchForUpdate(
@@ -59,6 +68,25 @@ func (t *fakeBatchTransaction) FindBatchForUpdate(
 	}
 
 	return cloneBatch(batch), nil
+}
+
+func (t *fakeBatchTransaction) ValidateRecyclerActor(
+	context.Context,
+	string,
+	string,
+) error {
+	return nil
+}
+
+func (t *fakeBatchTransaction) ValidateReceiptScope(
+	context.Context,
+	string,
+	string,
+	string,
+	uint64,
+	string,
+) error {
+	return nil
 }
 
 func (t *fakeBatchTransaction) FindCommand(
@@ -149,6 +177,33 @@ func (t *fakeBatchTransaction) SubmitDraft(
 	return cloneBatch(batch), nil
 }
 
+func (t *fakeBatchTransaction) CreateReceipt(
+	_ context.Context,
+	receipt *model.BatchReceipt,
+) error {
+	t.state.receipts[receipt.BatchID] = cloneReceipt(receipt)
+	return nil
+}
+
+func (t *fakeBatchTransaction) UpdateBatchReceipt(
+	_ context.Context,
+	batchID string,
+	expectedVersion uint32,
+	now time.Time,
+) (*model.Batch, error) {
+	batch, ok := t.state.batches[batchID]
+	if !ok {
+		return nil, repository.ErrBatchNotFound
+	}
+	if batch.Status != model.BatchStatusCollected || batch.Version != expectedVersion {
+		return nil, repository.ErrBatchConcurrency
+	}
+	batch.Status = model.BatchStatusVerified
+	batch.Version++
+	batch.UpdatedAt = now
+	return cloneBatch(batch), nil
+}
+
 func (t *fakeBatchTransaction) CompleteCommand(
 	_ context.Context,
 	commandID string,
@@ -181,8 +236,41 @@ func (t *fakeBatchTransaction) EnqueueOutbox(
 	_ context.Context,
 	event *model.EventOutbox,
 ) error {
+	if t.failOutbox {
+		return errors.New("outbox unavailable")
+	}
 	t.state.outbox = append(t.state.outbox, event)
 	return nil
+}
+
+func cloneFakeBatchState(source *fakeBatchState) *fakeBatchState {
+	clone := &fakeBatchState{
+		batches:  make(map[string]*model.Batch, len(source.batches)),
+		receipts: make(map[string]*model.BatchReceipt, len(source.receipts)),
+		commands: make([]*model.CommandIdempotency, 0, len(source.commands)),
+		audits:   make([]*model.BatchAuditEvent, 0, len(source.audits)),
+		outbox:   make([]*model.EventOutbox, 0, len(source.outbox)),
+	}
+	for id, batch := range source.batches {
+		clone.batches[id] = cloneBatch(batch)
+	}
+	for id, receipt := range source.receipts {
+		clone.receipts[id] = cloneReceipt(receipt)
+	}
+	for _, command := range source.commands {
+		clone.commands = append(clone.commands, cloneCommand(command))
+	}
+	for _, audit := range source.audits {
+		copyAudit := *audit
+		copyAudit.DetailsJSON = append([]byte(nil), audit.DetailsJSON...)
+		clone.audits = append(clone.audits, &copyAudit)
+	}
+	for _, event := range source.outbox {
+		copyEvent := *event
+		copyEvent.PayloadJSON = append([]byte(nil), event.PayloadJSON...)
+		clone.outbox = append(clone.outbox, &copyEvent)
+	}
+	return clone
 }
 
 func cloneBatch(source *model.Batch) *model.Batch {
@@ -203,6 +291,15 @@ func cloneCommand(source *model.CommandIdempotency) *model.CommandIdempotency {
 	clone := new(model.CommandIdempotency)
 	*clone = *source
 	clone.ResponseJSON = append([]byte(nil), source.ResponseJSON...)
+	return clone
+}
+
+func cloneReceipt(source *model.BatchReceipt) *model.BatchReceipt {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.BatchReceipt)
+	*clone = *source
 	return clone
 }
 

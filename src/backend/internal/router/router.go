@@ -82,6 +82,7 @@ func NewAuthRouter(
 		batches.POST("", batchController.CreateDraft)
 		batches.PATCH("/:batch_id", batchController.EditDraft)
 		batches.POST("/:batch_id/submit", batchController.Submit)
+		batches.POST("/:batch_id/receipt", batchController.VerifyReceipt)
 	}
 	if claimController != nil {
 		batches.POST("/:batch_id/claim", claimController.Claim)

@@ -7,26 +7,28 @@ import (
 
 func TestEntityTableNamesMatchLiquibaseSchema(t *testing.T) {
 	tests := map[string]string{
-		"organisation": (Organisation{}).TableName(),
-		"role":         (Role{}).TableName(),
-		"user":         (User{}).TableName(),
-		"session":      (Session{}).TableName(),
-		"login_audit":  (LoginAudit{}).TableName(),
-		"batch":        (Batch{}).TableName(),
-		"command":      (CommandIdempotency{}).TableName(),
-		"batch_audit":  (BatchAuditEvent{}).TableName(),
-		"outbox":       (EventOutbox{}).TableName(),
+		"organisation":  (Organisation{}).TableName(),
+		"role":          (Role{}).TableName(),
+		"user":          (User{}).TableName(),
+		"session":       (Session{}).TableName(),
+		"login_audit":   (LoginAudit{}).TableName(),
+		"batch":         (Batch{}).TableName(),
+		"batch_receipt": (BatchReceipt{}).TableName(),
+		"command":       (CommandIdempotency{}).TableName(),
+		"batch_audit":   (BatchAuditEvent{}).TableName(),
+		"outbox":        (EventOutbox{}).TableName(),
 	}
 	expected := map[string]string{
-		"organisation": "organisations",
-		"role":         "roles",
-		"user":         "users",
-		"session":      "sessions",
-		"login_audit":  "login_audit",
-		"batch":        "ewaste_batches",
-		"command":      "command_idempotency",
-		"batch_audit":  "batch_audit_events",
-		"outbox":       "event_outbox",
+		"organisation":  "organisations",
+		"role":          "roles",
+		"user":          "users",
+		"session":       "sessions",
+		"login_audit":   "login_audit",
+		"batch":         "ewaste_batches",
+		"batch_receipt": "batch_receipts",
+		"command":       "command_idempotency",
+		"batch_audit":   "batch_audit_events",
+		"outbox":        "event_outbox",
 	}
 	for name, want := range expected {
 		if tests[name] != want {
