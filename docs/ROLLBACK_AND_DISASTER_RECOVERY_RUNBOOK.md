@@ -124,7 +124,7 @@ When designing the progressive delivery architecture, our team evaluated two maj
 │ Verify live HTTP response codes across all tiers:                      │
 │  - API Gateway:    GET https://$API_FQDN/ (HTTP < 500)                 │
 │  - Frontend UI:    GET https://$UI_FQDN/  (HTTP < 500)                 │
-│  - Matcher Worker: GET https://$WORKER_FQDN/readyz (HTTP 200)          │
+│  - Analytics Worker: GET https://$WORKER_FQDN/readyz (HTTP 200)          │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
@@ -186,7 +186,7 @@ When an unexpected regression or demonstration issue occurs in the live environm
   ```text
   Rolling back to existing API image: acrewasteplatform.azurecr.io/workflow-api:dev-1162d6b
   Rolling back to existing UI image: acrewasteplatform.azurecr.io/workflow-ui:dev-1162d6b
-  Rolling back to existing Matcher image: acrewasteplatform.azurecr.io/workflow-analytics:dev-1162d6b
+  Rolling back to existing Analytics image: acrewasteplatform.azurecr.io/workflow-analytics:dev-1162d6b
   ```
 - **Traffic Cutover:** New revisions are spun up, probed for readiness, and receive 100% of live ingress traffic. Total elapsed time: **$\approx 90$ seconds**.
 
@@ -307,7 +307,7 @@ curl -s -o /dev/null -w "API Status: %{http_code}\n" "https://${API_FQDN}/health
 curl -s -o /dev/null -w "UI Status: %{http_code}\n" "https://${UI_FQDN}/"
 
 # Analytics Worker readiness check
-curl -s -o /dev/null -w "Matcher Status: %{http_code}\n" "https://${WORKER_FQDN}/readyz"
+curl -s -o /dev/null -w "Analytics Status: %{http_code}\n" "https://${WORKER_FQDN}/readyz"
 ```
 
 _Expected Result: All endpoints return HTTP 200._

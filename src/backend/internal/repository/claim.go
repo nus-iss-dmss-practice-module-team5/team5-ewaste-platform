@@ -172,8 +172,8 @@ func (t *gormClaimTransaction) FindBatchForUpdate(
 	return &batch, nil
 }
 
-// FindEligibleMatch consumes matching evidence written by the Python matcher.
-// It does not calculate a new match or call the matcher service.
+// FindEligibleMatch consumes matching evidence written by the Python analytics.
+// It does not calculate a new match or call the analytics service.
 func (t *gormClaimTransaction) FindEligibleMatch(
 	ctx context.Context,
 	batch *model.Batch,

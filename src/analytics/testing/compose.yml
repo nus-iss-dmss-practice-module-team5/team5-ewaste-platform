@@ -5,10 +5,10 @@ services:
     # Disposable fault-injection database only; permits the rollback test trigger.
     command: [--log-bin-trust-function-creators=1]
     environment:
-      MYSQL_DATABASE: matcher_test
-      MYSQL_USER: matcher
-      MYSQL_PASSWORD: matcher-local-only
-      MYSQL_ROOT_PASSWORD: matcher-root-local-only
+      MYSQL_DATABASE: analytics_test
+      MYSQL_USER: analytics
+      MYSQL_PASSWORD: analytics-local-only
+      MYSQL_ROOT_PASSWORD: analytics-root-local-only
       TZ: UTC
     healthcheck:
       test: [CMD-SHELL, 'mysqladmin ping -h 127.0.0.1 -uroot -p"$$MYSQL_ROOT_PASSWORD" --silent']
@@ -31,9 +31,9 @@ services:
       - ../../../database:/liquibase/changelog:ro
     working_dir: /liquibase/changelog
     environment:
-      LIQUIBASE_COMMAND_URL: jdbc:mysql://mysql:3306/matcher_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
-      LIQUIBASE_COMMAND_USERNAME: matcher
-      LIQUIBASE_COMMAND_PASSWORD: matcher-local-only
+      LIQUIBASE_COMMAND_URL: jdbc:mysql://mysql:3306/analytics_test?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      LIQUIBASE_COMMAND_USERNAME: analytics
+      LIQUIBASE_COMMAND_PASSWORD: analytics-local-only
       LIQUIBASE_COMMAND_CHANGELOG_FILE: changelog-master.yaml
       LIQUIBASE_SEARCH_PATH: /liquibase/changelog
     command: [update, --context-filter=seed]
@@ -64,12 +64,12 @@ services:
   tests:
     build:
       context: ../../..
-      dockerfile: src/matcher/testing/Dockerfile
+      dockerfile: src/analytics/testing/Dockerfile
     environment:
-      MATCHER_TEST_BROKER: kafka:9092
-      MATCHER_TEST_API: http://api:8080
-      MATCHER_TEST_MYSQL: mysql
-    command: [python, -m, unittest, discover, -s, src/matcher/tests, -v]
+      ANALYTICS_TEST_BROKER: kafka:9092
+      ANALYTICS_TEST_API: http://api:8080
+      ANALYTICS_TEST_MYSQL: mysql
+    command: [python, -m, unittest, discover, -s, src/analytics/tests, -v]
     depends_on:
       kafka:
         condition: service_healthy
@@ -81,15 +81,15 @@ services:
       EWASTE_SERVER_PORT: ':8080'
       EWASTE_DATABASE_HOST: mysql
       EWASTE_DATABASE_PORT: 3306
-      EWASTE_DATABASE_NAME: matcher_test
-      EWASTE_DATABASE_USER: matcher
-      MYSQL_PASSWORD: matcher-local-only
+      EWASTE_DATABASE_NAME: analytics_test
+      EWASTE_DATABASE_USER: analytics
+      MYSQL_PASSWORD: analytics-local-only
       EWASTE_REDIS_ADDRESS: redis:6379
       EWASTE_AUTH_ACCESS_SECRET: local-access-secret-at-least-32-characters
       EWASTE_AUTH_REFRESH_SECRET: local-refresh-secret-at-least-32-characters
       EWASTE_AUTH_REFRESH_HASH_SECRET: local-refresh-hash-at-least-32-characters
       EWASTE_MATCHING_ENABLED: 'true'
-      EWASTE_MATCHING_ISSUER: matcher-integration-test
+      EWASTE_MATCHING_ISSUER: analytics-integration-test
       EWASTE_MATCHING_AUDIENCE: matching-api
       EWASTE_MATCHING_SIGNING_SECRET: local-matching-secret-at-least-32-characters
       EWASTE_KAFKA_ENABLED: 'true'
@@ -113,7 +113,7 @@ services:
       - go-mod:/go/pkg/mod
       - go-build:/root/.cache/go-build
     environment:
-      MATCHER_TEST_DSN: matcher:matcher-local-only@tcp(mysql:3306)/matcher_test?parseTime=true&loc=UTC
+      ANALYTICS_TEST_DSN: analytics:analytics-local-only@tcp(mysql:3306)/analytics_test?parseTime=true&loc=UTC
     command: [go, test, ./...]
 volumes:
   mysql-data:

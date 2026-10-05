@@ -110,10 +110,10 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Validate Matcher Workload Configuration
+      - name: Validate Analytics Workload Configuration
         env:
-          MATCHER_SIGNING_SECRET: ${{ secrets.MATCHER_SIGNING_SECRET }}
-        run: test "${#MATCHER_SIGNING_SECRET}" -ge 32
+          ANALYTICS_SIGNING_SECRET: ${{ secrets.ANALYTICS_SIGNING_SECRET || secrets.MATCHER_SIGNING_SECRET }}
+        run: test "${#ANALYTICS_SIGNING_SECRET}" -ge 32
 
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@v3.5.0
@@ -343,38 +343,41 @@ jobs:
 
           if [ "${{ steps.resolve_tags.outputs.is_rollback }}" == "true" ]; then
             IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_TAG}"
-            echo "Rolling back to existing Matcher image: $IMAGE_TAG"
+            echo "Rolling back to existing Analytics image: $IMAGE_TAG"
             docker pull "$IMAGE_TAG"
-            # A rollback must name an actual matcher image, not the old demo.
-            test "$(docker inspect --format '{{index .Config.Labels "ewaste.component"}}' "$IMAGE_TAG")" = matcher
+            # Accept the previous worker label during the rename; reject demo images.
+            case "$(docker inspect --format '{{index .Config.Labels "ewaste.component"}}' "$IMAGE_TAG")" in
+              analytics|matcher) ;;
+              *) echo "Rollback image is not a supported analytics worker." >&2; exit 1 ;;
+            esac
           else
             IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_TAG}"
-            echo "Building Matcher Worker image: $IMAGE_TAG"
-            docker build -t "$IMAGE_TAG" -f src/matcher/Dockerfile .
-            echo "Pushing Matcher Worker image to ACR..."
+            echo "Building Analytics Worker image: $IMAGE_TAG"
+            docker build -t "$IMAGE_TAG" -f src/analytics/Dockerfile .
+            echo "Pushing Analytics Worker image to ACR..."
             docker push "$IMAGE_TAG"
           fi
 
           ANALYTICS_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG")
-          [[ "$ANALYTICS_DIGEST" == *@sha256:* ]] || { echo 'Matcher image digest is missing or mutable.' >&2; exit 1; }
+          [[ "$ANALYTICS_DIGEST" == *@sha256:* ]] || { echo 'Analytics image digest is missing or mutable.' >&2; exit 1; }
           echo "ANALYTICS_IMMUTABLE_DIGEST=$ANALYTICS_DIGEST" >> "$GITHUB_ENV"
 
       - name: Deploy Analytics Worker to Azure Container Apps
         id: analytics_deploy
         env:
-          MATCHER_SIGNING_SECRET: ${{ secrets.MATCHER_SIGNING_SECRET }}
+          ANALYTICS_SIGNING_SECRET: ${{ secrets.ANALYTICS_SIGNING_SECRET || secrets.MATCHER_SIGNING_SECRET }}
         run: |
           export TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           export RG="${{ needs.resolve-environment.outputs.resource_group }}"
-          export MATCHER_IMAGE="${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+          export ANALYTICS_IMAGE="${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
           APP_NAME="aca-ewaste-${TARGET_ENV}-analytics"
 
-          echo "Configuring matcher integration and updating $APP_NAME in $RG..."
-          echo "Target Image Digest: $MATCHER_IMAGE"
+          echo "Configuring analytics integration and updating $APP_NAME in $RG..."
+          echo "Target Image Digest: $ANALYTICS_IMAGE"
 
           # Configure the API and worker, deploy the digest, check readiness and
           # export aca_analytics_fqdn for the existing downstream steps.
-          bash scripts/deploy-matcher.sh
+          bash scripts/deploy-analytics.sh
 
       # ------------------------------------------------------------------------
       # 1.4 LIVE CONTAINER READINESS PROBES (API, UI & ANALYTICS)
@@ -570,7 +573,7 @@ jobs:
       # ------------------------------------------------------------------------
       # 3.3 ANALYTICS WORKER & EVENT HUBS INTEGRATION SMOKE TEST
       # ------------------------------------------------------------------------
-      - name: Verify Matcher Without Synthetic Business Events
+      - name: Verify Analytics Without Synthetic Business Events
         run: |
           ANALYTICS_FQDN="${{ needs.deploy-application.outputs.aca_analytics_fqdn }}"
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
@@ -591,7 +594,7 @@ jobs:
               exit 1
             fi
           elif [ -n "$ANALYTICS_FQDN" ]; then
-            echo "Matcher ingress is internal in $TARGET_ENV; the authenticated deployment step verified the new ACA revision's health."
+            echo "Analytics ingress is internal in $TARGET_ENV; the authenticated deployment step verified the new ACA revision's health."
             echo "Broker readiness is available at /readyz from inside the ACA environment."
           else
             echo "::error::Analytics smoke test cannot run: FQDN not yet assigned."
@@ -607,9 +610,9 @@ jobs:
           echo "  DEPLOYMENT & AUDIT SUITE COMPLETED SUCCESSFULLY"
           echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
           echo "  - Deployment Scope: ${{ needs.resolve-environment.outputs.deployment_desc }}"
-          echo "  - Database Status: Migrations are a prerequisite; authenticated matcher lookup verified"
+          echo "  - Database Status: Migrations are a prerequisite; authenticated analytics lookup verified"
           echo "  - Container Release: Multi-Container Verified (API, UI, & Analytics)"
-          echo "  - Event Streaming: Kafka/MySQL persistence tested in matcher CI; live checks respect environment ingress"
+          echo "  - Event Streaming: Kafka/MySQL persistence tested in analytics CI; live checks respect environment ingress"
           echo "  - Runtime Health: ACA Ingress Probes Verified (:8080, :3000, :8000)"
           echo "  - DAST Scan: OWASP ZAP Report Retained for Academic Review"
           echo "======================================================================"

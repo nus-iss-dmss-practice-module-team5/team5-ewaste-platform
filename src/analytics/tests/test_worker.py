@@ -2,9 +2,9 @@ import copy
 import unittest
 from unittest.mock import patch
 
-from matcher.contract import canonical, loads
-from matcher.facade import FacadeError
-from matcher.worker import Delivery, Processor, PublishError, Record
+from analytics.contract import canonical, loads
+from analytics.facade import FacadeError
+from analytics.worker import Delivery, Processor, PublishError, Record
 from helpers import committed, event, fixture, frozen
 
 
@@ -77,7 +77,7 @@ class WorkerTests(unittest.TestCase):
 
     def test_success_replay_and_lost_response_resolves_before_evaluation(self):
         self.facade.fail_result_once = True
-        with patch("matcher.worker.evaluate", wraps=__import__("matcher.core", fromlist=["evaluate"]).evaluate) as evaluator:
+        with patch("analytics.worker.evaluate", wraps=__import__("analytics.core", fromlist=["evaluate"]).evaluate) as evaluator:
             first = self.delivery(); self.finish(first)
             self.assertEqual(first.disposition, "COMMITTED")
             second = self.delivery(); self.finish(second)

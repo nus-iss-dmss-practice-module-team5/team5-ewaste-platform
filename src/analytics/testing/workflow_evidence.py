@@ -1,6 +1,6 @@
 """EWCSB-1..4 evidence against the existing disposable Go/MySQL/Kafka stack.
 
-Run through scripts/test-matcher.sh --workflow-evidence, never against Azure.
+Run through scripts/test-analytics.sh --workflow-evidence, never against Azure.
 Business rows are created via HTTP; SQL supplies matching configuration only.
 """
 import concurrent.futures
@@ -18,7 +18,7 @@ from confluent_kafka import Consumer, TopicPartition
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tests"))
 from test_persistence import PersistenceTests, eventually  # noqa: E402
-from matcher.contract import loads, validate  # noqa: E402
+from analytics.contract import loads, validate  # noqa: E402
 
 
 EVIDENCE = Path(os.environ["WORKFLOW_EVIDENCE_DIR"])

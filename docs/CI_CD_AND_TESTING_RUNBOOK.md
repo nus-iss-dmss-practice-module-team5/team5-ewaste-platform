@@ -102,7 +102,7 @@
   2. **Gitleaks Secret Detection:** Prevents credential leaks in commits.
   3. **Backend Service Gate:** Go 1.26 tests (`go test -race ./...`) and `golangci-lint`.
   4. **Frontend UI Gate:** Node.js 22 linting, unit test suite (`npm run test`), and bundle build (`npm run build`).
-  5. **Matcher Analytics Gate:** Python 3.11 `pytest` with enforced minimum code coverage threshold.
+  5. **Analytics Gate:** Python 3.11 `pytest` with enforced minimum code coverage threshold.
   6. **Checkov Security Gate:** Enforces zero high/critical vulnerabilities across IaC templates.
 
 ---
@@ -132,7 +132,7 @@
      - `workflow-ui:dev-<sha>`
      - `workflow-analytics:dev-<sha>`
   3. **Container App Revisions:** Deploys new revisions using `az containerapp update` with zero-downtime rolling updates.
-  4. **Matcher Integration Script:** Executes `scripts/deploy-matcher.sh` to bind the worker to the API internal endpoint and validates `/readyz` health.
+  4. **Analytics Integration Script:** Executes `scripts/deploy-analytics.sh` to bind the worker to the API internal endpoint and validates `/readyz` health.
 
 ---
 
@@ -157,7 +157,7 @@ All mock accounts share the unified test password:
 ### Deliverable MVP Acceptance Flow
 
 ```
-[Donor Submit] ──► [Matcher Worker] ──► [Recycler Claim] ──► [Collector Pickup]
+[Donor Submit] ──► [Analytics Worker] ──► [Recycler Claim] ──► [Collector Pickup]
  (SUBMITTED)         (MATCHED)            (CLAIMED)          (COLLECTED / FAILED)
 ```
 
@@ -193,7 +193,7 @@ All mock accounts share the unified test password:
    - `M4` (Zone Coverage): `NORTH` is active in service zones.
    - `M5` (Feasibility): Evaluation timestamp + minimum lead time <= Collection deadline.
 4. **Expected Result:**
-   - Matcher successfully posts run decision.
+   - Analytics successfully posts run decision.
    - Batch transitions from `SUBMITTED` to **`MATCHED`**.
    - An opportunity record is created for `PROC-001`.
 
@@ -280,7 +280,7 @@ az containerapp logs show \
   --tail 50 \
   --follow
 
-# Matcher Analytics Worker Event Processing Logs
+# Analytics Worker Event Processing Logs
 az containerapp logs show \
   --name aca-ewaste-dev-analytics \
   --resource-group rg-ewaste-dev \

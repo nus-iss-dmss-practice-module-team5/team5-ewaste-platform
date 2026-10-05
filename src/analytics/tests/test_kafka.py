@@ -6,9 +6,9 @@ import unittest
 from concurrent.futures import Future
 from unittest.mock import Mock, patch
 
-from matcher.contract import ContractError, canonical, loads
-from matcher.events import quarantine
-from matcher.worker import Delivery, Processor, PublishError, Record
+from analytics.contract import ContractError, canonical, loads
+from analytics.events import quarantine
+from analytics.worker import Delivery, Processor, PublishError, Record
 from helpers import event
 from test_facade import FixtureServer
 from test_worker import FacadeDouble, PublisherDouble
@@ -19,8 +19,8 @@ HAS_CLIENT = importlib.util.find_spec("confluent_kafka") is not None
 @unittest.skipUnless(HAS_CLIENT, "Kafka client is installed in the pinned Docker test image")
 class OffsetTests(unittest.TestCase):
     def make_runner(self):
-        from matcher.kafka import KafkaRunner
-        with patch("matcher.kafka.Consumer") as consumer:
+        from analytics.kafka import KafkaRunner
+        with patch("analytics.kafka.Consumer") as consumer:
             runner = KafkaRunner({}, topic="ewaste.batch.events", group_id="unit", offset_reset="earliest",
                                   max_poll_ms=300000, session_timeout_ms=6000, workers=1,
                                   processor=Mock(retry_max=0), observer=Mock())
@@ -28,7 +28,7 @@ class OffsetTests(unittest.TestCase):
 
     def test_commit_failure_retries_exact_offset_without_reprocessing(self):
         from confluent_kafka import KafkaException, TopicPartition
-        from matcher.kafka import Job
+        from analytics.kafka import Job
         runner, consumer = self.make_runner()
         try:
             key = ("ewaste.batch.events", 0)
@@ -46,7 +46,7 @@ class OffsetTests(unittest.TestCase):
 
     def test_revoked_inflight_completion_cannot_commit(self):
         from confluent_kafka import TopicPartition
-        from matcher.kafka import Job
+        from analytics.kafka import Job
         runner, consumer = self.make_runner()
         try:
             key = ("ewaste.batch.events", 0); runner.owned = {key}; runner.generation = 1
@@ -61,7 +61,7 @@ class OffsetTests(unittest.TestCase):
 
     def test_revoke_cancels_queued_work(self):
         from confluent_kafka import TopicPartition
-        from matcher.kafka import Job
+        from analytics.kafka import Job
         runner, consumer = self.make_runner()
         try:
             key = ("ewaste.batch.events", 0); runner.owned = {key}; runner.generation = 1
@@ -73,7 +73,7 @@ class OffsetTests(unittest.TestCase):
         finally: runner.executor.shutdown()
 
     def test_lower_unresolved_offset_blocks_buffered_record(self):
-        from matcher.kafka import Job
+        from analytics.kafka import Job
         runner, consumer = self.make_runner()
         try:
             key = ("ewaste.batch.events", 0); runner.owned = {key}; runner.generation = 1
@@ -87,8 +87,8 @@ class OffsetTests(unittest.TestCase):
 
     def test_assignment_cancels_old_jobs_and_clears_partition_health(self):
         from confluent_kafka import TopicPartition
-        from matcher.health import Health
-        from matcher.kafka import Job
+        from analytics.health import Health
+        from analytics.kafka import Job
         runner, consumer = self.make_runner()
         try:
             key = ("ewaste.batch.events", 0)
@@ -149,7 +149,7 @@ class OffsetTests(unittest.TestCase):
             runner.executor.shutdown()
 
     def test_internal_worker_failure_pauses_without_acknowledging_or_leaking_exception(self):
-        from matcher.kafka import Job
+        from analytics.kafka import Job
         runner, consumer = self.make_runner()
         try:
             key = ("ewaste.batch.events", 0)
@@ -159,7 +159,7 @@ class OffsetTests(unittest.TestCase):
             future = Future()
             future.set_exception(RuntimeError("private-exception-detail"))
             runner.jobs[key] = Job(delivery, 0, future)
-            with patch("matcher.kafka.time.monotonic", return_value=100):
+            with patch("analytics.kafka.time.monotonic", return_value=100):
                 runner._advance()
             self.assertEqual(runner.jobs[key].due, 104)
             self.assertIsNone(runner.jobs[key].future)
@@ -198,8 +198,8 @@ class OffsetTests(unittest.TestCase):
 @unittest.skipUnless(HAS_CLIENT, "Kafka client is installed in the pinned Docker test image")
 class PublisherTests(unittest.TestCase):
     def setUp(self):
-        from matcher.kafka import QuarantinePublisher
-        producer_patch = patch("matcher.kafka.Producer")
+        from analytics.kafka import QuarantinePublisher
+        producer_patch = patch("analytics.kafka.Producer")
         self.producer_factory = producer_patch.start()
         self.addCleanup(producer_patch.stop)
         self.producer = self.producer_factory.return_value
@@ -226,7 +226,7 @@ class PublisherTests(unittest.TestCase):
         with self.assertRaises(PublishError):
             self.publisher.publish(self.key, self.raw)
         self.producer.poll.reset_mock(side_effect=True)
-        with patch("matcher.kafka.time.monotonic", side_effect=[0, 3]), self.assertRaises(PublishError):
+        with patch("analytics.kafka.time.monotonic", side_effect=[0, 3]), self.assertRaises(PublishError):
             self.publisher.publish(self.key, self.raw)
         self.producer.poll.assert_not_called()
 
@@ -245,11 +245,11 @@ class PublisherTests(unittest.TestCase):
         self.producer.produce.assert_not_called()
 
     def test_observations_expose_identity_without_raw_payload(self):
-        from matcher.kafka import observe
+        from analytics.kafka import observe
         source = event()
         delivery = Delivery(Record("ewaste.batch.events", 0, 5, b"key", b"private-payload"),
                             "2026-09-19T00:00:00.000000Z", event=source, stage="PREPARE", retries=2)
-        with self.assertLogs("matcher", level="INFO") as captured:
+        with self.assertLogs("analytics", level="INFO") as captured:
             observe("delivery_paused", delivery, code="FACADE_UNAVAILABLE")
         value = loads(captured.records[0].message)
         self.assertEqual((value["event_id"], value["batch_id"], value["correlation_id"]),
@@ -259,15 +259,15 @@ class PublisherTests(unittest.TestCase):
         self.assertNotIn("original_event", value)
 
 
-@unittest.skipUnless(os.environ.get("MATCHER_TEST_BROKER") and HAS_CLIENT, "requires isolated Kafka test broker")
+@unittest.skipUnless(os.environ.get("ANALYTICS_TEST_BROKER") and HAS_CLIENT, "requires isolated Kafka test broker")
 class BrokerTests(unittest.TestCase):
     def test_real_kafka_outage_replay_dlq_and_consumer_restart(self):
         from confluent_kafka import Consumer, Producer, TopicPartition
         from confluent_kafka.admin import AdminClient, NewTopic
-        from matcher.kafka import KafkaRunner, QuarantinePublisher
-        common = {"bootstrap.servers": os.environ["MATCHER_TEST_BROKER"], "security.protocol": "PLAINTEXT"}
+        from analytics.kafka import KafkaRunner, QuarantinePublisher
+        common = {"bootstrap.servers": os.environ["ANALYTICS_TEST_BROKER"], "security.protocol": "PLAINTEXT"}
         # Protocol-double fixtures must not enter the real Go persistence stream.
-        topic, dlq, group = "matcher.protocol-test.events", "matcher.protocol-test.dlq", "matcher-fixture-v1"
+        topic, dlq, group = "analytics.protocol-test.events", "analytics.protocol-test.dlq", "analytics-fixture-v1"
         admin = AdminClient(common)
         for pending in admin.create_topics([NewTopic(topic, 2, 1, config={"cleanup.policy": "delete"}),
                                             NewTopic(dlq, 1, 1, config={"cleanup.policy": "delete"})]).values():

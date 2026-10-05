@@ -400,10 +400,10 @@ resource "azurerm_container_app" "api" {
     value = azurerm_eventhub_namespace_authorization_rule.app_auth.primary_connection_string
   }
 
-  # Shared with CD; IaC must retain the matcher workload identity on reapply.
+  # Shared with CD; IaC must retain the analytics workload identity on reapply.
   secret {
     name  = "matching-signing-key"
-    value = var.matcher_signing_secret
+    value = local.analytics_signing_secret
   }
 
   template {
@@ -561,7 +561,7 @@ resource "azurerm_container_app" "api" {
         value = "true"
       }
 
-      # ---- Matcher API facade (same settings as scripts/deploy-matcher.sh) ----
+      # ---- Analytics API facade (same settings as scripts/deploy-analytics.sh) ----
       env {
         name  = "EWASTE_MATCHING_ENABLED"
         value = "true"
@@ -647,6 +647,11 @@ resource "azurerm_container_app" "api" {
   }
 
   lifecycle {
+    precondition {
+      condition     = local.analytics_signing_secret != null
+      error_message = "Configure analytics_signing_secret (or its legacy alias) for API and worker authentication."
+    }
+
     ignore_changes = [
       template[0].container[0].image,
       template[0].container[0].memory,
@@ -757,6 +762,32 @@ resource "azurerm_container_app" "ui" {
 }
 
 # 6.3 Analytics & Matching Worker Container App
+# Keep worker values aligned with scripts/deploy-analytics.sh. Both prefixes are
+# emitted during the rename so previously deployed images remain rollback-safe.
+locals {
+  analytics_worker_environment = {
+    ANALYTICS_TOPIC                    = "ewaste.batch.events"
+    ANALYTICS_DLQ_TOPIC                = "ewaste.batch.events.matching.dlq.v1"
+    ANALYTICS_GROUP_ID                 = "matching-worker-v1"
+    ANALYTICS_OFFSET_RESET             = "earliest"
+    ANALYTICS_FACADE_URL               = "https://${azurerm_container_app.api.ingress[0].fqdn}"
+    ANALYTICS_LOCAL_TEST               = "0"
+    ANALYTICS_TOKEN_ISSUER             = "ewaste-matching-${var.environment}"
+    ANALYTICS_TOKEN_AUDIENCE           = "ewaste-matching-api-${var.environment}"
+    ANALYTICS_MAX_POLL_MS              = "300000"
+    ANALYTICS_SESSION_TIMEOUT_MS       = "30000"
+    ANALYTICS_WORKERS                  = "1"
+    ANALYTICS_HTTP_TIMEOUT_SECONDS     = "30"
+    ANALYTICS_MAX_RESPONSE_BYTES       = "16777216"
+    ANALYTICS_MAX_RECORD_BYTES         = "1000000"
+    ANALYTICS_DELIVERY_TIMEOUT_SECONDS = "120"
+    ANALYTICS_RETRY_BASE_SECONDS       = "1"
+    ANALYTICS_RETRY_MAX_SECONDS        = "30"
+    ANALYTICS_MAX_REFRESHES            = "5"
+    ANALYTICS_HEALTH_PORT              = "8000"
+  }
+}
+
 resource "azurerm_container_app" "analytics" {
   name                         = "aca-${local.name_prefix}-analytics"
   workload_profile_name        = "Consumption"
@@ -780,10 +811,10 @@ resource "azurerm_container_app" "analytics" {
     value = azurerm_eventhub_namespace_authorization_rule.app_auth.primary_connection_string
   }
 
-  # Shared with CD; IaC must retain the matcher workload identity on reapply.
+  # Shared with CD; IaC must retain the analytics workload identity on reapply.
   secret {
     name  = "matching-signing-key"
-    value = var.matcher_signing_secret
+    value = local.analytics_signing_secret
   }
 
   template {
@@ -806,105 +837,22 @@ resource "azurerm_container_app" "analytics" {
         secret_name = "kafka-conn"
       }
 
-      # Keep the worker startup contract aligned with scripts/deploy-matcher.sh.
-      env {
-        name        = "MATCHER_SIGNING_SECRET"
-        secret_name = "matching-signing-key"
+      dynamic "env" {
+        for_each = merge(local.analytics_worker_environment, {
+          for name, value in local.analytics_worker_environment : replace(name, "ANALYTICS_", "MATCHER_") => value
+        })
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
 
-      env {
-        name  = "MATCHER_TOPIC"
-        value = "ewaste.batch.events"
-      }
-
-      env {
-        name  = "MATCHER_DLQ_TOPIC"
-        value = "ewaste.batch.events.matching.dlq.v1"
-      }
-
-      env {
-        name  = "MATCHER_GROUP_ID"
-        value = "matching-worker-v1"
-      }
-
-      env {
-        name  = "MATCHER_OFFSET_RESET"
-        value = "earliest"
-      }
-
-      env {
-        name  = "MATCHER_FACADE_URL"
-        value = "https://${azurerm_container_app.api.ingress[0].fqdn}"
-      }
-
-      env {
-        name  = "MATCHER_LOCAL_TEST"
-        value = "0"
-      }
-
-      env {
-        name  = "MATCHER_TOKEN_ISSUER"
-        value = "ewaste-matching-${var.environment}"
-      }
-
-      env {
-        name  = "MATCHER_TOKEN_AUDIENCE"
-        value = "ewaste-matching-api-${var.environment}"
-      }
-
-      env {
-        name  = "MATCHER_MAX_POLL_MS"
-        value = "300000"
-      }
-
-      env {
-        name  = "MATCHER_SESSION_TIMEOUT_MS"
-        value = "30000"
-      }
-
-      env {
-        name  = "MATCHER_WORKERS"
-        value = "1"
-      }
-
-      env {
-        name  = "MATCHER_HTTP_TIMEOUT_SECONDS"
-        value = "30"
-      }
-
-      env {
-        name  = "MATCHER_MAX_RESPONSE_BYTES"
-        value = "16777216"
-      }
-
-      env {
-        name  = "MATCHER_MAX_RECORD_BYTES"
-        value = "1000000"
-      }
-
-      env {
-        name  = "MATCHER_DELIVERY_TIMEOUT_SECONDS"
-        value = "120"
-      }
-
-      env {
-        name  = "MATCHER_RETRY_BASE_SECONDS"
-        value = "1"
-      }
-
-      env {
-        name  = "MATCHER_RETRY_MAX_SECONDS"
-        value = "30"
-      }
-
-      env {
-        name  = "MATCHER_MAX_REFRESHES"
-        value = "5"
-      }
-
-      env {
-        name  = "MATCHER_HEALTH_PORT"
-        value = "8000"
+      dynamic "env" {
+        for_each = toset(["ANALYTICS_SIGNING_SECRET", "MATCHER_SIGNING_SECRET"])
+        content {
+          name        = env.value
+          secret_name = "matching-signing-key"
+        }
       }
     }
   }

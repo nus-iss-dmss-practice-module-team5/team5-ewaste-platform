@@ -30,6 +30,8 @@ provider "azurerm" {
 
 locals {
   name_prefix = "ewaste-${var.environment}"
+  # Keep existing tfvars usable while callers adopt the analytics name.
+  analytics_signing_secret = var.analytics_signing_secret != null ? var.analytics_signing_secret : var.matcher_signing_secret
 
   common_tags = {
     Project     = "Responsible E-Waste Chain-of-Custody"

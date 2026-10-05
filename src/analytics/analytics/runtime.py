@@ -3,13 +3,14 @@ import os
 from pathlib import Path
 
 from .contract import loads, require
+from .config import environment
 
 
 def kafka_config(environ=None):
-    env = os.environ if environ is None else environ
-    local = env.get("MATCHER_LOCAL_TEST") == "1"
-    if env.get("MATCHER_KAFKA_CONFIG_FILE"):
-        config = loads(Path(env["MATCHER_KAFKA_CONFIG_FILE"]).read_bytes())
+    env = environment(environ)
+    local = env.get("ANALYTICS_LOCAL_TEST") == "1"
+    if env.get("ANALYTICS_KAFKA_CONFIG_FILE"):
+        config = loads(Path(env["ANALYTICS_KAFKA_CONFIG_FILE"]).read_bytes())
     else:
         # Names accepted by the supplied Azure IaC/CD service configuration.
         brokers = env.get("KAFKA_BOOTSTRAP_SERVERS", "")
@@ -33,14 +34,14 @@ def kafka_config(environ=None):
 
 
 def token_file(environ=None):
-    env = os.environ if environ is None else environ
-    if env.get("MATCHER_TOKEN_FILE"):
-        return env["MATCHER_TOKEN_FILE"]
-    value = env.get("MATCHER_BEARER_TOKEN", "")
+    env = environment(environ)
+    if env.get("ANALYTICS_TOKEN_FILE"):
+        return env["ANALYTICS_TOKEN_FILE"]
+    value = env.get("ANALYTICS_BEARER_TOKEN", "")
     require(bool(value) and all(33 <= ord(c) <= 126 for c in value))
     # Container-private, owner-only file. Never print the token or put it in argv.
     import tempfile
-    descriptor, name = tempfile.mkstemp(prefix="matcher-token-")
+    descriptor, name = tempfile.mkstemp(prefix="analytics-token-")
     with os.fdopen(descriptor, "w") as target:
         target.write(value)
     import atexit
@@ -51,15 +52,15 @@ def token_file(environ=None):
 def token_provider(environ=None):
     """Dedicated workload key mode; automatically refresh a five-minute JWT.
 
-    This key authenticates only the matcher identity. It cannot authorise an
+    This key authenticates only the analytics identity. It cannot authorise an
     explicit rerun, which requires the API's separate operator signing key.
     """
-    env = os.environ if environ is None else environ
-    secret_file = env.get("MATCHER_SIGNING_SECRET_FILE")
-    secret_value = env.get("MATCHER_SIGNING_SECRET")
+    env = environment(environ)
+    secret_file = env.get("ANALYTICS_SIGNING_SECRET_FILE")
+    secret_value = env.get("ANALYTICS_SIGNING_SECRET")
     if not secret_file and not secret_value:
         return None
-    issuer, audience = env.get("MATCHER_TOKEN_ISSUER"), env.get("MATCHER_TOKEN_AUDIENCE")
+    issuer, audience = env.get("ANALYTICS_TOKEN_ISSUER"), env.get("ANALYTICS_TOKEN_AUDIENCE")
     require(bool(issuer) and bool(audience))
     import base64
     import hashlib

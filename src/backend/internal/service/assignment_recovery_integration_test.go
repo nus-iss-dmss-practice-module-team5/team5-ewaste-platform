@@ -19,9 +19,9 @@ import (
 func TestMySQLWorkflowEvidenceRecovery(t *testing.T) {
 	assignmentID := os.Getenv("WORKFLOW_RECOVERY_ASSIGNMENT_ID")
 	if assignmentID == "" {
-		t.Skip("run scripts/test-matcher.sh --workflow-evidence for the API-created fixture")
+		t.Skip("run scripts/test-analytics.sh --workflow-evidence for the API-created fixture")
 	}
-	db, err := gorm.Open(mysql.Open(os.Getenv("MATCHER_TEST_DSN")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	db, err := gorm.Open(mysql.Open(os.Getenv("ANALYTICS_TEST_DSN")), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,8 +31,8 @@ func TestMySQLWorkflowEvidenceRecovery(t *testing.T) {
 	}
 	t.Cleanup(func() { pool.Close() })
 	var database string
-	if err := db.Raw("SELECT DATABASE()").Scan(&database).Error; err != nil || database != "matcher_test" {
-		t.Fatalf("requires disposable matcher_test database: %q %v", database, err)
+	if err := db.Raw("SELECT DATABASE()").Scan(&database).Error; err != nil || database != "analytics_test" {
+		t.Fatalf("requires disposable analytics_test database: %q %v", database, err)
 	}
 	var fixture struct {
 		BatchID, ClaimID, ReservationID string

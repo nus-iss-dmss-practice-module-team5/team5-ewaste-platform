@@ -1,11 +1,11 @@
-# Matcher, API façade and persistence
+# Analytics, API façade and persistence
 
 This slice implements the approved C2/Task 5 path:
 
 ```text
 Go SubmitBatch → MySQL event_outbox → Go relay → ewaste.batch.events
                                                    ↓ RequestSubmitted
-                                      Python deterministic binary-v1 matcher
+                                      Python deterministic binary-v1 analytics
                                                    ↓ authenticated Go API
                                decision + all candidates + audit + outbox
                                                    ↓ Go relay
@@ -25,7 +25,7 @@ work present on `feature/EWCSB-129` at `6e8b85e` (migrations **001–025**, mast
 changelog and synthetic seed data). The original patch targeted backend PR #41;
 its Kafka TLS/SASL configuration remains compatible with the merged backend.
 
-The existing workflow-read controllers own public opportunity routes. The matcher
+The existing workflow-read controllers own public opportunity routes. The analytics
 uses those routes and preserves their response shape and ordering, with scope
 resolved from current database membership rather than stale JWT role/org claims.
 The internal matching façade is registered separately, avoiding duplicate routes.
@@ -34,7 +34,8 @@ CD reuses the current Terraform resources: Event Hubs namespace/topics, managed
 identity, ACR, and `aca-ewaste-{env}-analytics`. It requires those resources to
 exist and preserves ingress, identity, registry and scaling settings.
 
-Terraform and CD both require the environment's same `MATCHER_SIGNING_SECRET`.
+Terraform and CD both use the environment's same `ANALYTICS_SIGNING_SECRET`
+(the previous `MATCHER_SIGNING_SECRET` remains a fallback during the rename).
 Terraform retains the API facade and worker configuration on subsequent applies;
 CD deploys immutable images and restarts revisions after updating secrets. For
 the September 26 invalid configuration IDs and missing environment settings,
@@ -49,8 +50,35 @@ routes and public opportunity reads are listed in the façade README.
 From the repository root with Docker Compose available:
 
 ```sh
-./scripts/test-matcher.sh
+./scripts/test-analytics.sh
 ```
+
+## Component rename and compatibility
+
+The deployed worker now lives in `src/analytics/analytics`; the unused FastAPI
+demo previously in `src/analytics/main.py` has been retired. Use `python -m
+analytics`, `scripts/test-analytics.sh`, `scripts/deploy-analytics.sh` and the
+`analytics.yml` workflow. The CI job/check formerly named `matcher` is now
+`analytics`; update any required-check rule that explicitly uses the old name.
+
+Use `ANALYTICS_*` for worker settings and `analytics_signing_secret` for Terraform.
+The worker still accepts `MATCHER_*`, and Terraform accepts `matcher_signing_secret`.
+An explicitly supplied new setting takes precedence, including an empty value
+(which must pass normal validation). GitHub workflows prefer the new signing
+secret and fall back to the old one when the new secret is absent. To rename the
+GitHub secret, copy its existing value; no key rotation is needed for this change.
+
+CD and Terraform emit equivalent settings under both prefixes so older worker
+images can still be rolled back. The rollback check accepts the current
+`ewaste.component=analytics` label and the previous `matcher` label.
+
+Matching API URLs, Go configuration names, Kafka topics, the `matching-worker-v1`
+consumer group, JWT identity/scopes, command actor scope, and database tables
+remain unchanged. This preserves offsets, authentication and idempotency history.
+Approved contracts, golden fixture contents and already-applied SQL migrations
+also remain unchanged; their historical wording is intentional.
+
+## Verification evidence
 
 The script verifies approved-contract checksums and embedded Go schema copies,
 builds the images, applies the real master changelog with synthetic seeds, runs
@@ -60,9 +88,9 @@ HTTP-protocol, real Kafka and real Go/MySQL acceptance tests. Go 1.26, Python
 
 Everything runs in a unique disposable Compose project with no host ports. Its
 containers and volumes are removed on exit. Logs, migration results, source
-checksums and SQL evidence remain under `artifacts/matcher/<run>/`. Fixture keys,
+checksums and SQL evidence remain under `artifacts/analytics/<run>/`. Fixture keys,
 passwords and trigger-creation settings in `testing/compose.yml` are local only.
-The GitHub `matcher.yml` workflow runs this same script on relevant PRs, dev/main
+The GitHub `analytics.yml` workflow runs this same script on relevant PRs, dev/main
 pushes and manual dispatch. It migrates its own isolated database; it does not
 wait for the deployment migration workflow.
 
@@ -106,7 +134,7 @@ delay. Invalid persisted contracts are quarantined without rewriting their data.
 Business topic `ewaste.batch.events` carries UTF-8 JSON with `schema_version=1`,
 keyed by lowercase batch UUID. Python publishes only to
 `ewaste.batch.events.matching.dlq.v1`, keyed by SHA-256 `quarantine_id`.
-MatchingCompleted and unrelated events are observable skips in the matcher.
+MatchingCompleted and unrelated events are observable skips in the analytics.
 Unknown fields, raw payload bytes, credentials and user notes never enter DLQ
 records. Source coordinates and the original-byte hash are retained.
 
@@ -119,54 +147,55 @@ still need their own durable deduplication.
 ## Runtime configuration and authentication
 
 For standalone local configuration, start with `.env.example`. Run
-`python -m matcher run` after setting its required values. For pure evaluation,
-set `PYTHONPATH=src/matcher` and pipe a MatchingInputV1 object to
-`python -m matcher evaluate`. Golden files wrap that object under `input`.
+`python -m analytics run` after setting its required values. For pure evaluation,
+set `PYTHONPATH=src/analytics` and pipe a MatchingInputV1 object to
+`python -m analytics evaluate`. Golden files wrap that object under `input`.
 
-Kafka settings can come from `MATCHER_KAFKA_CONFIG_FILE` or the supplied infra's
+Kafka settings can come from `ANALYTICS_KAFKA_CONFIG_FILE` or the supplied infra's
 `KAFKA_BOOTSTRAP_SERVERS` and `KAFKA_CONNECTION_STRING`. Event Hubs uses SASL_SSL,
 PLAIN and username `$ConnectionString`; missing credentials fail startup.
 The Go publisher uses PR #41's `EWASTE_KAFKA_TLS_ENABLED`,
 `EWASTE_KAFKA_SASL_MECHANISM`, `EWASTE_KAFKA_SASL_USERNAME` and the
 `KAFKA_CONNECTION_STRING` password alias. Set TLS to true, mechanism to PLAIN and
-username to the literal `$ConnectionString`. The old matcher-specific Go
+username to the literal `$ConnectionString`. The old analytics-specific Go
 `EWASTE_KAFKA_SECURITY_PROTOCOL` setting is no longer used. PR #41's configuration
 loader and existing tests are retained unchanged.
 
 Plaintext HTTP/Kafka requires the explicit local-test switch. The worker never
 creates deployment topics. It accepts the infra's KAFKA_TOPIC_BATCH_EVENTS,
-KAFKA_TOPIC_DLQ and KAFKA_CONSUMER_GROUP aliases when MATCHER_* equivalents are absent.
+KAFKA_TOPIC_DLQ and KAFKA_CONSUMER_GROUP aliases when ANALYTICS_* equivalents are absent.
 
 The provided Azure integration uses a dedicated application signing secret, not
 Entra identity for API authentication. Set the GitHub Environment secret
-`MATCHER_SIGNING_SECRET` to a securely generated value of at least 32 bytes, unique
+`ANALYTICS_SIGNING_SECRET` to a securely generated value of at least 32 bytes, unique
 per environment and distinct from user-login secrets. CD stores it as a Container
 Apps secret in API and worker. Python mints a five-minute HS256 JWT per HTTP request;
 Go verifies issuer, audience, expiry, subject and scopes. This remains configurable:
-externally supplied compatible tokens may instead use MATCHER_TOKEN_FILE (reread
-per request) or MATCHER_BEARER_TOKEN. These modes do not accept Entra tokens without
+externally supplied compatible tokens may instead use ANALYTICS_TOKEN_FILE (reread
+per request) or ANALYTICS_BEARER_TOKEN. These modes do not accept Entra tokens without
 an additional verifier implementation.
 
 For manual dedicated-key setup, configure these paired values:
 
 | Python worker | Go API |
 |---|---|
-| MATCHER_SIGNING_SECRET or MATCHER_SIGNING_SECRET_FILE | EWASTE_MATCHING_SIGNING_SECRET or EWASTE_MATCHING_SIGNING_SECRET_FILE |
-| MATCHER_TOKEN_ISSUER | EWASTE_MATCHING_ISSUER |
-| MATCHER_TOKEN_AUDIENCE | EWASTE_MATCHING_AUDIENCE |
-| MATCHER_FACADE_URL=https://API-host | EWASTE_MATCHING_ENABLED=true |
+| ANALYTICS_SIGNING_SECRET or ANALYTICS_SIGNING_SECRET_FILE | EWASTE_MATCHING_SIGNING_SECRET or EWASTE_MATCHING_SIGNING_SECRET_FILE |
+| ANALYTICS_TOKEN_ISSUER | EWASTE_MATCHING_ISSUER |
+| ANALYTICS_TOKEN_AUDIENCE | EWASTE_MATCHING_AUDIENCE |
+| ANALYTICS_FACADE_URL=https://API-host | EWASTE_MATCHING_ENABLED=true |
 
 Worker keys cannot authorise explicit reruns. That optional operator path needs a
 separate signing key and scope, as documented in the façade README.
 
 ## Supplied Azure deployment
 
-The updated CD workflow builds `src/matcher/Dockerfile` from the repository root
+The updated CD workflow builds `src/analytics/Dockerfile` from the repository root
 and deploys its digest in the existing analytics slot. It replaces the old demo
 worker and removes demo publish/read smoke endpoints. Rollback requires an image
-labelled `ewaste.component=matcher`; legacy analytics images are rejected.
+labelled `ewaste.component=analytics` or the previous `matcher` label; unlabelled
+demo images are rejected.
 
-`scripts/deploy-matcher.sh` waits for the exact namespace and all six hubs, sets
+`scripts/deploy-analytics.sh` waits for the exact namespace and all six hubs, sets
 TLS/SASL credentials for **both** Go and Python, configures the façade, checks an
 authenticated read-only command lookup, and requires worker `/readyz` to succeed
 in dev. Staging and production retain internal ingress: the authenticated deployment
@@ -189,7 +218,7 @@ group statistics and no locally blocked delivery. These endpoints disclose only
 aggregate status. Readiness alone does not prove an idle worker's database writes;
 the separate authenticated API check and local integration suite serve different
 purposes. The existing ingress is retained; no event read/publish endpoints exist.
-Matcher-specific environment settings and secret bindings are applied by CD with
+Analytics-specific environment settings and secret bindings are applied by CD with
 `--set-env-vars`, retaining unrelated IaC settings. Run CD after an IaC apply that
 reconciles container environment variables.
 

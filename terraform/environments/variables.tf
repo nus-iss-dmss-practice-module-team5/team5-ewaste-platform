@@ -86,13 +86,26 @@ variable "auth_refresh_hash_secret" {
   description = "HMAC secret for refresh token fingerprinting."
 }
 
+variable "analytics_signing_secret" {
+  type        = string
+  sensitive   = true
+  default     = null
+  description = "Dedicated analytics workload signing key; must match CD's ANALYTICS_SIGNING_SECRET."
+
+  validation {
+    condition     = var.analytics_signing_secret == null ? true : length(var.analytics_signing_secret) >= 32
+    error_message = "analytics_signing_secret must contain at least 32 characters."
+  }
+}
+
 variable "matcher_signing_secret" {
   type        = string
   sensitive   = true
-  description = "Dedicated matcher workload signing key; must match CD's MATCHER_SIGNING_SECRET."
+  default     = null
+  description = "Deprecated alias for analytics_signing_secret. Used only when the new variable is unset."
 
   validation {
-    condition     = length(var.matcher_signing_secret) >= 32
+    condition     = var.matcher_signing_secret == null ? true : length(var.matcher_signing_secret) >= 32
     error_message = "matcher_signing_secret must contain at least 32 characters."
   }
 }

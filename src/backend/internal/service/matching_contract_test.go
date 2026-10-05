@@ -8,7 +8,7 @@ import (
 )
 
 // Verify the existing PR #41 writer against the exact schema consumed by Python.
-func TestSubmissionProducerMatchesApprovedMatcherContract(t *testing.T) {
+func TestSubmissionProducerMatchesApprovedAnalyticsContract(t *testing.T) {
 	submitted := time.Date(2026, 9, 16, 0, 0, 0, 123456000, time.UTC)
 	deadline := submitted.Add(72 * time.Hour)
 	batch := &model.Batch{ID: "b1000000-0000-4000-8000-000000000001", OrganizationID: "DON-001", Version: 2, ClaimEpoch: 1, SubmittedAt: &submitted, CollectionDeadline: &deadline, Category: new("ICT_EQUIPMENT"), Quantity: new(10), EstimatedWeightKg: new("100.00"), ConditionRating: new("REPAIRABLE"), IsDataBearing: true, Zone: new("NORTH")}
