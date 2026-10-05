@@ -37,7 +37,13 @@ RUNNER_DIR="/home/runner/actions-runner"
 mkdir -p "$RUNNER_DIR"
 cd "$RUNNER_DIR"
 
-RUNNER_VERSION="2.321.0"
+# GitHub Actions enforces minimum runner version 2.329.0 as of early 2026
+RUNNER_VERSION="2.329.0"
+LATEST_TAG=$(curl -s "https://api.github.com/repos/actions/runner/releases/latest" | jq -r .tag_name | tr -d 'v' || echo "")
+if [ -n "$LATEST_TAG" ] && [ "$LATEST_TAG" != "null" ]; then
+  RUNNER_VERSION="$LATEST_TAG"
+fi
+
 if [ ! -f "actions-runner-linux-x64-$${RUNNER_VERSION}.tar.gz" ]; then
   curl -o "actions-runner-linux-x64-$${RUNNER_VERSION}.tar.gz" -L "https://github.com/actions/runner/releases/download/v$${RUNNER_VERSION}/actions-runner-linux-x64-$${RUNNER_VERSION}.tar.gz"
   tar xzf "./actions-runner-linux-x64-$${RUNNER_VERSION}.tar.gz"
