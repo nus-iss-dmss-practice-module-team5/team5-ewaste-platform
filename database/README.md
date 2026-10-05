@@ -73,10 +73,26 @@ The collector list requires an `APPROVED` batch with a current accepted claim
 whose recycler and zone match an active scope. After migration, rerun the
 collector lifecycle test to verify the deployed API behavior.
 
-For the current dev setup, keep its existing recycler matching profiles,
-capacity pools, capabilities and service zones. Seed 106 repairs the reported
-IDs but does not populate an empty installation; a fresh database still needs
-approved recycler matching configuration before testing opportunities. Do not
+Changeset `EWCSB129-108` fills missing matching configuration for `PROC-001` and
+`PROC-002` with the explicit `seed` context in dev/staging:
+
+- One active profile and one shared `MAIN` pool of **50,000.00 kg per recycler**.
+- All four categories accept `FUNCTIONAL`, `REPAIRABLE` and `END_OF_LIFE` items.
+- Data-bearing items are supported for `ICT_EQUIPMENT` and `CONSUMER_ELECTRONICS`.
+- All five zones are active with zero minimum lead minutes. The collection
+  deadline must still be in the future when matching evaluates the batch.
+
+New rows have deterministic UUIDv4 IDs, version 1 and UTC migration timestamps;
+new pools start with zero reserved kg. Compatible existing rows keep their IDs,
+versions, dates and reservations. Conflicting settings, disabled profiles or
+configuration, invalid IDs, ID collisions and invalid recycler organisations
+halt before any seed rows are inserted. Collector scopes remain unchanged.
+Seed 106 repairs the old reported IDs first; 108 also supports a fresh database.
+Production excludes `seed` and requires its own approved configuration.
+
+Apply the normal dev/staging migration, then rerun the API/JMeter workflow with
+a new batch. Existing `NO_MATCH` decisions retain their frozen inputs; waiting
+longer or replaying the same event does not replace them. Do not
 seed batches, claims, assignments, handoffs, audit events or outbox messages to
 bypass the APIs: the test actions should create those records.
 
