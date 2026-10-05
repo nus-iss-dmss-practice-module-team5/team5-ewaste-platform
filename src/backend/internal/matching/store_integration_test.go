@@ -59,14 +59,30 @@ func integrationStore(t *testing.T) *Store {
 	poolConfig := obj(arr(org["capacity_pools"])[0])
 	cap := obj(arr(org["category_capabilities"])[0])
 	zone := obj(arr(org["service_zones"])[0])
-	exec("INSERT INTO recycler_capacity_pools(id,recycler_org_id,pool_code,total_kg,reserved_kg,is_active,version,updated_at) VALUES(?,'PROC-001','MAIN',100,0,1,1,?) ON DUPLICATE KEY UPDATE reserved_kg=0", poolConfig["id"], now)
-	exec("INSERT IGNORE INTO recycler_category_capabilities(id,recycler_org_id,category,accepted_conditions_json,supports_data_bearing,is_active,capacity_pool_id,version,updated_at) VALUES(?,'PROC-001','ICT_EQUIPMENT','[\"REPAIRABLE\"]',1,1,?,1,?)", cap["id"], poolConfig["id"], now)
-	exec("INSERT IGNORE INTO recycler_service_zones(id,recycler_org_id,zone,minimum_lead_minutes,is_active,version,updated_at) VALUES(?,'PROC-001','NORTH',2880,1,1,?)", zone["id"], now)
+	// Seed 108 may already own MAIN under a different ID. Keep that identity
+	// and explicitly configure this disposable test's 100 kg boundary fixture.
+	exec("INSERT INTO recycler_capacity_pools(id,recycler_org_id,pool_code,total_kg,reserved_kg,is_active,version,updated_at) VALUES(?,'PROC-001','MAIN',100,0,1,1,?) ON DUPLICATE KEY UPDATE total_kg=100,reserved_kg=0", poolConfig["id"], now)
+	var poolID string
+	if err := db.Table("recycler_capacity_pools").Select("id").Where("recycler_org_id='PROC-001' AND pool_code='MAIN'").Scan(&poolID).Error; err != nil {
+		t.Fatal(err)
+	}
+	exec("INSERT INTO recycler_category_capabilities(id,recycler_org_id,category,accepted_conditions_json,supports_data_bearing,is_active,capacity_pool_id,version,updated_at) VALUES(?,'PROC-001','ICT_EQUIPMENT','[\"REPAIRABLE\"]',1,1,?,1,?) ON DUPLICATE KEY UPDATE accepted_conditions_json=VALUES(accepted_conditions_json),capacity_pool_id=VALUES(capacity_pool_id)", cap["id"], poolID, now)
+	exec("INSERT INTO recycler_service_zones(id,recycler_org_id,zone,minimum_lead_minutes,is_active,version,updated_at) VALUES(?,'PROC-001','NORTH',2880,1,1,?) ON DUPLICATE KEY UPDATE minimum_lead_minutes=2880", zone["id"], now)
 	return s
 }
 
 func TestMySQLOpportunitiesAreScopedAndCurrent(t *testing.T) {
 	s := integrationStore(t)
+	// This read-scope case requires a non-matching competitor; both seeded
+	// recyclers are eligible by default after migration 108.
+	if err := s.DB.Exec("UPDATE recycler_matching_profiles SET is_active=0,version=version+1 WHERE recycler_org_id='PROC-002'").Error; err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := s.DB.Exec("UPDATE recycler_matching_profiles SET is_active=1,version=version+1 WHERE recycler_org_id='PROC-002'").Error; err != nil {
+			t.Error(err)
+		}
+	})
 	req, key := seedRun(t, s)
 	in, out := prepareRun(t, s, req, key)
 	if _, err := s.Commit(context.Background(), str(in["run_id"]), out); err != nil {

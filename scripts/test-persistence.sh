@@ -51,11 +51,11 @@ cd "$ROOT_DIR"
 git rev-parse HEAD > "$RUN_DIR/base-commit.txt"
 git branch --show-current > "$RUN_DIR/branch.txt"
 "${HASH[@]}" scripts/test-persistence.sh database/Dockerfile database/changelog-master.yaml \
-  database/changes/*.sql database/seed/10[123567]-*.sql > "$RUN_DIR/source-inputs.sha256"
+  database/changes/*.sql database/seed/10[1235678]-*.sql > "$RUN_DIR/source-inputs.sha256"
 mkdir -p "$WORK_DIR/database/changes" "$WORK_DIR/database/seed"
 cp database/Dockerfile database/changelog-master.yaml "$WORK_DIR/database/"
 cp database/changes/*.sql "$WORK_DIR/database/changes/"
-cp database/seed/10[123567]-*.sql "$WORK_DIR/database/seed/"
+cp database/seed/10[1235678]-*.sql "$WORK_DIR/database/seed/"
 
 mysql_query() {
   local db="$1"; shift
@@ -2349,7 +2349,7 @@ run_c3() {
 
 run_c4() {
   EVIDENCE_DIR="$RUN_DIR/c4"
-  CHANGELOG="changelog-master.yaml"
+  CHANGELOG="changelog-before-recycler-config.yaml"
   mkdir -p "$EVIDENCE_DIR"
   printf '\nRunning c4 checks from the embedded tests.\n'
   printf 'test_name\tactual\texpected\n' > "$EVIDENCE_DIR/migration-checks.tsv"
@@ -2620,7 +2620,7 @@ reject_collector_seed() {
 
 run_collector_scope_seed() {
   EVIDENCE_DIR="$RUN_DIR/collector-scopes"
-  CHANGELOG="changelog-master.yaml"
+  CHANGELOG="changelog-before-recycler-config.yaml"
   mkdir -p "$EVIDENCE_DIR"
   printf '\nChecking collector scope seed, migration guards and SQL visibility.\n'
   printf 'test_name\tactual\texpected\n' > "$EVIDENCE_DIR/migration-checks.tsv"
@@ -2726,6 +2726,96 @@ SQL_SEEDED_REPLACEMENT
   printf 'collector-scopes\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
 }
 
+reject_recycler_seed() {
+  local name="$1"
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/$name-before.sql" "${RECYCLER_TABLES[@]}" DATABASECHANGELOG
+  if lb recycler_upgrade "$name" update --context-filter=seed; then
+    echo "FAIL: recycler seed unexpectedly succeeded: $name" >&2; return 1
+  fi
+  grep -q 'SQL Precondition failed' "$EVIDENCE_DIR/recycler_upgrade-$name.log"
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/$name-after.sql" "${RECYCLER_TABLES[@]}" DATABASECHANGELOG
+  diff -u "$EVIDENCE_DIR/$name-before.sql" "$EVIDENCE_DIR/$name-after.sql" > "$EVIDENCE_DIR/$name-preserved.diff"
+  check_scalar recycler_upgrade "$name-not-recorded" "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-108'" 0
+}
+
+run_recycler_matching_seed() {
+  EVIDENCE_DIR="$RUN_DIR/recycler-matching-config"
+  CHANGELOG="changelog-master.yaml"
+  RECYCLER_TABLES=(recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones)
+  mkdir -p "$EVIDENCE_DIR"
+  printf '\nChecking recycler matching configuration on clean and partial databases.\n'
+  printf 'test_name\tactual\texpected\n' > "$EVIDENCE_DIR/migration-checks.tsv"
+  lb recycler_seed validate validate
+  lb recycler_seed schema update
+  check_scalar recycler_seed excluded_without_seed "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-108'" 0
+  for table in "${RECYCLER_TABLES[@]}"; do
+    check_scalar recycler_seed "${table}_empty_without_seed" "SELECT COUNT(*) FROM $table" 0
+  done
+  lb recycler_seed seed update --context-filter=seed
+  check_scalar recycler_seed active_profiles 'SELECT COUNT(*) FROM recycler_matching_profiles WHERE is_active=1 AND version=1 AND created_at=updated_at' 2
+  check_scalar recycler_seed main_capacity "SELECT COUNT(*) FROM recycler_capacity_pools WHERE pool_code='MAIN' AND total_kg=50000 AND reserved_kg=0 AND is_active=1 AND version=1" 2
+  check_scalar recycler_seed category_settings "SELECT COUNT(*) FROM recycler_category_capabilities c JOIN recycler_capacity_pools p ON p.id=c.capacity_pool_id AND p.recycler_org_id=c.recycler_org_id WHERE p.pool_code='MAIN' AND c.is_active=1 AND c.version=1 AND JSON_LENGTH(c.accepted_conditions_json)=3 AND JSON_CONTAINS(c.accepted_conditions_json,'[\"FUNCTIONAL\",\"REPAIRABLE\",\"END_OF_LIFE\"]') AND c.supports_data_bearing=(c.category IN ('ICT_EQUIPMENT','CONSUMER_ELECTRONICS'))" 8
+  check_scalar recycler_seed zone_settings 'SELECT COUNT(*) FROM recycler_service_zones WHERE is_active=1 AND minimum_lead_minutes=0 AND version=1' 10
+  check_scalar recycler_seed valid_ids "SELECT COUNT(*) FROM (SELECT id FROM recycler_capacity_pools UNION ALL SELECT id FROM recycler_category_capabilities UNION ALL SELECT id FROM recycler_service_zones) s WHERE REGEXP_LIKE(id,'^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$','c')" 20
+  check_scalar recycler_seed all_category_zone_pairs 'SELECT COUNT(*) FROM recycler_matching_profiles p JOIN recycler_category_capabilities c ON c.recycler_org_id=p.recycler_org_id JOIN recycler_service_zones z ON z.recycler_org_id=p.recycler_org_id' 40
+  check_scalar recycler_seed no_business_rows 'SELECT (SELECT COUNT(*) FROM ewaste_batches)+(SELECT COUNT(*) FROM matching_decisions)+(SELECT COUNT(*) FROM matched_results)+(SELECT COUNT(*) FROM batch_claims)+(SELECT COUNT(*) FROM batch_assignments)+(SELECT COUNT(*) FROM batch_handoffs)+(SELECT COUNT(*) FROM event_outbox)+(SELECT COUNT(*) FROM batch_audit_events)+(SELECT COUNT(*) FROM command_idempotency)' 0
+  dump_rows recycler_seed "$EVIDENCE_DIR/clean-before-repeat.sql" "${RECYCLER_TABLES[@]}" recycler_collector_scopes DATABASECHANGELOG
+  lb recycler_seed repeat update --context-filter=seed
+  dump_rows recycler_seed "$EVIDENCE_DIR/clean-after-repeat.sql" "${RECYCLER_TABLES[@]}" recycler_collector_scopes DATABASECHANGELOG
+  diff -u "$EVIDENCE_DIR/clean-before-repeat.sql" "$EVIDENCE_DIR/clean-after-repeat.sql" > "$EVIDENCE_DIR/clean-repeat.diff"
+
+  lb recycler_upgrade baseline --changelog-file=changelog-before-recycler-config.yaml update --context-filter=seed
+  # Compatible manual configuration: custom IDs/versions, nonzero reservations,
+  # reordered conditions and missing rows. All existing values must survive.
+  mysql_query recycler_upgrade <<'RECYCLER_EXISTING'
+INSERT INTO recycler_matching_profiles VALUES('PROC-001',1,9,'2026-01-01','2026-01-02');
+INSERT INTO recycler_capacity_pools VALUES('f1080000-0000-4000-8000-000000000001','PROC-001','MAIN',50000,125,1,4,'2026-01-02');
+INSERT INTO recycler_category_capabilities VALUES('f1080000-0000-4000-8000-000000000002','PROC-001','ICT_EQUIPMENT','["END_OF_LIFE","FUNCTIONAL","REPAIRABLE"]',1,1,'f1080000-0000-4000-8000-000000000001',2,'2026-01-02');
+INSERT INTO recycler_service_zones VALUES('f1080000-0000-4000-8000-000000000003','PROC-001','NORTH',0,1,7,'2026-01-02');
+RECYCLER_EXISTING
+  local scenario change restore
+  while IFS='|' read -r scenario change restore; do
+    mysql_query recycler_upgrade -e "$change" </dev/null
+    reject_recycler_seed "$scenario" </dev/null
+    mysql_query recycler_upgrade -e "$restore" </dev/null
+  done <<'RECYCLER_REJECTIONS'
+inactive_org|UPDATE organisations SET status='DISABLED' WHERE organisation_id='PROC-002'|UPDATE organisations SET status='ACTIVE' WHERE organisation_id='PROC-002'
+wrong_org_type|UPDATE organisations SET organisation_type='DONOR' WHERE organisation_id='PROC-002'|UPDATE organisations SET organisation_type='PROCESSING_FACILITY' WHERE organisation_id='PROC-002'
+inactive_profile|UPDATE recycler_matching_profiles SET is_active=0|UPDATE recycler_matching_profiles SET is_active=1
+capacity_conflict|UPDATE recycler_capacity_pools SET total_kg=1000|UPDATE recycler_capacity_pools SET total_kg=50000
+inactive_pool|UPDATE recycler_capacity_pools SET is_active=0|UPDATE recycler_capacity_pools SET is_active=1
+condition_conflict|UPDATE recycler_category_capabilities SET accepted_conditions_json='["FUNCTIONAL"]'|UPDATE recycler_category_capabilities SET accepted_conditions_json='["END_OF_LIFE","FUNCTIONAL","REPAIRABLE"]'
+data_bearing_conflict|UPDATE recycler_category_capabilities SET supports_data_bearing=0|UPDATE recycler_category_capabilities SET supports_data_bearing=1
+zone_conflict|UPDATE recycler_service_zones SET minimum_lead_minutes=60|UPDATE recycler_service_zones SET minimum_lead_minutes=0
+invalid_id|UPDATE recycler_service_zones SET id='manual-zone'|UPDATE recycler_service_zones SET id='f1080000-0000-4000-8000-000000000003'
+pool_id_collision|INSERT INTO recycler_capacity_pools VALUES('b1080000-0000-4000-8000-000000000002','PROC-001','OTHER',1,0,1,1,UTC_TIMESTAMP(6))|DELETE FROM recycler_capacity_pools WHERE pool_code='OTHER'
+category_id_collision|UPDATE recycler_category_capabilities SET id='c1080000-0000-4000-8000-000000000005'|UPDATE recycler_category_capabilities SET id='f1080000-0000-4000-8000-000000000002'
+zone_id_collision|UPDATE recycler_service_zones SET id='d1080000-0000-4000-8000-000000000006'|UPDATE recycler_service_zones SET id='f1080000-0000-4000-8000-000000000003'
+RECYCLER_REJECTIONS
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/profile-before.sql" recycler_matching_profiles
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/existing-before.sql" "${RECYCLER_TABLES[@]:1}"
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/scopes-before.sql" recycler_collector_scopes
+  lb recycler_upgrade upgrade update --context-filter=seed
+  check_scalar recycler_upgrade filled_counts 'SELECT CONCAT((SELECT COUNT(*) FROM recycler_matching_profiles),":",(SELECT COUNT(*) FROM recycler_capacity_pools),":",(SELECT COUNT(*) FROM recycler_category_capabilities),":",(SELECT COUNT(*) FROM recycler_service_zones))' '2:2:8:10'
+  check_scalar recycler_upgrade shared_existing_pool "SELECT COUNT(*) FROM recycler_category_capabilities WHERE recycler_org_id='PROC-001' AND capacity_pool_id='f1080000-0000-4000-8000-000000000001'" 4
+  check_scalar recycler_upgrade reservation_preserved "SELECT total_kg-reserved_kg FROM recycler_capacity_pools WHERE recycler_org_id='PROC-001' AND pool_code='MAIN'" '49875.00'
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/profile-after.sql" recycler_matching_profiles --where="recycler_org_id='PROC-001'"
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/existing-after.sql" "${RECYCLER_TABLES[@]:1}" --where="id LIKE 'f108%'"
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/scopes-after.sql" recycler_collector_scopes
+  for scenario in profile existing scopes; do
+    diff -u "$EVIDENCE_DIR/$scenario-before.sql" "$EVIDENCE_DIR/$scenario-after.sql" > "$EVIDENCE_DIR/$scenario-preserved.diff"
+  done
+  # Simulate data committed before changelog recording in this disposable DB.
+  mysql_query recycler_upgrade -e "DELETE FROM DATABASECHANGELOG WHERE ID='EWCSB129-108'"
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/adopt-before.sql" "${RECYCLER_TABLES[@]}"
+  lb recycler_upgrade adopt update --context-filter=seed
+  dump_rows recycler_upgrade "$EVIDENCE_DIR/adopt-after.sql" "${RECYCLER_TABLES[@]}"
+  diff -u "$EVIDENCE_DIR/adopt-before.sql" "$EVIDENCE_DIR/adopt-after.sql" > "$EVIDENCE_DIR/adopt.diff"
+  check_scalar recycler_upgrade recorded_once "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-108' AND EXECTYPE='EXECUTED'" 1
+  printf 'PASS\n' > "$EVIDENCE_DIR/result.txt"
+  printf 'recycler-matching-config\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
+}
+
 main() {
   write_embedded_tests
   cd "$WORK_DIR"
@@ -2735,10 +2825,19 @@ main() {
     /^  - include:/ { block = $0 ORS; next }
     { block = block $0 ORS }
     /relativeToChangelogFile:/ {
+      if (block !~ /108-seed-recycler-matching-config/) printf "%s", block
+      block = ""
+    }
+  ' database/changelog-master.yaml > database/changelog-before-recycler-config.yaml
+  awk '
+    NR == 1 { print; next }
+    /^  - include:/ { block = $0 ORS; next }
+    { block = block $0 ORS }
+    /relativeToChangelogFile:/ {
       if (block !~ /107-seed-recycler-collector-scopes/) printf "%s", block
       block = ""
     }
-  ' database/changelog-master.yaml > database/changelog-before-collector-scopes.yaml
+  ' database/changelog-before-recycler-config.yaml > database/changelog-before-collector-scopes.yaml
   "${HASH[@]}" -c approved-migrations.sha256 > "$RUN_DIR/approved-migrations.txt"
   printf 'suite\tresult\tevidence_directory\n' > "$RUN_DIR/summary.tsv"
   echo 'Starting one isolated MySQL instance for all schema boundaries.'
@@ -2753,6 +2852,8 @@ CREATE DATABASE c4_clean CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c4_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE collector_seed CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE matcher_repair CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE recycler_seed CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+CREATE DATABASE recycler_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 GRANT ALL ON c1_upgrade.* TO 'persistence_test'@'%';
 GRANT ALL ON c3_clean.* TO 'persistence_test'@'%';
 GRANT ALL ON c3_upgrade.* TO 'persistence_test'@'%';
@@ -2760,6 +2861,8 @@ GRANT ALL ON c4_clean.* TO 'persistence_test'@'%';
 GRANT ALL ON c4_upgrade.* TO 'persistence_test'@'%';
 GRANT ALL ON collector_seed.* TO 'persistence_test'@'%';
 GRANT ALL ON matcher_repair.* TO 'persistence_test'@'%';
+GRANT ALL ON recycler_seed.* TO 'persistence_test'@'%';
+GRANT ALL ON recycler_upgrade.* TO 'persistence_test'@'%';
 GRANT SELECT ON performance_schema.data_lock_waits TO 'persistence_test'@'%';
 PERSISTENCE_DATABASES
   mysql_query c1_clean -e 'SELECT VERSION() AS mysql_version, @@sql_mode AS sql_mode, @@global.time_zone AS global_time_zone;' > "$RUN_DIR/runtime.tsv"
@@ -2769,6 +2872,7 @@ PERSISTENCE_DATABASES
   run_c4
   run_matcher_repair
   run_collector_scope_seed
+  run_recycler_matching_seed
   cat "$RUN_DIR/summary.tsv"
   echo 'All embedded schema, migration and SQL persistence checks passed.'
 }

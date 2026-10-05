@@ -26,7 +26,7 @@ on:
           - stg
           - prod
       rollback_tag:
-        description: 'Optional: Image tag to rollback to (e.g. dev-a1b2c3d). Leave empty for standard build.'
+        description: 'Optional: Image tag to rollback to (e.g. "PREVIOUS" for automatic N-1 release, or exact tag dev-a1b2c3d). Leave empty for standard build.'
         required: false
         default: ''
 
@@ -166,6 +166,61 @@ jobs:
           echo "Seeding docker daemon authentication context..."
           echo "$ACR_TOKEN" | docker login "$ACR_NAME".azurecr.io -u 00000000-0000-0000-0000-000000000000 --password-stdin
 
+      # ------------------------------------------------------------------------
+      # Resolve Target Deployment Image Tags (STANDARD, EXPLICIT, OR SMART PREVIOUS)
+      # ------------------------------------------------------------------------
+      - name: Resolve Effective Deployment Image Tags
+        id: resolve_tags
+        run: |
+          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
+          ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          RAW_INPUT="${{ inputs.rollback_tag }}"
+
+          # Normalize input: trim whitespace and uppercase
+          NORMALIZED_INPUT=$(echo "$RAW_INPUT" | tr '[:lower:]' '[:upper:]' | xargs)
+
+          IS_ROLLBACK="false"
+          RESOLVED_TAG=""
+
+          if [ "$NORMALIZED_INPUT" == "PREVIOUS" ] || [ "$NORMALIZED_INPUT" == "N-1" ]; then
+            IS_ROLLBACK="true"
+            echo "Smart Rollback requested: Querying ACR for previous (N-1) verified image tag..."
+
+            # Query ACR tags for API service ordered newest first, matching target environment prefix
+            RESOLVED_TAG=$(az acr repository show-tags \
+              --name "$ACR_NAME" \
+              --repository "${{ env.IMAGE_NAME_API }}" \
+              --orderby time_desc \
+              --output tsv 2>/dev/null | grep "^${TARGET_ENV}-" | sed -n '2p' || echo "")
+
+            if [ -z "$RESOLVED_TAG" ]; then
+              # Fallback if prefix filtering didn't match
+              RESOLVED_TAG=$(az acr repository show-tags \
+                --name "$ACR_NAME" \
+                --repository "${{ env.IMAGE_NAME_API }}" \
+                --orderby time_desc \
+                --output tsv 2>/dev/null | sed -n '2p' || echo "")
+            fi
+
+            if [ -z "$RESOLVED_TAG" ]; then
+              echo "::error::Smart Rollback failed: Could not determine an N-1 previous tag in ACR for environment '$TARGET_ENV'."
+              exit 1
+            fi
+            echo "Successfully resolved N-1 rollback tag: $RESOLVED_TAG"
+
+          elif [ -n "$RAW_INPUT" ]; then
+            IS_ROLLBACK="true"
+            RESOLVED_TAG="$RAW_INPUT"
+            echo "Explicit Rollback requested with tag: $RESOLVED_TAG"
+          else
+            SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+            RESOLVED_TAG="${TARGET_ENV}-${SHORT_SHA}"
+            echo "Standard Build requested with commit tag: $RESOLVED_TAG"
+          fi
+
+          echo "is_rollback=$IS_ROLLBACK" >> "$GITHUB_OUTPUT"
+          echo "effective_tag=$RESOLVED_TAG" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------------
       # 1.1 BACKEND API CONTAINER
@@ -173,16 +228,14 @@ jobs:
       - name: Build & Publish Backend API Container
         run: |
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          TARGET_TAG="${{ steps.resolve_tags.outputs.effective_tag }}"
 
-          if [ -n "${{ inputs.rollback_tag }}" ]; then
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${{ inputs.rollback_tag }}"
+          if [ "${{ steps.resolve_tags.outputs.is_rollback }}" == "true" ]; then
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${TARGET_TAG}"
             echo "Rolling back to existing API image: $IMAGE_TAG"
             docker pull "$IMAGE_TAG" || true
           else
-            COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
-            SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${TARGET_ENV}-${SHORT_SHA}"
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${TARGET_TAG}"
             echo "Building API image: $IMAGE_TAG"
             docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
             echo "Pushing API image to ACR..."
@@ -195,7 +248,7 @@ jobs:
 
 #      - name: Sign API Container Image Digest with Cosign
 #        run: |
-#          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"\
+#          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
 #          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
 #            cosign sign --yes \
 #              --key env://COSIGN_PRIVATE_KEY \
@@ -207,7 +260,7 @@ jobs:
 #            fi
 #            cosign sign --yes --key cosign.key ${{ env.API_IMMUTABLE_DIGEST }}
 #          fi
-#        env:\
+#        env:
 #          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
 #          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
@@ -251,17 +304,15 @@ jobs:
       - name: Build & Publish Frontend UI Container
         run: |
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          TARGET_TAG="${{ steps.resolve_tags.outputs.effective_tag }}"
           API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
 
-          if [ -n "${{ inputs.rollback_tag }}" ]; then
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${{ inputs.rollback_tag }}"
+          if [ "${{ steps.resolve_tags.outputs.is_rollback }}" == "true" ]; then
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${TARGET_TAG}"
             echo "Rolling back to existing UI image: $IMAGE_TAG"
             docker pull "$IMAGE_TAG" || true
           else
-            COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
-            SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${TARGET_ENV}-${SHORT_SHA}"
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${TARGET_TAG}"
             echo "Building UI image: $IMAGE_TAG"
             docker build -t "$IMAGE_TAG" \
               --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
@@ -279,7 +330,7 @@ jobs:
 
 #      - name: Sign UI Container Image Digest with Cosign
 #        run: |
-#          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"\
+#          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
 #          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
 #            cosign sign --yes \
 #              --key env://COSIGN_PRIVATE_KEY \
@@ -320,19 +371,18 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Build & Publish Analytics Worker Container
         run: |
+          set -euo pipefail
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
-          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+          TARGET_TAG="${{ steps.resolve_tags.outputs.effective_tag }}"
 
-          if [ -n "${{ inputs.rollback_tag }}" ]; then
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${{ inputs.rollback_tag }}"
+          if [ "${{ steps.resolve_tags.outputs.is_rollback }}" == "true" ]; then
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_TAG}"
             echo "Rolling back to existing Matcher image: $IMAGE_TAG"
             docker pull "$IMAGE_TAG"
             # A rollback must name an actual matcher image, not the old demo.
             test "$(docker inspect --format '{{index .Config.Labels "ewaste.component"}}' "$IMAGE_TAG")" = matcher
           else
-            COMMIT_SHA="${{ github.event.workflow_run.head_sha || github.sha }}"
-            SHORT_SHA=$(echo "$COMMIT_SHA" | cut -c1-7)
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_ENV}-${SHORT_SHA}"
+            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_TAG}"
             echo "Building Matcher Worker image: $IMAGE_TAG"
             docker build -t "$IMAGE_TAG" -f src/matcher/Dockerfile .
             echo "Pushing Matcher Worker image to ACR..."
@@ -417,7 +467,7 @@ jobs:
       # 1.5 PRUNE OLD ACR IMAGES (Retain Last 3 for Rollback Safety)
       # ------------------------------------------------------------------------
       - name: Prune Stale Container Images in ACR (Keep Last 3)
-        if: ${{ inputs.rollback_tag == '' }}
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
         run: |
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
           ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
@@ -441,6 +491,32 @@ jobs:
             else
               echo "Repository $REPO has 3 or fewer tags. Nothing to prune."
             fi
+          done
+
+      # ------------------------------------------------------------------------
+      # 1.6 PUBLISH ROLLBACK CANDIDATES TO GITHUB ACTIONS SUMMARY
+      # ------------------------------------------------------------------------
+      - name: Publish Rollback Tag Catalog to Job Summary
+        if: always()
+        run: |
+          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
+          ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
+
+          echo "## Deployment & Rollback Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployed Tag:** \`${{ steps.resolve_tags.outputs.effective_tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment Mode:** \`${{ steps.resolve_tags.outputs.is_rollback == 'true' && 'Rollback' || 'Standard Build' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Target Environment:** \`${{ needs.resolve-environment.outputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
+          echo "> **One-Click Rollback:** To roll back to the prior stable release at any time, run this workflow and enter **\`PREVIOUS\`** for \`rollback_tag\`." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Verified Available Image Tags in ACR" >> $GITHUB_STEP_SUMMARY
+          echo "| Service | Latest Available Tags (Newest First) | Target Environment |" >> $GITHUB_STEP_SUMMARY
+          echo "| :--- | :--- | :---: |" >> $GITHUB_STEP_SUMMARY
+
+          for REPO in "${{ env.IMAGE_NAME_API }}" "${{ env.IMAGE_NAME_UI }}" "${{ env.IMAGE_NAME_ANALYTICS }}"; do
+            TAGS=$(az acr repository show-tags --name "$ACR_NAME" --repository "$REPO" --orderby time_desc --output tsv 2>/dev/null | head -n 5 | paste -sd ", " - || echo "None")
+            echo "| \`$REPO\` | \`$TAGS\` | \`${{ needs.resolve-environment.outputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
           done
 
   # ============================================================================
