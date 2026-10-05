@@ -54,14 +54,18 @@ jobs:
     steps:
       - name: Determine Target Environment from Git Context
         id: env_resolver
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          TARGET_ENV_INPUT: ${{ inputs.target_env }}
+          GIT_REF: ${{ github.ref }}
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            TARGET="${{ inputs.target_env }}"
-          elif [ "${{ github.event_name }}" == "workflow_call" ]; then
-            TARGET="${{ inputs.target_env }}"
-          elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/main" ]; then
+          if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
+            TARGET="$TARGET_ENV_INPUT"
+          elif [ "$EVENT_NAME" == "workflow_call" ]; then
+            TARGET="$TARGET_ENV_INPUT"
+          elif [ "$EVENT_NAME" == "push" ] && [ "$GIT_REF" == "refs/heads/main" ]; then
             TARGET="prod"
-          elif [ "${{ github.event_name }}" == "push" ] && [ "${{ github.ref }}" == "refs/heads/dev" ]; then
+          elif [ "$EVENT_NAME" == "push" ] && [ "$GIT_REF" == "refs/heads/dev" ]; then
             TARGET="dev"
           else
             TARGET="dev"
