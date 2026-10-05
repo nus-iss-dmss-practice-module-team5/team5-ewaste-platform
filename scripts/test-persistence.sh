@@ -2825,7 +2825,7 @@ main() {
     /^  - include:/ { block = $0 ORS; next }
     { block = block $0 ORS }
     /relativeToChangelogFile:/ {
-      if (block !~ /108-seed-recycler-matching-config/) printf "%s", block
+      if (block ~ /(changes\/0(0[1-9]|1[0-9]|2[0-5])|seed\/10[1-7])/) printf "%s", block
       block = ""
     }
   ' database/changelog-master.yaml > database/changelog-before-recycler-config.yaml
