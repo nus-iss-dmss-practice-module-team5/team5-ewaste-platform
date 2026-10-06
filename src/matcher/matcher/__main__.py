@@ -50,8 +50,9 @@ def main():
                           positive("MATCHER_HTTP_TIMEOUT_SECONDS"), positive("MATCHER_MAX_RESPONSE_BYTES"),
                           local=local, token_provider=provider)
     publisher = QuarantinePublisher(common, dlq, positive("MATCHER_DELIVERY_TIMEOUT_SECONDS"))
-    health = Health()
+    health = Health(observer=observe)
     def observer(name, delivery=None, **fields):
+        fields.setdefault("consumer_group", os.environ.get("MATCHER_GROUP_ID") or os.environ.get("KAFKA_CONSUMER_GROUP"))
         observe(name, delivery, **fields)
         health.observe(name, delivery, **fields)
     processor = Processor(facade, publisher, max_bytes=positive("MATCHER_MAX_RECORD_BYTES"),

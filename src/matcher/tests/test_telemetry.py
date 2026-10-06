@@ -28,7 +28,8 @@ class TelemetryTests(unittest.TestCase):
         delivery.failure_streak = 1
         delivery.error_code = "TRANSIENT_TIMEOUT"
 
-        observe("delivery_paused", delivery, custom_flag="retry_check")
+        observe("delivery_paused", delivery, code="TRANSIENT_TIMEOUT",
+                custom_flag="retry_check", password="not-logged")
 
         self.mock_log.assert_called_once()
         raw_payload = self.mock_log.call_args[0][0]
@@ -48,7 +49,10 @@ class TelemetryTests(unittest.TestCase):
         self.assertEqual(data["batch_id"], "b0000000-0000-4000-8000-000000000001")
         self.assertEqual(data["event_id"], "e0000000-0000-4000-8000-000000000001")
         self.assertEqual(data["run_id"], "r0000000-0000-4000-8000-000000000001")
-        self.assertEqual(data["custom_flag"], "retry_check")
+        self.assertEqual(data["code"], "TRANSIENT_TIMEOUT")
+        self.assertEqual(data["telemetry_version"], 1)
+        self.assertEqual(data["outcome"], "RETRYING")
+        self.assertNotIn("custom_flag", data)
         self.assertIn("latency_ms", data)
         self.assertGreaterEqual(data["latency_ms"], 0)
 

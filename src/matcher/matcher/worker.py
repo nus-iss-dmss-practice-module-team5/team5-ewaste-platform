@@ -1,4 +1,5 @@
 """Resumable delivery state machine; only the runner may commit Kafka offsets."""
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
@@ -92,6 +93,17 @@ class Processor:
             delivery.stage = "EVALUATE"
 
     def step(self, delivery):
+        operation, started = delivery.stage, time.monotonic()
+        outcome = "FAILED"
+        try:
+            delay = self._step(delivery)
+            outcome = "RETRYING" if delay else ("QUARANTINED" if delivery.stage == "QUARANTINE" or delivery.disposition == "QUARANTINED" else "SUCCEEDED")
+            return delay
+        finally:
+            self.observe("processing_step", delivery, operation=operation, outcome=outcome,
+                         duration_ms=round((time.monotonic()-started)*1000, 3))
+
+    def _step(self, delivery):
         """Perform one bounded operation; return seconds until the next attempt."""
         operation = delivery.stage
         try:

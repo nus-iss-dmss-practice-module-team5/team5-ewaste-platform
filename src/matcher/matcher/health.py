@@ -6,7 +6,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
 class Health:
-    def __init__(self):
+    def __init__(self, observer=None):
+        self.observer = observer
         self.lock = threading.Lock()
         self.last_poll = self.last_stats = 0
         self.broker_up = False
@@ -50,6 +51,9 @@ class Health:
                     self.send_error(404)
                     return
                 okay = health.state(ready=self.path == "/readyz")
+                if self.path == "/readyz" and health.observer:
+                    health.observer("readiness", ready=okay, outcome="READY" if okay else "NOT_READY",
+                                    code="" if okay else "DEPENDENCY_UNAVAILABLE")
                 body = json.dumps({"status": "ok" if okay else "unavailable"}).encode()
                 self.send_response(200 if okay else 503)
                 self.send_header("Content-Type", "application/json")
