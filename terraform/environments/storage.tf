@@ -47,6 +47,13 @@ resource "azurerm_storage_account" "evidence" {
   tags = local.common_tags
 }
 
+# Private Blob container dedicated to encrypted verification evidence
+resource "azurerm_storage_container" "evidence_private" {
+  name                  = "evidence-private"
+  storage_account_name  = azurerm_storage_account.evidence.name
+  container_access_type = "private"
+}
+
 # ============================================================================
 # PRIVATE LINK & PRIVATE DNS INTEGRATION
 # ============================================================================
