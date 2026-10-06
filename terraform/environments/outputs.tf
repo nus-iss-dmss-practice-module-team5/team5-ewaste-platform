@@ -90,3 +90,32 @@ output "aca_analytics_fqdn" {
   value       = azurerm_container_app.analytics.ingress[0].fqdn
   description = "The FQDN of the Analytics Worker Container App."
 }
+
+# ============================================================================
+# EVIDENCE STORAGE OUTPUTS (DECISION D2)
+# ============================================================================
+
+output "storage_account_name" {
+  value       = azurerm_storage_account.evidence.name
+  description = "Name of the private storage account for batch evidence."
+}
+
+output "storage_account_id" {
+  value       = azurerm_storage_account.evidence.id
+  description = "Resource ID of the private storage account for batch evidence."
+}
+
+output "storage_container_name" {
+  value       = azurerm_storage_container.evidence_private.name
+  description = "Name of the private blob container for batch evidence."
+}
+
+output "storage_blob_endpoint" {
+  value       = azurerm_storage_account.evidence.primary_blob_endpoint
+  description = "Primary blob endpoint for the evidence storage account."
+}
+
+output "storage_private_endpoint_ip" {
+  value       = azurerm_private_endpoint.storage_pe.private_service_connection[0].private_ip_address
+  description = "Private IP allocated to the storage account private endpoint."
+}

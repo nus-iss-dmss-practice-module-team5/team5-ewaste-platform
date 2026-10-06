@@ -18,6 +18,7 @@ type Config struct {
 	Auth      AuthConfig      `mapstructure:"auth"`
 	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
 	Logging   LoggingConfig   `mapstructure:"logging"`
+	Storage   StorageConfig   `mapstructure:"storage"`
 }
 
 const (
@@ -48,6 +49,9 @@ func (c *Config) ApplyMode(mode string) error {
 		if c.Redis.Address == "" {
 			c.Redis.Address = "localhost:6379"
 		}
+	}
+	if (mode == ModeTest || mode == ModeDevelopment) && c.Storage.Type == "" {
+		c.Storage.Type = "local"
 	}
 	return nil
 }
@@ -111,6 +115,14 @@ type LoggingConfig struct {
 	MaxAgeDays int    `mapstructure:"max_age_days"`
 	Compress   bool   `mapstructure:"compress"`
 	Console    bool   `mapstructure:"console"`
+}
+
+type StorageConfig struct {
+	Type               string `mapstructure:"type"`
+	AzureAccountName   string `mapstructure:"azure_account_name"`
+	AzureContainerName string `mapstructure:"azure_container_name"`
+	AzureEndpoint      string `mapstructure:"azure_endpoint"`
+	LocalBaseDir       string `mapstructure:"local_base_dir"`
 }
 
 func Load(configFile string) (Config, error) {
@@ -189,6 +201,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("kafka.leader_lease_duration", 30*time.Second)
 	v.SetDefault("kafka.retry_backoff", 5*time.Second)
 	v.SetDefault("kafka.publish_timeout", 10*time.Second)
+	v.SetDefault("storage.type", "local")
+	v.SetDefault("storage.azure_account_name", "")
+	v.SetDefault("storage.azure_container_name", "evidence-private")
+	v.SetDefault("storage.azure_endpoint", "")
+	v.SetDefault("storage.local_base_dir", "data/evidence")
 }
 
 func bindEnvironment(v *viper.Viper) {
@@ -234,6 +251,11 @@ func bindEnvironment(v *viper.Viper) {
 		"kafka.leader_lease_duration",
 		"kafka.retry_backoff",
 		"kafka.publish_timeout",
+		"storage.type",
+		"storage.azure_account_name",
+		"storage.azure_container_name",
+		"storage.azure_endpoint",
+		"storage.local_base_dir",
 	}
 	for _, key := range keys {
 		envName := "EWASTE_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))

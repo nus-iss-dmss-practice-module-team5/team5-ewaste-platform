@@ -46,6 +46,10 @@ auth:
 	t.Setenv("EWASTE_KAFKA_SASL_MECHANISM", "PLAIN")
 	t.Setenv("EWASTE_KAFKA_SASL_USERNAME", "$ConnectionString")
 	t.Setenv("KAFKA_CONNECTION_STRING", "Endpoint=sb://evh-ewaste-dev.servicebus.windows.net/;SharedAccessKeyName=auth-ewaste-workload;SharedAccessKey=redacted")
+	t.Setenv("EWASTE_STORAGE_TYPE", "azure")
+	t.Setenv("EWASTE_STORAGE_AZURE_ACCOUNT_NAME", "stgewastedev")
+	t.Setenv("EWASTE_STORAGE_AZURE_CONTAINER_NAME", "evidence-private")
+	t.Setenv("EWASTE_STORAGE_AZURE_ENDPOINT", "https://stgewastedev.blob.core.windows.net/")
 
 	cfg, err := Load(configPath)
 	if err != nil {
@@ -75,6 +79,9 @@ auth:
 	if cfg.Kafka.SASLPassword == "" {
 		t.Fatal("expected Kafka connection string from KAFKA_CONNECTION_STRING")
 	}
+	if cfg.Storage.Type != "azure" || cfg.Storage.AzureAccountName != "stgewastedev" || cfg.Storage.AzureContainerName != "evidence-private" || cfg.Storage.AzureEndpoint != "https://stgewastedev.blob.core.windows.net/" {
+		t.Fatalf("expected storage environment values, got %+v", cfg.Storage)
+	}
 }
 
 func TestApplyTestModeUsesLocalDependencies(t *testing.T) {
@@ -84,5 +91,8 @@ func TestApplyTestModeUsesLocalDependencies(t *testing.T) {
 	}
 	if cfg.Database.Host != "localhost" || cfg.Database.Port != 3307 || cfg.Redis.Address != "localhost:6379" {
 		t.Fatalf("expected localhost dependency defaults: %+v", cfg)
+	}
+	if cfg.Storage.Type != "local" {
+		t.Fatalf("expected local storage default in test mode, got %q", cfg.Storage.Type)
 	}
 }

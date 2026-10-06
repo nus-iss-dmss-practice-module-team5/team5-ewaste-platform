@@ -632,6 +632,27 @@ resource "azurerm_container_app" "api" {
         name  = "EWASTE_KAFKA_LEADER_LEASE_DURATION"
         value = "300s"
       }
+
+      # ---- Evidence Storage Adapter ----
+      env {
+        name  = "EWASTE_STORAGE_TYPE"
+        value = "azure"
+      }
+
+      env {
+        name  = "EWASTE_STORAGE_AZURE_ACCOUNT_NAME"
+        value = azurerm_storage_account.evidence.name
+      }
+
+      env {
+        name  = "EWASTE_STORAGE_AZURE_CONTAINER_NAME"
+        value = azurerm_storage_container.evidence_private.name
+      }
+
+      env {
+        name  = "EWASTE_STORAGE_AZURE_ENDPOINT"
+        value = azurerm_storage_account.evidence.primary_blob_endpoint
+      }
     }
   }
 
@@ -660,7 +681,9 @@ resource "azurerm_container_app" "api" {
     azurerm_mysql_flexible_server.db,
     azurerm_redis_cache.redis,
     azurerm_role_assignment.eventhub_sender,
-    azurerm_eventhub_namespace_authorization_rule.app_auth
+    azurerm_eventhub_namespace_authorization_rule.app_auth,
+    azurerm_role_assignment.storage_blob_data_contributor,
+    azurerm_private_endpoint.storage_pe
   ]
 }
 
