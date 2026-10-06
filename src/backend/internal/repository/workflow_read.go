@@ -35,6 +35,7 @@ type WorkflowReadRepository interface {
 	FindOpportunity(context.Context, string, string) (*model.WorkflowOpportunity, error)
 	ListAssignments(context.Context, string, string, string, WorkflowReadPage) ([]model.BatchAssignment, int64, error)
 	FindAssignment(context.Context, string, string, string) (*model.BatchAssignment, error)
+	ListBatchTimeline(context.Context, string, WorkflowReadPage) ([]model.BatchTimelineEntry, int64, error)
 }
 
 type GormWorkflowReadRepository struct {
@@ -341,4 +342,54 @@ func (r *GormWorkflowReadRepository) assignmentQuery(
 	return r.db.WithContext(ctx).
 		Model(&model.BatchAssignment{}).
 		Where("collector_user_id = ? AND collector_org_id = ?", collectorUserID, collectorOrganisationID), nil
+}
+
+// ListBatchTimeline returns the audit history of one batch, oldest first. It
+// is not organisation scoped: the caller must already be an Auditor.
+func (r *GormWorkflowReadRepository) ListBatchTimeline(
+	ctx context.Context,
+	batchID string,
+	page WorkflowReadPage,
+) ([]model.BatchTimelineEntry, int64, error) {
+	if r == nil || r.db == nil {
+		return nil, 0, errors.New("repository: workflow read database is nil")
+	}
+
+	var batches int64
+	if err := r.db.WithContext(ctx).
+		Table("ewaste_batches").
+		Where("id = ?", batchID).
+		Count(&batches).
+		Error; err != nil {
+		return nil, 0, err
+	}
+	if batches == 0 {
+		return nil, 0, ErrWorkflowReadNotFound
+	}
+
+	var total int64
+	if err := r.db.WithContext(ctx).
+		Table("batch_audit_events").
+		Where("batch_id = ?", batchID).
+		Count(&total).
+		Error; err != nil {
+		return nil, 0, err
+	}
+
+	var entries []model.BatchTimelineEntry
+	err := r.db.WithContext(ctx).
+		Table("batch_audit_events AS a").
+		Select(`a.id, a.actor_user_id, u.display_name AS actor_name,
+			a.actor_org_id, o.organisation_name, a.service_principal,
+			a.event_type, a.from_status, a.to_status, a.batch_version,
+			a.sequence_in_command, a.occurred_at, a.correlation_id, a.details_json`).
+		Joins("LEFT JOIN users AS u ON u.user_id = a.actor_user_id").
+		Joins("LEFT JOIN organisations AS o ON o.organisation_id = a.actor_org_id").
+		Where("a.batch_id = ?", batchID).
+		Order("a.occurred_at ASC, a.batch_version ASC, a.sequence_in_command ASC, a.id ASC").
+		Offset((page.Page - 1) * page.PageSize).
+		Limit(page.PageSize).
+		Scan(&entries).
+		Error
+	return entries, total, err
 }

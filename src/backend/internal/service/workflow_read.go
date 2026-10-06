@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
@@ -44,6 +45,13 @@ type OpportunityListResult struct {
 
 type AssignmentListResult struct {
 	Data       []dto.AssignmentView
+	Page       int
+	PageSize   int
+	TotalCount int64
+}
+
+type TimelineResult struct {
+	Data       []dto.TimelineEntryView
 	Page       int
 	PageSize   int
 	TotalCount int64
@@ -200,6 +208,35 @@ func (s *WorkflowReadService) GetAssignment(
 	return assignmentToDTO(assignment), nil
 }
 
+// ListBatchTimeline is Auditor only. The role is checked before the batch is
+// looked up, so other roles cannot probe for batch ids.
+func (s *WorkflowReadService) ListBatchTimeline(
+	ctx context.Context,
+	batchID string,
+	actor WorkflowReadActor,
+	page WorkflowReadPage,
+) (TimelineResult, error) {
+	if err := validatePage(page); err != nil {
+		return TimelineResult{}, err
+	}
+	if !isRole(actor.RoleCode, "AUDITOR") {
+		return TimelineResult{}, ErrWorkflowReadForbidden
+	}
+	if strings.TrimSpace(batchID) == "" {
+		return TimelineResult{}, ErrWorkflowReadInvalid
+	}
+
+	entries, total, err := s.repository.ListBatchTimeline(ctx, batchID, toRepositoryPage(page))
+	if err != nil {
+		return TimelineResult{}, mapWorkflowReadRepositoryError(err)
+	}
+	result := TimelineResult{Page: page.Page, PageSize: page.PageSize, TotalCount: total, Data: make([]dto.TimelineEntryView, 0, len(entries))}
+	for index := range entries {
+		result.Data = append(result.Data, timelineEntryToDTO(&entries[index]))
+	}
+	return result, nil
+}
+
 func validatePage(page WorkflowReadPage) error {
 	if page.Page < 1 || page.PageSize < 1 || page.PageSize > 100 {
 		return ErrWorkflowReadInvalid
@@ -266,6 +303,37 @@ func assignmentToDTO(assignment *model.BatchAssignment) dto.AssignmentView {
 		AssignmentStatus: assignment.AssignmentStatus, AssignmentSequence: int64(assignment.AssignmentSequence),
 		Version: int64(assignment.Version), CreatedAt: assignment.CreatedAt, UpdatedAt: assignment.UpdatedAt,
 	}
+}
+
+func timelineEntryToDTO(entry *model.BatchTimelineEntry) dto.TimelineEntryView {
+	// details_json holds whatever the writing command recorded, which can
+	// include donor proof. Only these two keys are read from it.
+	var details struct {
+		Result     string `json:"result"`
+		EvidenceID string `json:"evidence_id"`
+	}
+	_ = json.Unmarshal(entry.DetailsJSON, &details)
+
+	result := strings.TrimSpace(details.Result)
+	if result == "" {
+		result = string(entry.ToStatus)
+	}
+	return dto.TimelineEntryView{
+		EventID: entry.ID, OccurredAt: entry.OccurredAt.UTC(), Action: entry.EventType,
+		FromStatus: string(entry.FromStatus), ToStatus: string(entry.ToStatus), Result: result,
+		BatchVersion: int64(entry.BatchVersion),
+		ActorUserID:  stringOrEmpty(entry.ActorUserID), ActorName: stringOrEmpty(entry.ActorName),
+		OrganisationID: stringOrEmpty(entry.OrganisationID), OrganisationName: stringOrEmpty(entry.OrganisationName),
+		ServicePrincipal: stringOrEmpty(entry.ServicePrincipal), EvidenceID: strings.TrimSpace(details.EvidenceID),
+		CorrelationID: entry.CorrelationID,
+	}
+}
+
+func stringOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func mapWorkflowReadRepositoryError(err error) error {

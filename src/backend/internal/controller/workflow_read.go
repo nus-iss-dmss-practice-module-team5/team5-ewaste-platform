@@ -21,6 +21,8 @@ const (
 	defaultReadPage     = 1
 	defaultReadPageSize = 20
 	maxReadPageSize     = 100
+	// A batch has few audit rows, so the whole timeline fits one default page.
+	defaultTimelinePageSize = maxReadPageSize
 )
 
 type WorkflowReadController struct {
@@ -141,9 +143,34 @@ func (h *WorkflowReadController) GetAssignment(c *gin.Context) {
 	response.JSON(c, http.StatusOK, response.Mutation[dto.AssignmentView]{Data: result, CorrelationID: middleware.GetCorrelationID(c)})
 }
 
+func (h *WorkflowReadController) GetBatchTimeline(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		h.writeError(c, apierror.InvalidSession)
+		return
+	}
+	page, err := readPageWithDefault(c, defaultTimelinePageSize)
+	if err != nil {
+		h.writeError(c, apierror.InvalidRequest)
+		return
+	}
+	result, err := h.service.ListBatchTimeline(c.Request.Context(), strings.TrimSpace(c.Param("batch_id")), readActor(claims), page)
+	if err != nil {
+		h.writeError(c, mapWorkflowReadError(err))
+		return
+	}
+	response.JSON(c, http.StatusOK, response.Page[dto.TimelineEntryView]{
+		Data: result.Data, Page: result.Page, PageSize: result.PageSize, TotalCount: result.TotalCount,
+		CorrelationID: middleware.GetCorrelationID(c),
+	})
+}
+
 func readPage(c *gin.Context) (service.WorkflowReadPage, error) {
+	return readPageWithDefault(c, defaultReadPageSize)
+}
+
+func readPageWithDefault(c *gin.Context, pageSize int) (service.WorkflowReadPage, error) {
 	page := defaultReadPage
-	pageSize := defaultReadPageSize
 	var err error
 	if raw := strings.TrimSpace(c.Query("page")); raw != "" {
 		page, err = strconv.Atoi(raw)

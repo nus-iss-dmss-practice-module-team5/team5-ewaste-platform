@@ -169,3 +169,18 @@ func TestDocsExposeOpenAPISpecAndSwaggerUI(t *testing.T) {
 		t.Fatalf("expected Swagger UI 200, got %d", ui.Code)
 	}
 }
+
+func TestAuditTimelineRouteRequiresAnAccessToken(t *testing.T) {
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authController := controller.NewAuthController(service.NewAuthService(repo, tokens, zap.NewNop()), zap.NewNop())
+	reads := controller.NewWorkflowReadController(service.NewWorkflowReadService(nil), zap.NewNop())
+	r := NewAuthRouter(authController, nil, nil, nil, tokens, repo, routerTestLimiter{}, nil, nil, zap.NewNop(), reads)
+
+	recorder := httptest.NewRecorder()
+	r.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/audit/batches/batch-1/timeline", nil))
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 without a token, got %d: %s", recorder.Code, recorder.Body.String())
+	}
+}

@@ -108,6 +108,10 @@ func NewAuthRouter(
 		opportunities.Use(middleware.RequireAccessTokens(tokens, repo))
 		opportunities.GET("", readControllers[0].ListOpportunities)
 		opportunities.GET("/:batch_id", readControllers[0].GetOpportunity)
+
+		audit := r.Group("/api/v1/audit")
+		audit.Use(middleware.RequireAccessTokens(tokens, repo))
+		audit.GET("/batches/:batch_id/timeline", readControllers[0].GetBatchTimeline)
 	}
 
 	r.NoRoute(func(c *gin.Context) {
