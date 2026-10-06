@@ -8,15 +8,20 @@
 # - Network: Zero public internet access; strictly isolated via Azure Private Link.
 # - Authentication: Shared access keys enabled for IaC provider management; runtime
 #   workload strictly authenticates via secretless Azure AD Managed Identity.
-# - Retention: 7-day soft delete and blob versioning enabled for compliance audit trail.
 # ============================================================================
+
+resource "random_string" "storage_suffix" {
+  length  = 4
+  special = false
+  upper   = false
+}
 
 resource "azurerm_storage_account" "evidence" {
   # checkov:skip=CKV_AZURE_144:LRS replication approved in Decision D2 for single-region academic MVP cost control.
   # checkov:skip=CKV_AZURE_166:Customer Managed Keys (CMK) disabled for academic MVP cost control; uses Microsoft-managed keys.
   # checkov:skip=CKV_AZURE_206:Advanced Threat Protection disabled for academic MVP cost control.
   # checkov:skip=CKV_AZURE_33:Storage logging for queues not applicable to blob-only evidence store.
-  name                              = "stgewaste${var.environment}"
+  name                              = "stgewaste${var.environment}${random_string.storage_suffix.result}"
   resource_group_name               = azurerm_resource_group.env_rg.name
   location                          = azurerm_resource_group.env_rg.location
   account_tier                      = "Standard"
@@ -40,16 +45,6 @@ resource "azurerm_storage_account" "evidence" {
   }
 
   tags = local.common_tags
-}
-
-resource "azurerm_storage_container" "evidence_private" {
-  name                  = "evidence-private"
-  storage_account_name  = azurerm_storage_account.evidence.name
-  container_access_type = "private"
-
-  depends_on = [
-    azurerm_role_assignment.sp_storage_blob_data_contributor
-  ]
 }
 
 # ============================================================================
