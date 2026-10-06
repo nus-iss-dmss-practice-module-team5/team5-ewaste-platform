@@ -96,3 +96,35 @@ func TestApplyTestModeUsesLocalDependencies(t *testing.T) {
 		t.Fatalf("expected local storage default in test mode, got %q", cfg.Storage.Type)
 	}
 }
+
+func TestLoadStorageAdapterEnvironmentBindings(t *testing.T) {
+	t.Setenv("STORAGE_ADAPTER_TYPE", "azure_blob")
+	t.Setenv("AZURE_STORAGE_ACCOUNT", "stgewasteprod")
+	t.Setenv("AZURE_STORAGE_CONTAINER", "evidence-private")
+	t.Setenv("AZURE_USE_MANAGED_ID", "true")
+	t.Setenv("MAX_UPLOAD_SIZE_BYTES", "5242880")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Storage.Type != "azure_blob" {
+		t.Errorf("expected Storage.Type 'azure_blob', got %q", cfg.Storage.Type)
+	}
+	if cfg.Storage.AzureAccountName != "stgewasteprod" {
+		t.Errorf("expected Storage.AzureAccountName 'stgewasteprod', got %q", cfg.Storage.AzureAccountName)
+	}
+	if cfg.Storage.AzureContainerName != "evidence-private" {
+		t.Errorf("expected Storage.AzureContainerName 'evidence-private', got %q", cfg.Storage.AzureContainerName)
+	}
+	if cfg.Storage.AzureEndpoint != "https://stgewasteprod.blob.core.windows.net/" {
+		t.Errorf("expected auto-derived endpoint 'https://stgewasteprod.blob.core.windows.net/', got %q", cfg.Storage.AzureEndpoint)
+	}
+	if !cfg.Storage.AzureUseManagedID {
+		t.Errorf("expected AzureUseManagedID to be true, got false")
+	}
+	if cfg.Storage.MaxUploadSizeBytes != 5242880 {
+		t.Errorf("expected MaxUploadSizeBytes 5242880, got %d", cfg.Storage.MaxUploadSizeBytes)
+	}
+}

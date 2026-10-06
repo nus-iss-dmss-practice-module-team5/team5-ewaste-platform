@@ -122,6 +122,8 @@ type StorageConfig struct {
 	AzureAccountName   string `mapstructure:"azure_account_name"`
 	AzureContainerName string `mapstructure:"azure_container_name"`
 	AzureEndpoint      string `mapstructure:"azure_endpoint"`
+	AzureUseManagedID  bool   `mapstructure:"azure_use_managed_id"`
+	MaxUploadSizeBytes int64  `mapstructure:"max_upload_size_bytes"`
 	LocalBaseDir       string `mapstructure:"local_base_dir"`
 }
 
@@ -156,6 +158,12 @@ func Load(configFile string) (Config, error) {
 	if err := v.Unmarshal(&cfg, viper.DecodeHook(decodeHook)); err != nil {
 		return Config{}, err
 	}
+
+	// If AZURE_STORAGE_ACCOUNT is provided but AZURE_STORAGE_ENDPOINT is omitted, derive standard endpoint.
+	if cfg.Storage.AzureEndpoint == "" && cfg.Storage.AzureAccountName != "" {
+		cfg.Storage.AzureEndpoint = "https://" + cfg.Storage.AzureAccountName + ".blob.core.windows.net/"
+	}
+
 	return cfg, nil
 }
 
@@ -205,6 +213,8 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.azure_account_name", "")
 	v.SetDefault("storage.azure_container_name", "evidence-private")
 	v.SetDefault("storage.azure_endpoint", "")
+	v.SetDefault("storage.azure_use_managed_id", true)
+	v.SetDefault("storage.max_upload_size_bytes", int64(5242880))
 	v.SetDefault("storage.local_base_dir", "data/evidence")
 }
 
@@ -255,6 +265,8 @@ func bindEnvironment(v *viper.Viper) {
 		"storage.azure_account_name",
 		"storage.azure_container_name",
 		"storage.azure_endpoint",
+		"storage.azure_use_managed_id",
+		"storage.max_upload_size_bytes",
 		"storage.local_base_dir",
 	}
 	for _, key := range keys {
@@ -272,6 +284,30 @@ func bindEnvironment(v *viper.Viper) {
 			// string. Keep the generic EWASTE name while accepting the same
 			// secret name used by the Analytics worker deployment.
 			_ = v.BindEnv(key, "KAFKA_CONNECTION_STRING", "EWASTE_KAFKA_CONNECTION_STRING", envName)
+			continue
+		}
+		if key == "storage.type" {
+			_ = v.BindEnv(key, "STORAGE_ADAPTER_TYPE", "EWASTE_STORAGE_ADAPTER_TYPE", envName)
+			continue
+		}
+		if key == "storage.azure_account_name" {
+			_ = v.BindEnv(key, "AZURE_STORAGE_ACCOUNT", "EWASTE_AZURE_STORAGE_ACCOUNT", envName)
+			continue
+		}
+		if key == "storage.azure_container_name" {
+			_ = v.BindEnv(key, "AZURE_STORAGE_CONTAINER", "EWASTE_AZURE_STORAGE_CONTAINER", envName)
+			continue
+		}
+		if key == "storage.azure_endpoint" {
+			_ = v.BindEnv(key, "AZURE_STORAGE_ENDPOINT", "EWASTE_AZURE_STORAGE_ENDPOINT", envName)
+			continue
+		}
+		if key == "storage.azure_use_managed_id" {
+			_ = v.BindEnv(key, "AZURE_USE_MANAGED_ID", "EWASTE_AZURE_USE_MANAGED_ID", envName)
+			continue
+		}
+		if key == "storage.max_upload_size_bytes" {
+			_ = v.BindEnv(key, "MAX_UPLOAD_SIZE_BYTES", "EWASTE_MAX_UPLOAD_SIZE_BYTES", envName)
 			continue
 		}
 		_ = v.BindEnv(key, envName)

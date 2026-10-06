@@ -633,10 +633,41 @@ resource "azurerm_container_app" "api" {
         value = "300s"
       }
 
-      # ---- Evidence Storage Adapter ----
+      # ---- Evidence Storage Adapter (Decision D2 & Backend Integration) ----
+      env {
+        name  = "STORAGE_ADAPTER_TYPE"
+        value = "azure_blob"
+      }
+
+      env {
+        name  = "AZURE_STORAGE_ACCOUNT"
+        value = azurerm_storage_account.evidence.name
+      }
+
+      env {
+        name  = "AZURE_STORAGE_CONTAINER"
+        value = azurerm_storage_container.evidence_private.name
+      }
+
+      env {
+        name  = "AZURE_STORAGE_ENDPOINT"
+        value = azurerm_storage_account.evidence.primary_blob_endpoint
+      }
+
+      env {
+        name  = "AZURE_USE_MANAGED_ID"
+        value = "true"
+      }
+
+      env {
+        name  = "MAX_UPLOAD_SIZE_BYTES"
+        value = "5242880"
+      }
+
+      # Backward compatibility aliases
       env {
         name  = "EWASTE_STORAGE_TYPE"
-        value = "azure"
+        value = "azure_blob"
       }
 
       env {

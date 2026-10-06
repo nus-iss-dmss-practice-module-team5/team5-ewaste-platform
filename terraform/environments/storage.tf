@@ -21,7 +21,7 @@ resource "azurerm_storage_account" "evidence" {
   account_tier                      = "Standard"
   account_replication_type          = "LRS"
   account_kind                      = "StorageV2"
-  enable_https_traffic_only         = true
+  https_traffic_only_enabled        = true
   min_tls_version                   = "TLS1_2"
   public_network_access_enabled     = false
   allow_nested_items_to_be_public   = false
@@ -47,6 +47,10 @@ resource "azurerm_storage_container" "evidence_private" {
   name                  = "evidence-private"
   storage_account_name  = azurerm_storage_account.evidence.name
   container_access_type = "private"
+
+  depends_on = [
+    azurerm_role_assignment.sp_storage_blob_data_contributor
+  ]
 }
 
 # ============================================================================
