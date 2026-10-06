@@ -10,18 +10,12 @@
 #   workload strictly authenticates via secretless Azure AD Managed Identity.
 # ============================================================================
 
-resource "random_string" "storage_suffix" {
-  length  = 4
-  special = false
-  upper   = false
-}
-
 resource "azurerm_storage_account" "evidence" {
   # checkov:skip=CKV_AZURE_144:LRS replication approved in Decision D2 for single-region academic MVP cost control.
   # checkov:skip=CKV_AZURE_166:Customer Managed Keys (CMK) disabled for academic MVP cost control; uses Microsoft-managed keys.
   # checkov:skip=CKV_AZURE_206:Advanced Threat Protection disabled for academic MVP cost control.
   # checkov:skip=CKV_AZURE_33:Storage logging for queues not applicable to blob-only evidence store.
-  name                              = "stgewaste${var.environment}${random_string.storage_suffix.result}"
+  name                              = "stgewaste${var.environment}"
   resource_group_name               = azurerm_resource_group.env_rg.name
   location                          = azurerm_resource_group.env_rg.location
   account_tier                      = "Standard"
