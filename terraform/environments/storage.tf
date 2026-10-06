@@ -47,11 +47,22 @@ resource "azurerm_storage_account" "evidence" {
   tags = local.common_tags
 }
 
-# Private Blob container dedicated to encrypted verification evidence
-resource "azurerm_storage_container" "evidence_private" {
-  name                  = "evidence-private"
-  storage_account_name  = azurerm_storage_account.evidence.name
-  container_access_type = "private"
+# Private Blob container dedicated to verification evidence.
+# Provisioned through the ARM control plane (management.azure.com) rather than
+# azurerm_storage_container, which calls the blob data plane
+# (<account>.blob.core.windows.net). Because public_network_access_enabled is
+# false, the data plane correctly rejects the GitHub-hosted runner with
+# 403 AuthorizationFailure, so the container must be created via ARM.
+resource "azapi_resource" "evidence_private" {
+  type      = "Microsoft.Storage/storageAccounts/blobServices/containers@2023-01-01"
+  name      = "evidence-private"
+  parent_id = "${azurerm_storage_account.evidence.id}/blobServices/default"
+
+  body = {
+    properties = {
+      publicAccess = "None"
+    }
+  }
 }
 
 # ============================================================================

@@ -106,7 +106,7 @@ output "storage_account_id" {
 }
 
 output "storage_container_name" {
-  value       = azurerm_storage_container.evidence_private.name
+  value       = azapi_resource.evidence_private.name
   description = "Name of the private blob container for batch evidence."
 }
 

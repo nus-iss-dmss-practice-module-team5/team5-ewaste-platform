@@ -646,7 +646,7 @@ resource "azurerm_container_app" "api" {
 
       env {
         name  = "AZURE_STORAGE_CONTAINER"
-        value = azurerm_storage_container.evidence_private.name
+        value = azapi_resource.evidence_private.name
       }
 
       env {
@@ -677,7 +677,7 @@ resource "azurerm_container_app" "api" {
 
       env {
         name  = "EWASTE_STORAGE_AZURE_CONTAINER_NAME"
-        value = azurerm_storage_container.evidence_private.name
+        value = azapi_resource.evidence_private.name
       }
 
       env {
@@ -714,7 +714,8 @@ resource "azurerm_container_app" "api" {
     azurerm_role_assignment.eventhub_sender,
     azurerm_eventhub_namespace_authorization_rule.app_auth,
     azurerm_role_assignment.storage_blob_data_contributor,
-    azurerm_private_endpoint.storage_pe
+    azurerm_private_endpoint.storage_pe,
+    azapi_resource.evidence_private
   ]
 }
 

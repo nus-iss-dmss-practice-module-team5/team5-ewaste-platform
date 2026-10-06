@@ -14,6 +14,7 @@ mock_provider "azurerm" {
 }
 mock_provider "random" {}
 mock_provider "tls" {}
+mock_provider "azapi" {}
 
 variables {
   tenant_id                 = "00000000-0000-4000-8000-000000000001"
