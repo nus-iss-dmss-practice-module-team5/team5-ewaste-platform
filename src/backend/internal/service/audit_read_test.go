@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -62,10 +63,10 @@ func TestAuditorReadServiceExposesTimelineAnomaliesAndImpact(t *testing.T) {
 
 func TestAuditorReadServiceRejectsNonAuditor(t *testing.T) {
 	service := NewAuditorReadService(&auditReadRepositoryStub{})
-	if _, err := service.Timeline(context.Background(), "batch-1", WorkflowReadActor{UserID: "user-1", RoleCode: "RECYCLER"}); err != ErrWorkflowReadForbidden {
+	if _, err := service.Timeline(context.Background(), "batch-1", WorkflowReadActor{UserID: "user-1", RoleCode: "RECYCLER"}); !errors.Is(err, ErrWorkflowReadForbidden) {
 		t.Fatalf("timeline error = %v, want forbidden", err)
 	}
-	if _, err := service.Impact(context.Background(), WorkflowReadActor{UserID: "user-1", RoleCode: "SYSTEM_ADMIN"}); err != ErrWorkflowReadForbidden {
+	if _, err := service.Impact(context.Background(), WorkflowReadActor{UserID: "user-1", RoleCode: "SYSTEM_ADMIN"}); !errors.Is(err, ErrWorkflowReadForbidden) {
 		t.Fatalf("impact error = %v, want forbidden", err)
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+
 	"workflow-api/internal/controller"
 	"workflow-api/internal/middleware"
 	"workflow-api/internal/model"
@@ -37,7 +38,11 @@ func integrationStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { pool.Close() })
+	t.Cleanup(func() {
+		if err := pool.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	pool.SetMaxOpenConns(12)
 	s := NewStore(db)
 	s.Now = func() time.Time { return time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC) }
@@ -57,7 +62,7 @@ func integrationStore(t *testing.T) *Store {
 	exec("INSERT INTO recycler_matching_profiles(recycler_org_id,is_active,version,created_at,updated_at) VALUES('PROC-001',1,1,?,?) ON DUPLICATE KEY UPDATE is_active=1", now, now)
 	org := obj(arr(f["organisations"])[0])
 	poolConfig := obj(arr(org["capacity_pools"])[0])
-	cap := obj(arr(org["category_capabilities"])[0])
+	capability := obj(arr(org["category_capabilities"])[0])
 	zone := obj(arr(org["service_zones"])[0])
 	// Seed 108 may already own MAIN under a different ID. Keep that identity
 	// and explicitly configure this disposable test's 100 kg boundary fixture.
@@ -66,7 +71,7 @@ func integrationStore(t *testing.T) *Store {
 	if err := db.Table("recycler_capacity_pools").Select("id").Where("recycler_org_id='PROC-001' AND pool_code='MAIN'").Scan(&poolID).Error; err != nil {
 		t.Fatal(err)
 	}
-	exec("INSERT INTO recycler_category_capabilities(id,recycler_org_id,category,accepted_conditions_json,supports_data_bearing,is_active,capacity_pool_id,version,updated_at) VALUES(?,'PROC-001','ICT_EQUIPMENT','[\"REPAIRABLE\"]',1,1,?,1,?) ON DUPLICATE KEY UPDATE accepted_conditions_json=VALUES(accepted_conditions_json),capacity_pool_id=VALUES(capacity_pool_id)", cap["id"], poolID, now)
+	exec("INSERT INTO recycler_category_capabilities(id,recycler_org_id,category,accepted_conditions_json,supports_data_bearing,is_active,capacity_pool_id,version,updated_at) VALUES(?,'PROC-001','ICT_EQUIPMENT','[\"REPAIRABLE\"]',1,1,?,1,?) ON DUPLICATE KEY UPDATE accepted_conditions_json=VALUES(accepted_conditions_json),capacity_pool_id=VALUES(capacity_pool_id)", capability["id"], poolID, now)
 	exec("INSERT INTO recycler_service_zones(id,recycler_org_id,zone,minimum_lead_minutes,is_active,version,updated_at) VALUES(?,'PROC-001','NORTH',2880,1,1,?) ON DUPLICATE KEY UPDATE minimum_lead_minutes=2880", zone["id"], now)
 	return s
 }
@@ -143,8 +148,8 @@ func seedRun(t *testing.T, s *Store) (object, string) {
 	if err := s.DB.Create(&b).Error; err != nil {
 		t.Fatal(err)
 	}
-	principal := "fixture"
-	cmd := model.CommandIdempotency{ID: uuid.NewString(), ServicePrincipal: &principal, ActorScope: "service:fixture", CommandName: "SubmitBatch", IdempotencyKey: uuid.NewString(), RequestHash: strings.Repeat("a", 64), BatchID: &id, State: model.CommandStateInProgress, CreatedAt: submitted, RetainUntil: now.Add(365 * 24 * time.Hour)}
+	principal := new("fixture")
+	cmd := model.CommandIdempotency{ID: uuid.NewString(), ServicePrincipal: principal, ActorScope: "service:fixture", CommandName: "SubmitBatch", IdempotencyKey: uuid.NewString(), RequestHash: strings.Repeat("a", 64), BatchID: &id, State: model.CommandStateInProgress, CreatedAt: submitted, RetainUntil: now.Add(365 * 24 * time.Hour)}
 	if err := s.DB.Create(&cmd).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +255,11 @@ func TestMySQLInvalidResultAndAtomicRollback(t *testing.T) {
 	if err := s.DB.Exec("CREATE TRIGGER matcher_reject_outbox BEFORE INSERT ON event_outbox FOR EACH ROW BEGIN IF NEW.event_type = 'MatchingCompleted' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='injected failure'; END IF; END").Error; err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { s.DB.Exec("DROP TRIGGER IF EXISTS matcher_reject_outbox") })
+	t.Cleanup(func() {
+		if err := s.DB.Exec("DROP TRIGGER IF EXISTS matcher_reject_outbox").Error; err != nil {
+			t.Error(err)
+		}
+	})
 	if _, err := s.Commit(context.Background(), id, out); err == nil {
 		t.Fatal("expected injected persistence failure")
 	}
@@ -266,7 +275,9 @@ func TestMySQLInvalidResultAndAtomicRollback(t *testing.T) {
 	if b.Status != model.BatchStatusSubmitted || b.Version != 2 {
 		t.Fatal("batch escaped rollback")
 	}
-	s.DB.Exec("DROP TRIGGER matcher_reject_outbox")
+	if err := s.DB.Exec("DROP TRIGGER matcher_reject_outbox").Error; err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.Commit(context.Background(), id, out); err != nil {
 		t.Fatal(err)
 	}
@@ -394,7 +405,9 @@ func TestMySQLInvalidConfigurationIsRecoverable(t *testing.T) {
 		t.Fatal(err)
 	}
 	restore := func() {
-		s.DB.Exec(`UPDATE recycler_category_capabilities SET accepted_conditions_json='["REPAIRABLE"]' WHERE recycler_org_id='PROC-001'`)
+		if err := s.DB.Exec(`UPDATE recycler_category_capabilities SET accepted_conditions_json='["REPAIRABLE"]' WHERE recycler_org_id='PROC-001'`).Error; err != nil {
+			t.Error(err)
+		}
 	}
 	t.Cleanup(restore)
 	if _, _, err := s.Prepare(context.Background(), req, key); err == nil || err.Error() != "UNAVAILABLE" {

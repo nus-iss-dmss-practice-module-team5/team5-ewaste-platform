@@ -68,11 +68,11 @@ func TestProcessingDetailToDTOPreservesOptionalAndDerivedFields(t *testing.T) {
 
 	view := processingDetailToDTO(&model.ProcessingDetail{
 		BatchID: "batch-1", Status: model.BatchStatusRecycled, Version: 8,
-		DeclaredCategory: &declaredCategory, DeclaredQuantity: &declaredQuantity,
-		EstimatedWeightKg: &declaredWeight, ActualCategory: &actualCategory,
-		ActualItemCount: &actualCount, ActualWeightKg: &actualWeight,
-		ReusedKg: &reused, RecycledKg: &recycled, DisposedKg: &disposed,
-		UnknownKg: &unknown, DivertedKg: &diverted, DataQuality: &quality,
+		DeclaredCategory: new(declaredCategory), DeclaredQuantity: new(declaredQuantity),
+		EstimatedWeightKg: new(declaredWeight), ActualCategory: new(actualCategory),
+		ActualItemCount: new(actualCount), ActualWeightKg: new(actualWeight),
+		ReusedKg: new(reused), RecycledKg: new(recycled), DisposedKg: new(disposed),
+		UnknownKg: new(unknown), DivertedKg: new(diverted), DataQuality: new(quality),
 		EvidenceStatus: "ABSENT", AnomalyCodes: []string{"UNALLOCATED_WEIGHT"},
 	})
 

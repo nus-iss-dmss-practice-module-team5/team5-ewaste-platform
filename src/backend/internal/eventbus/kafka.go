@@ -110,7 +110,7 @@ func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
 		host := strings.TrimSuffix(strings.ToLower(kafkaServerName(broker)), ".")
 		if strings.HasSuffix(host, ".servicebus.windows.net") &&
 			(!cfg.TLSEnabled || saslUsername != "$ConnectionString" || saslPassword == "") {
-			return nil, errors.New("Event Hubs requires TLS and connection-string SASL credentials")
+			return nil, errors.New("event hubs requires TLS and connection-string SASL credentials")
 		}
 	}
 	if saslUsername != "" || saslPassword != "" {

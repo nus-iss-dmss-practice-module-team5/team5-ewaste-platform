@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+
 	"workflow-api/internal/model"
 )
 
@@ -40,12 +41,12 @@ func lockedRows(tx *gorm.DB, table string) ([]object, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	cols, err := rows.Columns()
 	if err != nil {
 		return nil, err
 	}
-	result := []object{}
+	result := make([]object, 0)
 	for rows.Next() {
 		values := make([]any, len(cols))
 		ptrs := make([]any, len(cols))
@@ -86,7 +87,7 @@ func (s *Store) snapshot(tx *gorm.DB, b model.Batch, req object, runID, decision
 	if b.Category == nil || b.Quantity == nil || b.EstimatedWeightKg == nil || b.ConditionRating == nil || b.Zone == nil || b.CollectionDeadline == nil || b.SubmittedAt == nil {
 		return nil, fail("UNAVAILABLE")
 	}
-	tables := map[string][]object{}
+	tables := make(map[string][]object)
 	for _, table := range []string{"organisations", "matching_rule_sets", "recycler_matching_profiles", "recycler_capacity_pools", "recycler_category_capabilities", "recycler_service_zones"} {
 		rows, err := lockedRows(tx, table)
 		if err != nil {
@@ -111,13 +112,13 @@ func (s *Store) snapshot(tx *gorm.DB, b model.Batch, req object, runID, decision
 	if rule == nil {
 		return nil, fail("UNSUPPORTED_RULE_SET")
 	}
-	orgs := []any{}
+	orgs := make([]any, 0)
 	for _, r := range tables["organisations"] {
 		if r["organisation_type"] != "PROCESSING_FACILITY" || r["status"] != "ACTIVE" {
 			continue
 		}
 		id := r["organisation_id"]
-		o := object{"recycler_org_id": id, "organisation_type": "PROCESSING_FACILITY", "organisation_status": "ACTIVE", "profile": nil, "category_capabilities": []any{}, "capacity_pools": []any{}, "service_zones": []any{}}
+		o := object{"recycler_org_id": id, "organisation_type": "PROCESSING_FACILITY", "organisation_status": "ACTIVE", "profile": nil, "category_capabilities": make([]any, 0), "capacity_pools": make([]any, 0), "service_zones": make([]any, 0)}
 		for _, p := range tables["recycler_matching_profiles"] {
 			if p["recycler_org_id"] == id {
 				o["profile"] = object{"is_active": dbBool(p["is_active"]), "version": dbString(p["version"])}
@@ -176,19 +177,19 @@ func document(c model.CommandIdempotency) (object, error) {
 func runResponse(c model.CommandIdempotency, doc object, replay bool) object {
 	if c.State == model.CommandStateCompleted {
 		r := obj(doc["result"])
-		copy := selected(r)
+		resultCopy := selected(r)
 		for k, v := range r {
-			copy[k] = v
+			resultCopy[k] = v
 		}
-		copy["replay"] = replay
-		return object{"phase": "COMPLETED", "run_id": c.ID, "result": copy}
+		resultCopy["replay"] = replay
+		return object{"phase": "COMPLETED", "run_id": c.ID, "result": resultCopy}
 	}
 	return object{"phase": "PREPARED", "run_id": c.ID, "prepared_context": doc["prepared_context"]}
 }
 func complete(tx *gorm.DB, c *model.CommandIdempotency, doc object, now time.Time) error {
 	c.State = model.CommandStateCompleted
-	status := 200
-	c.ResponseStatus = &status
+	c.ResponseStatus = new(int)
+	*c.ResponseStatus = 200
 	c.CompletedAt = &now
 	c.ResponseJSON = canonical(doc)
 	if c.RetainUntil.Before(now) {
@@ -256,7 +257,7 @@ func validatePrepare(req object, key string) error {
 	return nil
 }
 
-func (s *Store) Prepare(ctx context.Context, req object, key string) (object, bool, error) {
+func (s *Store) Prepare(ctx context.Context, req Object, key string) (Object, bool, error) {
 	if err := validatePrepare(req, key); err != nil {
 		return nil, false, err
 	}
@@ -300,8 +301,9 @@ func (s *Store) Prepare(ctx context.Context, req object, key string) (object, bo
 			}
 		}
 		now := s.Now()
-		principal := "matching-worker"
-		c = model.CommandIdempotency{ID: uuid.NewString(), ServicePrincipal: &principal, ActorScope: actorScope, CommandName: commandName, IdempotencyKey: key, RequestHash: digest(req), BatchID: &b.ID, State: model.CommandStateInProgress, CreatedAt: now, RetainUntil: now.Add(365 * 24 * time.Hour)}
+		principal := new(string)
+		*principal = "matching-worker"
+		c = model.CommandIdempotency{ID: uuid.NewString(), ServicePrincipal: principal, ActorScope: actorScope, CommandName: commandName, IdempotencyKey: key, RequestHash: digest(req), BatchID: &b.ID, State: model.CommandStateInProgress, CreatedAt: now, RetainUntil: now.Add(365 * 24 * time.Hour)}
 		doc := object{"request": req}
 		if err := tx.Create(&c).Error; err != nil {
 			return err
@@ -337,8 +339,8 @@ func (s *Store) Prepare(ctx context.Context, req object, key string) (object, bo
 	return response, created, err
 }
 
-func (s *Store) Get(ctx context.Context, id string) (object, error) {
-	var response object
+func (s *Store) Get(ctx context.Context, id string) (Object, error) {
+	var response Object
 	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		c, e := getCommand(tx, id)
 		if e != nil {
@@ -354,8 +356,8 @@ func (s *Store) Get(ctx context.Context, id string) (object, error) {
 	return response, err
 }
 
-func (s *Store) Refresh(ctx context.Context, id, expectedHash string) (object, error) {
-	var response object
+func (s *Store) Refresh(ctx context.Context, id, expectedHash string) (Object, error) {
+	var response Object
 	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		c, err := getCommand(tx, id)
 		if err != nil {
@@ -404,14 +406,14 @@ func (s *Store) Refresh(ctx context.Context, id, expectedHash string) (object, e
 	return response, err
 }
 
-func (s *Store) Commit(ctx context.Context, id string, output object) (object, error) {
+func (s *Store) Commit(ctx context.Context, id string, output Object) (Object, error) {
 	if output["run_id"] != id {
 		return nil, fail("INVALID_RESULT")
 	}
 	if err := validate("MatchingOutput", output); err != nil {
 		return nil, fail("INVALID_RESULT")
 	}
-	var response object
+	var response Object
 	stale := false
 	err := s.transaction(ctx, func(tx *gorm.DB) error {
 		c, err := getCommand(tx, id)

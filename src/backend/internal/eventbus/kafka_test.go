@@ -66,7 +66,7 @@ func TestMatcherEventHubsTransportSafeguards(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer p.Close()
+	defer func() { _ = p.Close() }()
 	if p.writer.RequiredAcks != kafka.RequireAll || p.writer.AllowAutoTopicCreation || p.writer.Async {
 		t.Fatal("matcher requires synchronous acknowledged publication without topic creation")
 	}
@@ -84,7 +84,9 @@ func TestMatcherEventHubsTransportSafeguards(t *testing.T) {
 			bad := cfg
 			tc.alter(&bad)
 			if p, err := NewKafkaPublisher(bad); err == nil {
-				p.Close()
+				if closeErr := p.Close(); closeErr != nil {
+					t.Logf("close invalid publisher: %v", closeErr)
+				}
 				t.Fatal("invalid transport configuration accepted")
 			}
 		})

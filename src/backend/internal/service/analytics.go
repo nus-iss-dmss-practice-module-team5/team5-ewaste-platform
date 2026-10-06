@@ -480,16 +480,14 @@ func nullableEventString(value any) *string {
 	if value == nil {
 		return nil
 	}
-	stringValue := stringValue(value)
-	return &stringValue
+	return new(stringValue(value))
 }
 
 func eventIntPointer(value any) *int {
 	if value == nil {
 		return nil
 	}
-	number := int(numberValue(value))
-	return &number
+	return new(int(numberValue(value)))
 }
 
 func sameNullableString(left, right *string) bool {

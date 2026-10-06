@@ -84,7 +84,7 @@ func (w *fakePythonWorker) consumeOne(ctx context.Context) error {
 				return nil
 			}
 		}
-		return fmt.Errorf("Go did not enqueue RequestCompleted")
+		return fmt.Errorf("go did not enqueue RequestCompleted")
 	}
 }
 
@@ -175,7 +175,7 @@ func pythonAnalyticsAcknowledgement(payload map[string]any, sourceEventID string
 	inputHash := hex.EncodeToString(sum[:])
 
 	dataQuality := stringValue(data["data_quality"])
-	anomalyCodes := []string{}
+	anomalyCodes := make([]string, 0)
 	if dataQuality == string(model.TreatmentDataQualityMissing) {
 		anomalyCodes = append(anomalyCodes, string(model.AnomalyMissingOutcome))
 	}
@@ -204,12 +204,11 @@ func pythonAnalyticsAcknowledgement(payload map[string]any, sourceEventID string
 }
 
 func intPointer(value uint64) *int {
-	converted := int(value)
-	return &converted
+	return new(int(value))
 }
 
 func boolPointer(value bool) *bool {
-	return &value
+	return new(value)
 }
 
 func assertFakeKafkaEnvelope(t *testing.T, event model.EventOutbox, eventType, topic string) {

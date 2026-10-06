@@ -16,10 +16,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
 	"workflow-api/internal/matchingcontract"
 )
 
-type object = map[string]any
+// Object is the JSON-shaped contract value exchanged with the matching worker.
+// The exported name keeps the public Store methods usable by other packages.
+type Object = map[string]any
+
+type object = Object
 
 const timestampLayout = "2006-01-02T15:04:05.000000Z"
 
@@ -113,8 +118,8 @@ func normalize(input object) {
 				return str(x[spec[1]]) < str(y[spec[1]])
 			})
 		}
-		for _, cap := range arr(o["category_capabilities"]) {
-			a := arr(obj(cap)["accepted_conditions"])
+		for _, capability := range arr(o["category_capabilities"]) {
+			a := arr(obj(capability)["accepted_conditions"])
 			sort.Slice(a, func(i, j int) bool { return str(a[i]) < str(a[j]) })
 		}
 	}
@@ -215,19 +220,19 @@ func expectedOutput(input object) (object, error) {
 	}
 	deadline, _ := instant(b["collection_deadline"])
 	weight, _ := cents(b["estimated_weight_kg"])
-	candidates := []any{}
+	candidates := make([]any, 0)
 	eligible := 0
 	for _, v := range arr(input["organisations"]) {
 		o := obj(v)
 		profile := obj(o["profile"])
-		var cap, pool, zone object
+		var capability, pool, zone object
 		for _, v := range arr(o["category_capabilities"]) {
 			if obj(v)["category"] == b["category"] {
-				cap = obj(v)
+				capability = obj(v)
 			}
 		}
 		for _, v := range arr(o["capacity_pools"]) {
-			if cap != nil && obj(v)["id"] == cap["capacity_pool_id"] {
+			if capability != nil && obj(v)["id"] == capability["capacity_pool_id"] {
 				pool = obj(v)
 			}
 		}
@@ -236,7 +241,7 @@ func expectedOutput(input object) (object, error) {
 				zone = obj(v)
 			}
 		}
-		activeCap := cap != nil && boolean(cap["is_active"])
+		activeCap := capability != nil && boolean(capability["is_active"])
 		activePool := pool != nil && boolean(pool["is_active"])
 		activeZone := zone != nil && boolean(zone["is_active"])
 		available := int64(0)
@@ -261,16 +266,16 @@ func expectedOutput(input object) (object, error) {
 			lead = zone["minimum_lead_minutes"]
 		}
 		condition := false
-		for _, v := range arr(cap["accepted_conditions"]) {
+		for _, v := range arr(capability["accepted_conditions"]) {
 			condition = condition || v == b["condition_rating"]
 		}
-		flags := []bool{activeCap, profile != nil && boolean(profile["is_active"]) && activeCap && condition && (!boolean(b["is_data_bearing"]) || boolean(cap["supports_data_bearing"])), activePool && available >= weight, activeZone, activeZone && evaluation.Before(deadline) && !feasible.After(deadline)}
+		flags := []bool{activeCap, profile != nil && boolean(profile["is_active"]) && activeCap && condition && (!boolean(b["is_data_bearing"]) || boolean(capability["supports_data_bearing"])), activePool && available >= weight, activeZone, activeZone && evaluation.Before(deadline) && !feasible.After(deadline)}
 		capacityReason := "CAPACITY_UNAVAILABLE"
 		if activePool {
 			capacityReason = "INSUFFICIENT_CAPACITY"
 		}
 		reasons := []string{"CATEGORY_UNSUPPORTED", "CAPABILITY_UNSUPPORTED", capacityReason, "OUT_OF_SERVICE_ZONE", "DEADLINE_UNACHIEVABLE"}
-		failures := []any{}
+		failures := make([]any, 0)
 		for i, passed := range flags {
 			if !passed {
 				failures = append(failures, object{"rule_id": fmt.Sprintf("M%d", i+1), "reason_code": reasons[i]})
@@ -282,16 +287,16 @@ func expectedOutput(input object) (object, error) {
 		} else {
 			eligible++
 		}
-		missing := []any{}
+		missing := make([]any, 0)
 		for _, x := range []struct {
 			name string
 			m    object
-		}{{"PROFILE", profile}, {"CATEGORY_CAPABILITY", cap}, {"CAPACITY_POOL", pool}, {"SERVICE_ZONE", zone}} {
+		}{{"PROFILE", profile}, {"CATEGORY_CAPABILITY", capability}, {"CAPACITY_POOL", pool}, {"SERVICE_ZONE", zone}} {
 			if x.m == nil {
 				missing = append(missing, x.name)
 			}
 		}
-		candidate := object{"recycler_org_id": o["recycler_org_id"], "profile_version": profile["version"], "is_matched": len(failures) == 0, "available_capacity_kg": availableValue, "capacity_pool_id": pool["id"], "capacity_version": pool["version"], "minimum_lead_minutes": lead, "feasible_at": feasibleValue, "reason_code": reason, "failed_rules_json": failures, "evidence_json": object{"capability_id": cap["id"], "capability_version": cap["version"], "service_zone_id": zone["id"], "service_zone_version": zone["version"], "missing_configuration": missing}}
+		candidate := object{"recycler_org_id": o["recycler_org_id"], "profile_version": profile["version"], "is_matched": len(failures) == 0, "available_capacity_kg": availableValue, "capacity_pool_id": pool["id"], "capacity_version": pool["version"], "minimum_lead_minutes": lead, "feasible_at": feasibleValue, "reason_code": reason, "failed_rules_json": failures, "evidence_json": object{"capability_id": capability["id"], "capability_version": capability["version"], "service_zone_id": zone["id"], "service_zone_version": zone["version"], "missing_configuration": missing}}
 		for i, k := range []string{"category_match", "capability_match", "capacity_available", "zone_match", "deadline_viable"} {
 			candidate[k] = flags[i]
 		}

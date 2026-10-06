@@ -300,7 +300,7 @@ func (r *GormWorkflowReadRepository) processingBatchQuery(
 		}), nil
 }
 
-// Resolve opportunity scope from current database membership, not stale JWT claims.
+// FindRecyclerOrganisation resolves opportunity scope from current database membership, not stale JWT claims.
 func (r *GormWorkflowReadRepository) FindRecyclerOrganisation(ctx context.Context, userID string) (string, error) {
 	if r == nil || r.db == nil {
 		return "", errors.New("repository: workflow read database is nil")

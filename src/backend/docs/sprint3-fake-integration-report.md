@@ -1,7 +1,7 @@
 # Sprint 3 fake integration test report
 
-Date: 2026-10-06  
-Branch: `feature/EWCSB-170`  
+Date: 2026-10-06
+Branch: `feature/EWCSB-170`
 Scope: EWCSB-164, EWCSB-166, EWCSB-167, EWCSB-170
 
 ## Test
