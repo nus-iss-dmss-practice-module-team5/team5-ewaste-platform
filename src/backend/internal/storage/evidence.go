@@ -103,11 +103,10 @@ func (s *azureBlobEvidenceStorage) Put(ctx context.Context, objectKey string, co
 	if int64(len(content)) > s.maxBytes {
 		return fmt.Errorf("evidence object exceeds configured size limit")
 	}
-	ifNoneMatch := azcore.ETagAny
 	_, err := s.client.UploadBuffer(ctx, s.container, objectKey, content, &azblob.UploadBufferOptions{
 		HTTPHeaders: &blob.HTTPHeaders{BlobContentType: &contentType},
 		// The service generates unique keys. Never overwrite an existing object.
-		AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: &blob.ModifiedAccessConditions{IfNoneMatch: &ifNoneMatch}},
+		AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: &blob.ModifiedAccessConditions{IfNoneMatch: new(azcore.ETagAny)}},
 	})
 	return err
 }
@@ -120,10 +119,13 @@ func (s *azureBlobEvidenceStorage) Get(ctx context.Context, objectKey string) ([
 	if err != nil {
 		return nil, mapAzureStorageError(err)
 	}
-	defer resp.Body.Close()
-	content, err := io.ReadAll(io.LimitReader(resp.Body, s.maxBytes+1))
-	if err != nil {
-		return nil, err
+	content, readErr := io.ReadAll(io.LimitReader(resp.Body, s.maxBytes+1))
+	closeErr := resp.Body.Close()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("close evidence object response: %w", closeErr)
 	}
 	if int64(len(content)) > s.maxBytes {
 		return nil, errors.New("evidence object exceeds configured size limit")

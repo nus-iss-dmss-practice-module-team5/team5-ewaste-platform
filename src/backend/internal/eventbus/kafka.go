@@ -56,6 +56,9 @@ var canonicalTopicByEventType = map[string]string{
 	"CollectorAssigned":   "batch.collector.assigned",
 	"CollectionCompleted": "batch.collection.completed",
 	"CollectionFailed":    "batch.collection.failed",
+	"ReceiptVerified":     "ewaste.batch.events",
+	"RecyclingCompleted":  "ewaste.batch.events",
+	"RequestCompleted":    "ewaste.batch.events",
 }
 
 func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {

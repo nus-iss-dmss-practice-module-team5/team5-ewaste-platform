@@ -24,6 +24,8 @@ type fakeBatchState struct {
 	receipts   map[string]*model.BatchReceipt
 	treatments map[string]*model.BatchTreatment
 	evidence   map[string]*model.BatchEvidence
+	analytics  map[string]*model.AnalyticsResult
+	anomalies  map[string]*model.BatchAnomaly
 	commands   []*model.CommandIdempotency
 	audits     []*model.BatchAuditEvent
 	outbox     []*model.EventOutbox
@@ -42,6 +44,8 @@ func newFakeBatchRepository() *fakeBatchRepository {
 			receipts:   make(map[string]*model.BatchReceipt),
 			treatments: make(map[string]*model.BatchTreatment),
 			evidence:   make(map[string]*model.BatchEvidence),
+			analytics:  make(map[string]*model.AnalyticsResult),
+			anomalies:  make(map[string]*model.BatchAnomaly),
 		},
 	}
 }
@@ -241,6 +245,64 @@ func (t *fakeBatchTransaction) FindEvidence(
 	return cloneEvidence(evidence), nil
 }
 
+func (t *fakeBatchTransaction) FindOutboxEvent(
+	_ context.Context,
+	batchID string,
+	eventID string,
+	eventType string,
+) (*model.EventOutbox, error) {
+	for _, event := range t.state.outbox {
+		if event.BatchID == batchID && event.EventID == eventID && event.EventType == eventType {
+			copyEvent := *event
+			copyEvent.PayloadJSON = append([]byte(nil), event.PayloadJSON...)
+			return &copyEvent, nil
+		}
+	}
+	return nil, repository.ErrEventOutboxNotFound
+}
+
+func (t *fakeBatchTransaction) FindAnalyticsResultBySourceRun(
+	_ context.Context,
+	sourceEventID string,
+	analyticsRunID string,
+) (*model.AnalyticsResult, error) {
+	for _, result := range t.state.analytics {
+		if result.SourceEventID == sourceEventID && result.AnalyticsRunID == analyticsRunID {
+			return cloneAnalyticsResult(result), nil
+		}
+	}
+	return nil, repository.ErrAnalyticsNotFound
+}
+
+func (t *fakeBatchTransaction) FindBatchAnomalies(_ context.Context, resultID string) ([]*model.BatchAnomaly, error) {
+	var anomalies []*model.BatchAnomaly
+	for _, anomaly := range t.state.anomalies {
+		if anomaly.ResultID == resultID {
+			anomalies = append(anomalies, cloneAnomaly(anomaly))
+		}
+	}
+	return anomalies, nil
+}
+
+func (t *fakeBatchTransaction) FindRequestCompletedEvent(_ context.Context, batchID string, resultID string) (*model.EventOutbox, error) {
+	for _, event := range t.state.outbox {
+		if event.BatchID != batchID || event.EventType != model.RequestCompletedEventType {
+			continue
+		}
+		payload, err := decodeEventPayload(event.PayloadJSON)
+		if err != nil {
+			continue
+		}
+		data, _ := payload["data"].(map[string]any)
+		if stringValue(data["result_id"]) == resultID {
+			copyEvent := *event
+			copyEvent.PayloadJSON = append([]byte(nil), event.PayloadJSON...)
+			return &copyEvent, nil
+		}
+	}
+	return nil, repository.ErrEventOutboxNotFound
+}
+
 func (t *fakeBatchTransaction) CreateEvidence(
 	_ context.Context,
 	evidence *model.BatchEvidence,
@@ -286,6 +348,41 @@ func (t *fakeBatchTransaction) UpdateBatchTreatment(
 		return nil, repository.ErrBatchConcurrency
 	}
 	batch.Status = model.BatchStatusRecycled
+	batch.Version++
+	batch.UpdatedAt = now
+	return cloneBatch(batch), nil
+}
+
+func (t *fakeBatchTransaction) CreateAnalyticsResult(
+	_ context.Context,
+	result *model.AnalyticsResult,
+) error {
+	t.state.analytics[result.ResultID] = cloneAnalyticsResult(result)
+	return nil
+}
+
+func (t *fakeBatchTransaction) CreateBatchAnomaly(
+	_ context.Context,
+	anomaly *model.BatchAnomaly,
+) error {
+	t.state.anomalies[anomaly.AnomalyID] = cloneAnomaly(anomaly)
+	return nil
+}
+
+func (t *fakeBatchTransaction) UpdateBatchAnalytics(
+	_ context.Context,
+	batchID string,
+	expectedVersion uint32,
+	now time.Time,
+) (*model.Batch, error) {
+	batch, ok := t.state.batches[batchID]
+	if !ok {
+		return nil, repository.ErrBatchNotFound
+	}
+	if batch.Status != model.BatchStatusRecycled || batch.Version != expectedVersion {
+		return nil, repository.ErrBatchConcurrency
+	}
+	batch.Status = model.BatchStatusCompleted
 	batch.Version++
 	batch.UpdatedAt = now
 	return cloneBatch(batch), nil
@@ -339,6 +436,8 @@ func cloneFakeBatchState(source *fakeBatchState) *fakeBatchState {
 		receipts:   make(map[string]*model.BatchReceipt, len(source.receipts)),
 		treatments: make(map[string]*model.BatchTreatment, len(source.treatments)),
 		evidence:   make(map[string]*model.BatchEvidence, len(source.evidence)),
+		analytics:  make(map[string]*model.AnalyticsResult, len(source.analytics)),
+		anomalies:  make(map[string]*model.BatchAnomaly, len(source.anomalies)),
 		commands:   make([]*model.CommandIdempotency, 0, len(source.commands)),
 		audits:     make([]*model.BatchAuditEvent, 0, len(source.audits)),
 		outbox:     make([]*model.EventOutbox, 0, len(source.outbox)),
@@ -354,6 +453,12 @@ func cloneFakeBatchState(source *fakeBatchState) *fakeBatchState {
 	}
 	for id, evidence := range source.evidence {
 		clone.evidence[id] = cloneEvidence(evidence)
+	}
+	for id, result := range source.analytics {
+		clone.analytics[id] = cloneAnalyticsResult(result)
+	}
+	for id, anomaly := range source.anomalies {
+		clone.anomalies[id] = cloneAnomaly(anomaly)
 	}
 	for _, command := range source.commands {
 		clone.commands = append(clone.commands, cloneCommand(command))
@@ -422,6 +527,29 @@ func cloneEvidence(source *model.BatchEvidence) *model.BatchEvidence {
 	}
 	clone := new(model.BatchEvidence)
 	*clone = *source
+	return clone
+}
+
+func cloneAnalyticsResult(source *model.AnalyticsResult) *model.AnalyticsResult {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.AnalyticsResult)
+	*clone = *source
+	clone.ClaimEpoch = cloneString(source.ClaimEpoch)
+	clone.MetricsJSON = append([]byte(nil), source.MetricsJSON...)
+	return clone
+}
+
+func cloneAnomaly(source *model.BatchAnomaly) *model.BatchAnomaly {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.BatchAnomaly)
+	*clone = *source
+	clone.DeclaredValue = cloneString(source.DeclaredValue)
+	clone.ActualValue = cloneString(source.ActualValue)
+	clone.DeltaKg = cloneString(source.DeltaKg)
 	return clone
 }
 

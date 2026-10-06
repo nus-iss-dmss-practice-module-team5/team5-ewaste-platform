@@ -15,6 +15,7 @@ const (
 	BatchAuditEventTreatmentRecorded          = "TreatmentRecorded"
 	BatchAuditEventEvidenceUploaded           = "EvidenceUploaded"
 	BatchAuditEventEvidenceDownloaded         = "EvidenceDownloaded"
+	BatchAuditEventAnalyticsCompleted         = "AnalyticsCompleted"
 )
 
 type BatchAuditEvent struct {

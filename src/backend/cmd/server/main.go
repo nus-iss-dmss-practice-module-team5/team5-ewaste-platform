@@ -134,6 +134,7 @@ func run() error {
 	batchRepository := repository.NewGormBatchRepository(db)
 	batchService := service.NewBatchService(batchRepository)
 	batchController := controller.NewBatchController(batchService, appLogger.Logger)
+	analyticsController := controller.NewAnalyticsController(batchService, appLogger.Logger)
 	evidenceStorage, storageErr := storage.NewEvidenceStorage(cfg.Storage)
 	if storageErr != nil {
 		return fmt.Errorf("create evidence storage: %w", storageErr)
@@ -206,12 +207,14 @@ func run() error {
 		evidenceController,
 		claimController,
 		assignmentController,
+		analyticsController,
 		tokens,
 		repo,
 		limiter,
 		checker,
 		cfg.Server.AllowedOrigins,
 		appLogger.Logger,
+		cfg.Auth.AnalyticsServiceToken,
 		workflowReadController,
 	)
 

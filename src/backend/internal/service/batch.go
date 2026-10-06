@@ -511,17 +511,25 @@ func newCommand(
 	now time.Time,
 	retainFor time.Duration,
 ) *model.CommandIdempotency {
+	var actorUserID *string
+	var principal *string
+	if servicePrincipal := metadata.ServicePrincipal(); servicePrincipal != "" {
+		principal = new(servicePrincipal)
+	} else {
+		actorUserID = new(metadata.Actor.UserID)
+	}
 	return &model.CommandIdempotency{
-		ID:             uuid.NewString(),
-		ActorUserID:    new(metadata.Actor.UserID),
-		ActorScope:     metadata.ActorScope,
-		CommandName:    metadata.CommandName,
-		IdempotencyKey: metadata.IdempotencyKey,
-		RequestHash:    metadata.RequestHash,
-		BatchID:        new(batchID),
-		State:          model.CommandStateInProgress,
-		CreatedAt:      now,
-		RetainUntil:    now.Add(retainFor),
+		ID:               uuid.NewString(),
+		ActorUserID:      actorUserID,
+		ServicePrincipal: principal,
+		ActorScope:       metadata.ActorScope,
+		CommandName:      metadata.CommandName,
+		IdempotencyKey:   metadata.IdempotencyKey,
+		RequestHash:      metadata.RequestHash,
+		BatchID:          new(batchID),
+		State:            model.CommandStateInProgress,
+		CreatedAt:        now,
+		RetainUntil:      now.Add(retainFor),
 	}
 }
 
@@ -557,13 +565,23 @@ func newAuditEvent(
 	occurredAt time.Time,
 ) *model.BatchAuditEvent {
 	detailsJSON, _ := json.Marshal(details)
+	var actorUserID *string
+	var actorOrganizationID *string
+	var principal *string
+	if servicePrincipal := metadata.ServicePrincipal(); servicePrincipal != "" {
+		principal = new(servicePrincipal)
+	} else {
+		actorUserID = new(metadata.Actor.UserID)
+		actorOrganizationID = new(metadata.Actor.OrganisationID)
+	}
 
 	return &model.BatchAuditEvent{
 		ID:                  uuid.NewString(),
 		BatchID:             batch.ID,
 		CommandID:           commandID,
-		ActorUserID:         new(metadata.Actor.UserID),
-		ActorOrganizationID: new(metadata.Actor.OrganisationID),
+		ActorUserID:         actorUserID,
+		ActorOrganizationID: actorOrganizationID,
+		ServicePrincipal:    principal,
 		EventType:           eventType,
 		FromStatus:          fromStatus,
 		ToStatus:            toStatus,

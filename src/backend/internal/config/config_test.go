@@ -38,6 +38,7 @@ auth:
 	t.Setenv("EWASTE_AUTH_ISSUER", "integration-api")
 	t.Setenv("EWASTE_AUTH_ACCESS_TTL", "20m")
 	t.Setenv("EWASTE_AUTH_REFRESH_TTL", "3h")
+	t.Setenv("EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN", "analytics-secret")
 	t.Setenv("EWASTE_RATE_LIMIT_REQUESTS", "25")
 	t.Setenv("EWASTE_RATE_LIMIT_WINDOW", "2m")
 	t.Setenv("EWASTE_KAFKA_ENABLED", "true")
@@ -65,6 +66,9 @@ auth:
 	}
 	if cfg.Auth.Issuer != "integration-api" || cfg.Auth.AccessTTL.Minutes() != 20 || cfg.Auth.RefreshTTL.Hours() != 3 {
 		t.Fatalf("expected auth environment values, got issuer=%q access=%s refresh=%s", cfg.Auth.Issuer, cfg.Auth.AccessTTL, cfg.Auth.RefreshTTL)
+	}
+	if cfg.Auth.AnalyticsServiceToken != "analytics-secret" {
+		t.Fatalf("expected analytics service token from environment")
 	}
 	if cfg.RateLimit.Requests != 25 || cfg.RateLimit.Window.Minutes() != 2 {
 		t.Fatalf("expected rate limit environment values, got requests=%d window=%s", cfg.RateLimit.Requests, cfg.RateLimit.Window)

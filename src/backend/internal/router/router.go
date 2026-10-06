@@ -22,12 +22,14 @@ func NewAuthRouter(
 	evidenceController *controller.EvidenceController,
 	claimController *controller.ClaimController,
 	assignmentController *controller.AssignmentController,
+	analyticsController *controller.AnalyticsController,
 	tokens *token.Service,
 	repo repository.AuthRepository,
 	limiter ratelimit.Limiter,
 	checker *health.Checker,
 	allowedOrigins []string,
 	logger *zap.Logger,
+	analyticsServiceToken string,
 	readControllers ...*controller.WorkflowReadController,
 ) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
@@ -95,6 +97,11 @@ func NewAuthRouter(
 	}
 	if assignmentController != nil {
 		batches.POST("/:batch_id/assignments", assignmentController.Select)
+	}
+	analyticsBatches := r.Group("/api/v1/batches")
+	analyticsBatches.Use(middleware.RequireAnalyticsService(analyticsServiceToken))
+	if analyticsController != nil {
+		analyticsBatches.POST("/:batch_id/analytics-results", analyticsController.Acknowledge)
 	}
 
 	assignments := r.Group("/api/v1/assignments")

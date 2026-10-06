@@ -44,6 +44,8 @@ auth:
   access_secret: ""
   refresh_secret: ""
   refresh_hash_secret: ""
+  # Supply through EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN; the analytics endpoint fails closed when empty.
+  analytics_service_token: ""
   access_ttl: "15m"
   refresh_ttl: "24h"
 

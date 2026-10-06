@@ -50,3 +50,46 @@ type TreatmentMutationResult struct {
 	EventID       string        `json:"event_id,omitempty"`
 	EventState    string        `json:"event_state,omitempty"`
 }
+
+type AnalyticsMetrics struct {
+	DeclaredWeightKg *string `json:"declared_weight_kg"`
+	ActualWeightKg   *string `json:"actual_weight_kg"`
+	ReusedKg         *string `json:"reused_kg"`
+	RecycledKg       *string `json:"recycled_kg"`
+	DisposedKg       *string `json:"disposed_kg"`
+	UnknownKg        *string `json:"unknown_kg"`
+	DivertedKg       *string `json:"diverted_kg"`
+	DeclaredQuantity *int    `json:"declared_quantity"`
+	ActualItemCount  *int    `json:"actual_item_count"`
+	CategoryMatch    *bool   `json:"category_match"`
+	WeightDeltaKg    *string `json:"weight_delta_kg"`
+	CountDelta       *int    `json:"count_delta"`
+}
+
+type AnalyticsAcknowledgement struct {
+	SourceEventID      string           `json:"source_event_id"`
+	SourceEventVersion uint32           `json:"source_event_version"`
+	AnalyticsRunID     string           `json:"analytics_run_id"`
+	InputHash          string           `json:"input_hash"`
+	RuleVersion        string           `json:"rule_version"`
+	DataQuality        string           `json:"data_quality"`
+	Metrics            AnalyticsMetrics `json:"metrics"`
+	AnomalyCodes       []string         `json:"anomaly_codes"`
+}
+
+type CompletionView struct {
+	BatchID           string           `json:"batch_id"`
+	Status            string           `json:"status"`
+	Version           int64            `json:"version"`
+	AnalyticsResultID string           `json:"analytics_result_id"`
+	DataQuality       string           `json:"data_quality"`
+	Metrics           AnalyticsMetrics `json:"metrics"`
+	AnomalyCodes      []string         `json:"anomaly_codes"`
+}
+
+type CompletionMutationResult struct {
+	Data          CompletionView `json:"data"`
+	CorrelationID string         `json:"correlation_id"`
+	EventID       string         `json:"event_id,omitempty"`
+	EventState    string         `json:"event_state,omitempty"`
+}

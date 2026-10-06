@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"errors"
 	"io"
 	"mime"
@@ -13,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"workflow-api/internal/apierror"
+	"workflow-api/internal/dto"
 	"workflow-api/internal/middleware"
 	"workflow-api/internal/model"
 	"workflow-api/internal/repository"
@@ -21,11 +23,17 @@ import (
 )
 
 type EvidenceController struct {
-	service *service.EvidenceService
+	service evidenceWorkflow
 	logger  *zap.Logger
 }
 
-func NewEvidenceController(evidenceService *service.EvidenceService, logger *zap.Logger) *EvidenceController {
+type evidenceWorkflow interface {
+	Upload(context.Context, string, service.EvidenceUploadRequest, service.BatchCommandMetadata) (dto.EvidenceMutationResult, error)
+	Download(context.Context, string, string, service.EvidenceDownloadActor, string) (service.EvidenceDownloadResult, error)
+	MaxUploadSizeBytes() int64
+}
+
+func NewEvidenceController(evidenceService evidenceWorkflow, logger *zap.Logger) *EvidenceController {
 	return &EvidenceController{service: evidenceService, logger: logger}
 }
 
@@ -58,13 +66,16 @@ func (h *EvidenceController) Upload(c *gin.Context) {
 		h.writeError(c, apierror.ValidationError, err)
 		return
 	}
-	defer file.Close()
-	content, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
-	if err != nil {
-		h.writeError(c, apierror.ValidationError, err)
+	content, readErr := io.ReadAll(io.LimitReader(file, maxBytes+1))
+	closeErr := file.Close()
+	if readErr != nil {
+		h.writeError(c, apierror.ValidationError, readErr)
 		return
 	}
-
+	if closeErr != nil {
+		h.writeError(c, apierror.ValidationError, closeErr)
+		return
+	}
 	metadata, err := batchMetadata(c, claims, false)
 	if err != nil {
 		h.writeError(c, apierror.InvalidRequest, err)

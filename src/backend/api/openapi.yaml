@@ -795,10 +795,10 @@ paths:
       tags: [Analytics]
       summary: Acknowledge a durable deterministic analytics result
       operationId: acknowledgeAnalyticsResult
-      description: Only the authenticated analytics service identity may call this operation.
+      description: Only the authenticated analytics service identity may call this operation. Authorization must carry the configured analytics service bearer token; user access tokens are not accepted.
       parameters:
         - $ref: '#/components/parameters/BatchId'
-        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/AnalyticsAuthorization'
         - $ref: '#/components/parameters/CorrelationId'
         - $ref: '#/components/parameters/IdempotencyKey'
         - $ref: '#/components/parameters/IfMatchVersion'
@@ -814,6 +814,7 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/ValidationError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/audit/batches/{batch_id}/timeline:
     get:
       tags: [Auditor]
@@ -861,6 +862,12 @@ components:
       in: header
       required: true
       description: Access token using the Bearer scheme.
+      schema: {type: string}
+    AnalyticsAuthorization:
+      name: Authorization
+      in: header
+      required: true
+      description: Bearer token for the configured analytics worker service identity; user access tokens are rejected.
       schema: {type: string}
     CorrelationId:
       name: X-Correlation-ID
@@ -1054,7 +1061,7 @@ components:
         source_event_id: {type: string, format: uuid}
         source_event_version: {type: integer, minimum: 1}
         analytics_run_id: {type: string, minLength: 1, maxLength: 128}
-        input_hash: {type: string, pattern: '^[0-9a-fA-F]{64}$'}
+        input_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
         rule_version: {type: string, minLength: 1, maxLength: 64}
         data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
         metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}

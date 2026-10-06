@@ -69,12 +69,14 @@ func newRouterTest(t *testing.T, checker *health.Checker) *gin.Engine {
 		nil,
 		nil,
 		nil,
+		nil,
 		tokens,
 		repo,
 		routerTestLimiter{},
 		checker,
 		nil,
 		zap.NewNop(),
+		"",
 	)
 }
 
@@ -166,12 +168,14 @@ func TestAuthRouterRegistersTreatmentEndpoint(t *testing.T) {
 		nil,
 		nil,
 		nil,
+		nil,
 		tokens,
 		repo,
 		routerTestLimiter{},
 		nil,
 		nil,
 		zap.NewNop(),
+		"",
 	)
 
 	for _, route := range r.Routes() {
@@ -194,12 +198,14 @@ func TestAuthRouterRegistersEvidenceEndpoints(t *testing.T) {
 		evidenceController,
 		nil,
 		nil,
+		nil,
 		tokens,
 		repo,
 		routerTestLimiter{},
 		nil,
 		nil,
 		zap.NewNop(),
+		"",
 	)
 
 	paths := map[string]bool{}
@@ -209,6 +215,25 @@ func TestAuthRouterRegistersEvidenceEndpoints(t *testing.T) {
 	if !paths[http.MethodPost+" /api/v1/batches/:batch_id/evidence"] || !paths[http.MethodGet+" /api/v1/batches/:batch_id/evidence/:evidence_id"] {
 		t.Fatalf("evidence routes were not registered: %+v", paths)
 	}
+}
+
+func TestAuthRouterRegistersAnalyticsEndpoint(t *testing.T) {
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authService := service.NewAuthService(repo, tokens, zap.NewNop())
+	authController := controller.NewAuthController(authService, zap.NewNop())
+	analyticsController := controller.NewAnalyticsController(nil, zap.NewNop())
+	r := NewAuthRouter(
+		authController, nil, nil, nil, nil, analyticsController, tokens, repo,
+		routerTestLimiter{}, nil, nil, zap.NewNop(), "analytics-secret",
+	)
+
+	for _, route := range r.Routes() {
+		if route.Method == http.MethodPost && route.Path == "/api/v1/batches/:batch_id/analytics-results" {
+			return
+		}
+	}
+	t.Fatal("analytics endpoint was not registered")
 }
 
 func TestDocsExposeOpenAPISpecAndSwaggerUI(t *testing.T) {

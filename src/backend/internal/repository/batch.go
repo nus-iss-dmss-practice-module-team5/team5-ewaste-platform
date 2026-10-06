@@ -18,6 +18,8 @@ var (
 	ErrBatchActorNotEligible = errors.New("repository: receipt actor is not eligible")
 	ErrReceiptNotFound       = errors.New("repository: receipt not found")
 	ErrEvidenceNotFound      = errors.New("repository: evidence not found")
+	ErrEventOutboxNotFound   = errors.New("repository: outbox event not found")
+	ErrAnalyticsNotFound     = errors.New("repository: analytics result not found")
 )
 
 type BatchRepository interface {
@@ -63,10 +65,17 @@ type BatchTransaction interface {
 	UpdateBatchReceipt(ctx context.Context, batchID string, expectedVersion uint32, now time.Time) (*model.Batch, error)
 	FindReceipt(ctx context.Context, batchID string) (*model.BatchReceipt, error)
 	FindEvidence(ctx context.Context, batchID string, evidenceID string) (*model.BatchEvidence, error)
+	FindOutboxEvent(ctx context.Context, batchID string, eventID string, eventType string) (*model.EventOutbox, error)
+	FindAnalyticsResultBySourceRun(ctx context.Context, sourceEventID string, analyticsRunID string) (*model.AnalyticsResult, error)
+	FindBatchAnomalies(ctx context.Context, resultID string) ([]*model.BatchAnomaly, error)
+	FindRequestCompletedEvent(ctx context.Context, batchID string, resultID string) (*model.EventOutbox, error)
 	CreateEvidence(ctx context.Context, evidence *model.BatchEvidence) error
 	ValidateTreatmentEvidence(ctx context.Context, batchID string, evidenceID string, organisationID string) error
 	CreateTreatment(ctx context.Context, treatment *model.BatchTreatment) error
 	UpdateBatchTreatment(ctx context.Context, batchID string, expectedVersion uint32, now time.Time) (*model.Batch, error)
+	CreateAnalyticsResult(ctx context.Context, result *model.AnalyticsResult) error
+	CreateBatchAnomaly(ctx context.Context, anomaly *model.BatchAnomaly) error
+	UpdateBatchAnalytics(ctx context.Context, batchID string, expectedVersion uint32, now time.Time) (*model.Batch, error)
 
 	CompleteCommand(
 		ctx context.Context,
@@ -428,6 +437,56 @@ func (t *gormBatchTransaction) FindEvidence(ctx context.Context, batchID string,
 	return &evidence, nil
 }
 
+func (t *gormBatchTransaction) FindOutboxEvent(ctx context.Context, batchID string, eventID string, eventType string) (*model.EventOutbox, error) {
+	var event model.EventOutbox
+	err := t.db.WithContext(ctx).
+		Where("batch_id = ? AND event_id = ? AND event_type = ?", batchID, eventID, eventType).
+		First(&event).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrEventOutboxNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &event, nil
+}
+
+func (t *gormBatchTransaction) FindAnalyticsResultBySourceRun(ctx context.Context, sourceEventID string, analyticsRunID string) (*model.AnalyticsResult, error) {
+	var result model.AnalyticsResult
+	err := t.db.WithContext(ctx).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("source_event_id = ? AND analytics_run_id = ?", sourceEventID, analyticsRunID).
+		First(&result).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrAnalyticsNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func (t *gormBatchTransaction) FindBatchAnomalies(ctx context.Context, resultID string) ([]*model.BatchAnomaly, error) {
+	var anomalies []*model.BatchAnomaly
+	if err := t.db.WithContext(ctx).Where("result_id = ?", resultID).Order("anomaly_id ASC").Find(&anomalies).Error; err != nil {
+		return nil, err
+	}
+	return anomalies, nil
+}
+
+func (t *gormBatchTransaction) FindRequestCompletedEvent(ctx context.Context, batchID string, resultID string) (*model.EventOutbox, error) {
+	var events []model.EventOutbox
+	if err := t.db.WithContext(ctx).
+		Where("batch_id = ? AND event_type = ? AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.data.result_id')) = ?", batchID, model.RequestCompletedEventType, resultID).
+		Order("created_at ASC").Find(&events).Error; err != nil {
+		return nil, err
+	}
+	if len(events) == 0 {
+		return nil, ErrEventOutboxNotFound
+	}
+	return &events[0], nil
+}
+
 func (t *gormBatchTransaction) CreateEvidence(ctx context.Context, evidence *model.BatchEvidence) error {
 	if evidence == nil {
 		return errors.New("repository: evidence is nil")
@@ -489,6 +548,48 @@ func (t *gormBatchTransaction) UpdateBatchTreatment(
 		).
 		Updates(map[string]any{
 			"status":     model.BatchStatusRecycled,
+			"version":    gorm.Expr("version + 1"),
+			"updated_at": now,
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, ErrBatchConcurrency
+	}
+
+	var batch model.Batch
+	if err := t.db.WithContext(ctx).Where("id = ?", batchID).First(&batch).Error; err != nil {
+		return nil, err
+	}
+	return &batch, nil
+}
+
+func (t *gormBatchTransaction) CreateAnalyticsResult(ctx context.Context, result *model.AnalyticsResult) error {
+	if result == nil {
+		return errors.New("repository: analytics result is nil")
+	}
+	return t.db.WithContext(ctx).Create(result).Error
+}
+
+func (t *gormBatchTransaction) CreateBatchAnomaly(ctx context.Context, anomaly *model.BatchAnomaly) error {
+	if anomaly == nil {
+		return errors.New("repository: batch anomaly is nil")
+	}
+	return t.db.WithContext(ctx).Create(anomaly).Error
+}
+
+func (t *gormBatchTransaction) UpdateBatchAnalytics(
+	ctx context.Context,
+	batchID string,
+	expectedVersion uint32,
+	now time.Time,
+) (*model.Batch, error) {
+	result := t.db.WithContext(ctx).
+		Model(&model.Batch{}).
+		Where("id = ? AND status = ? AND version = ?", batchID, model.BatchStatusRecycled, expectedVersion).
+		Updates(map[string]any{
+			"status":     model.BatchStatusCompleted,
 			"version":    gorm.Expr("version + 1"),
 			"updated_at": now,
 		})

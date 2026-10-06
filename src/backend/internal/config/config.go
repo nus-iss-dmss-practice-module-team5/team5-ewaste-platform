@@ -91,12 +91,13 @@ type RedisConfig struct {
 }
 
 type AuthConfig struct {
-	Issuer            string        `mapstructure:"issuer"`
-	AccessSecret      string        `mapstructure:"access_secret"`
-	RefreshSecret     string        `mapstructure:"refresh_secret"`
-	AccessTTL         time.Duration `mapstructure:"access_ttl"`
-	RefreshTTL        time.Duration `mapstructure:"refresh_ttl"`
-	RefreshHashSecret string        `mapstructure:"refresh_hash_secret"`
+	Issuer                string        `mapstructure:"issuer"`
+	AccessSecret          string        `mapstructure:"access_secret"`
+	RefreshSecret         string        `mapstructure:"refresh_secret"`
+	AccessTTL             time.Duration `mapstructure:"access_ttl"`
+	RefreshTTL            time.Duration `mapstructure:"refresh_ttl"`
+	RefreshHashSecret     string        `mapstructure:"refresh_hash_secret"`
+	AnalyticsServiceToken string        `mapstructure:"analytics_service_token"`
 }
 
 // StorageConfig contains only non-secret Azure Blob configuration. Shared
@@ -179,6 +180,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.access_secret", "")
 	v.SetDefault("auth.refresh_secret", "")
 	v.SetDefault("auth.refresh_hash_secret", "")
+	v.SetDefault("auth.analytics_service_token", "")
 	v.SetDefault("storage.adapter_type", "disabled")
 	v.SetDefault("storage.azure_storage_account", "")
 	v.SetDefault("storage.azure_storage_container", "evidence-private")
@@ -230,6 +232,7 @@ func bindEnvironment(v *viper.Viper) {
 		"auth.access_ttl",
 		"auth.refresh_ttl",
 		"auth.refresh_hash_secret",
+		"auth.analytics_service_token",
 		"storage.adapter_type",
 		"storage.azure_storage_account",
 		"storage.azure_storage_container",

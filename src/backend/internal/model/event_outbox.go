@@ -10,6 +10,7 @@ const (
 	CollectionFailedEventType    = "CollectionFailed"
 	ReceiptVerifiedEventType     = "ReceiptVerified"
 	RecyclingCompletedEventType  = "RecyclingCompleted"
+	RequestCompletedEventType    = "RequestCompleted"
 )
 
 type OutboxPublishState string

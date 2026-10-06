@@ -210,7 +210,7 @@ func TestBatchServiceRecordTreatmentRejectsUnvalidatedEvidence(t *testing.T) {
 		BatchID:          "batch-receipt-001",
 		OrganisationID:   "facility-001",
 		LifecycleStage:   model.EvidenceLifecycleTreatment,
-		ValidationStatus: model.EvidenceValidationStatus("PENDING"),
+		ValidationStatus: "PENDING",
 	}
 
 	_, err := service.RecordTreatment(
