@@ -19,11 +19,13 @@ type fakeBatchRepository struct {
 }
 
 type fakeBatchState struct {
-	batches  map[string]*model.Batch
-	receipts map[string]*model.BatchReceipt
-	commands []*model.CommandIdempotency
-	audits   []*model.BatchAuditEvent
-	outbox   []*model.EventOutbox
+	batches    map[string]*model.Batch
+	receipts   map[string]*model.BatchReceipt
+	treatments map[string]*model.BatchTreatment
+	evidence   map[string]*model.BatchEvidence
+	commands   []*model.CommandIdempotency
+	audits     []*model.BatchAuditEvent
+	outbox     []*model.EventOutbox
 }
 
 type fakeBatchTransaction struct {
@@ -34,8 +36,10 @@ type fakeBatchTransaction struct {
 func newFakeBatchRepository() *fakeBatchRepository {
 	return &fakeBatchRepository{
 		state: &fakeBatchState{
-			batches:  make(map[string]*model.Batch),
-			receipts: make(map[string]*model.BatchReceipt),
+			batches:    make(map[string]*model.Batch),
+			receipts:   make(map[string]*model.BatchReceipt),
+			treatments: make(map[string]*model.BatchTreatment),
+			evidence:   make(map[string]*model.BatchEvidence),
 		},
 	}
 }
@@ -204,6 +208,59 @@ func (t *fakeBatchTransaction) UpdateBatchReceipt(
 	return cloneBatch(batch), nil
 }
 
+func (t *fakeBatchTransaction) FindReceipt(
+	_ context.Context,
+	batchID string,
+) (*model.BatchReceipt, error) {
+	receipt, ok := t.state.receipts[batchID]
+	if !ok {
+		return nil, repository.ErrReceiptNotFound
+	}
+	return cloneReceipt(receipt), nil
+}
+
+func (t *fakeBatchTransaction) ValidateTreatmentEvidence(
+	_ context.Context,
+	batchID string,
+	evidenceID string,
+	organisationID string,
+) error {
+	evidence, ok := t.state.evidence[evidenceID]
+	if !ok || evidence.BatchID != batchID || evidence.OrganisationID != organisationID ||
+		evidence.LifecycleStage != model.EvidenceLifecycleTreatment ||
+		evidence.ValidationStatus != model.EvidenceValidationValidated {
+		return repository.ErrEvidenceNotFound
+	}
+	return nil
+}
+
+func (t *fakeBatchTransaction) CreateTreatment(
+	_ context.Context,
+	treatment *model.BatchTreatment,
+) error {
+	t.state.treatments[treatment.BatchID] = cloneTreatment(treatment)
+	return nil
+}
+
+func (t *fakeBatchTransaction) UpdateBatchTreatment(
+	_ context.Context,
+	batchID string,
+	expectedVersion uint32,
+	now time.Time,
+) (*model.Batch, error) {
+	batch, ok := t.state.batches[batchID]
+	if !ok {
+		return nil, repository.ErrBatchNotFound
+	}
+	if batch.Status != model.BatchStatusVerified || batch.Version != expectedVersion {
+		return nil, repository.ErrBatchConcurrency
+	}
+	batch.Status = model.BatchStatusRecycled
+	batch.Version++
+	batch.UpdatedAt = now
+	return cloneBatch(batch), nil
+}
+
 func (t *fakeBatchTransaction) CompleteCommand(
 	_ context.Context,
 	commandID string,
@@ -245,17 +302,25 @@ func (t *fakeBatchTransaction) EnqueueOutbox(
 
 func cloneFakeBatchState(source *fakeBatchState) *fakeBatchState {
 	clone := &fakeBatchState{
-		batches:  make(map[string]*model.Batch, len(source.batches)),
-		receipts: make(map[string]*model.BatchReceipt, len(source.receipts)),
-		commands: make([]*model.CommandIdempotency, 0, len(source.commands)),
-		audits:   make([]*model.BatchAuditEvent, 0, len(source.audits)),
-		outbox:   make([]*model.EventOutbox, 0, len(source.outbox)),
+		batches:    make(map[string]*model.Batch, len(source.batches)),
+		receipts:   make(map[string]*model.BatchReceipt, len(source.receipts)),
+		treatments: make(map[string]*model.BatchTreatment, len(source.treatments)),
+		evidence:   make(map[string]*model.BatchEvidence, len(source.evidence)),
+		commands:   make([]*model.CommandIdempotency, 0, len(source.commands)),
+		audits:     make([]*model.BatchAuditEvent, 0, len(source.audits)),
+		outbox:     make([]*model.EventOutbox, 0, len(source.outbox)),
 	}
 	for id, batch := range source.batches {
 		clone.batches[id] = cloneBatch(batch)
 	}
 	for id, receipt := range source.receipts {
 		clone.receipts[id] = cloneReceipt(receipt)
+	}
+	for id, treatment := range source.treatments {
+		clone.treatments[id] = cloneTreatment(treatment)
+	}
+	for id, evidence := range source.evidence {
+		clone.evidence[id] = cloneEvidence(evidence)
 	}
 	for _, command := range source.commands {
 		clone.commands = append(clone.commands, cloneCommand(command))
@@ -301,6 +366,37 @@ func cloneReceipt(source *model.BatchReceipt) *model.BatchReceipt {
 	clone := new(model.BatchReceipt)
 	*clone = *source
 	return clone
+}
+
+func cloneTreatment(source *model.BatchTreatment) *model.BatchTreatment {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.BatchTreatment)
+	*clone = *source
+	clone.ReusedKg = cloneString(source.ReusedKg)
+	clone.RecycledKg = cloneString(source.RecycledKg)
+	clone.DisposedKg = cloneString(source.DisposedKg)
+	clone.UnknownKg = cloneString(source.UnknownKg)
+	clone.DivertedKg = cloneString(source.DivertedKg)
+	clone.EvidenceID = cloneString(source.EvidenceID)
+	return clone
+}
+
+func cloneEvidence(source *model.BatchEvidence) *model.BatchEvidence {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.BatchEvidence)
+	*clone = *source
+	return clone
+}
+
+func cloneString(source *string) *string {
+	if source == nil {
+		return nil
+	}
+	return new(*source)
 }
 
 func applyFakeChanges(batch *model.Batch, changes map[string]any) {

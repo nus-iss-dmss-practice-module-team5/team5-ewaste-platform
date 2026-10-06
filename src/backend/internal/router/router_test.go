@@ -150,6 +150,36 @@ func TestAuthRouterReadinessReturns503WhenDependencyFails(t *testing.T) {
 	}
 }
 
+func TestAuthRouterRegistersTreatmentEndpoint(t *testing.T) {
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authService := service.NewAuthService(repo, tokens, zap.NewNop())
+	authController := controller.NewAuthController(authService, zap.NewNop())
+	batchController := controller.NewBatchController(
+		service.NewBatchService(repository.NewGormBatchRepository(nil)),
+		zap.NewNop(),
+	)
+	r := NewAuthRouter(
+		authController,
+		batchController,
+		nil,
+		nil,
+		tokens,
+		repo,
+		routerTestLimiter{},
+		nil,
+		nil,
+		zap.NewNop(),
+	)
+
+	for _, route := range r.Routes() {
+		if route.Method == http.MethodPost && route.Path == "/api/v1/batches/:batch_id/treatment" {
+			return
+		}
+	}
+	t.Fatal("treatment endpoint was not registered")
+}
+
 func TestDocsExposeOpenAPISpecAndSwaggerUI(t *testing.T) {
 	r := NewTestRouter()
 	docs.Register(r)

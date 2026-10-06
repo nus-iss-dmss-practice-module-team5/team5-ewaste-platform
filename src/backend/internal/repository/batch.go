@@ -16,6 +16,8 @@ var (
 	ErrBatchConcurrency      = errors.New("repository: batch concurrency conflict")
 	ErrCommandConcurrency    = errors.New("repository: command concurrency conflict")
 	ErrBatchActorNotEligible = errors.New("repository: receipt actor is not eligible")
+	ErrReceiptNotFound       = errors.New("repository: receipt not found")
+	ErrEvidenceNotFound      = errors.New("repository: evidence not found")
 )
 
 type BatchRepository interface {
@@ -57,6 +59,10 @@ type BatchTransaction interface {
 
 	CreateReceipt(ctx context.Context, receipt *model.BatchReceipt) error
 	UpdateBatchReceipt(ctx context.Context, batchID string, expectedVersion uint32, now time.Time) (*model.Batch, error)
+	FindReceipt(ctx context.Context, batchID string) (*model.BatchReceipt, error)
+	ValidateTreatmentEvidence(ctx context.Context, batchID string, evidenceID string, organisationID string) error
+	CreateTreatment(ctx context.Context, treatment *model.BatchTreatment) error
+	UpdateBatchTreatment(ctx context.Context, batchID string, expectedVersion uint32, now time.Time) (*model.Batch, error)
 
 	CompleteCommand(
 		ctx context.Context,
@@ -349,6 +355,91 @@ func (t *gormBatchTransaction) UpdateBatchReceipt(
 		).
 		Updates(map[string]any{
 			"status":     model.BatchStatusVerified,
+			"version":    gorm.Expr("version + 1"),
+			"updated_at": now,
+		})
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	if result.RowsAffected != 1 {
+		return nil, ErrBatchConcurrency
+	}
+
+	var batch model.Batch
+	if err := t.db.WithContext(ctx).Where("id = ?", batchID).First(&batch).Error; err != nil {
+		return nil, err
+	}
+	return &batch, nil
+}
+
+func (t *gormBatchTransaction) FindReceipt(
+	ctx context.Context,
+	batchID string,
+) (*model.BatchReceipt, error) {
+	var receipt model.BatchReceipt
+	if err := t.db.WithContext(ctx).Where("batch_id = ?", batchID).First(&receipt).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrReceiptNotFound
+		}
+		return nil, err
+	}
+	return &receipt, nil
+}
+
+func (t *gormBatchTransaction) ValidateTreatmentEvidence(
+	ctx context.Context,
+	batchID string,
+	evidenceID string,
+	organisationID string,
+) error {
+	var count int64
+	err := t.db.WithContext(ctx).
+		Table("batch_evidence").
+		Where(
+			"evidence_id = ? AND batch_id = ? AND organisation_id = ? AND lifecycle_stage = ? AND validation_status = ?",
+			evidenceID,
+			batchID,
+			organisationID,
+			model.EvidenceLifecycleTreatment,
+			model.EvidenceValidationValidated,
+		).
+		Count(&count).
+		Error
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrEvidenceNotFound
+	}
+	return nil
+}
+
+func (t *gormBatchTransaction) CreateTreatment(
+	ctx context.Context,
+	treatment *model.BatchTreatment,
+) error {
+	if treatment == nil {
+		return errors.New("repository: treatment is nil")
+	}
+	return t.db.WithContext(ctx).Create(treatment).Error
+}
+
+func (t *gormBatchTransaction) UpdateBatchTreatment(
+	ctx context.Context,
+	batchID string,
+	expectedVersion uint32,
+	now time.Time,
+) (*model.Batch, error) {
+	result := t.db.WithContext(ctx).
+		Model(&model.Batch{}).
+		Where(
+			"id = ? AND status = ? AND version = ?",
+			batchID,
+			model.BatchStatusVerified,
+			expectedVersion,
+		).
+		Updates(map[string]any{
+			"status":     model.BatchStatusRecycled,
 			"version":    gorm.Expr("version + 1"),
 			"updated_at": now,
 		})

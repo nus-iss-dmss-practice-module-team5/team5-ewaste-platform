@@ -167,6 +167,39 @@ func (h *BatchController) VerifyReceipt(c *gin.Context) {
 	response.JSON(c, http.StatusOK, result)
 }
 
+func (h *BatchController) RecordTreatment(c *gin.Context) {
+	claims, ok := middleware.ClaimsFromContext(c)
+	if !ok {
+		h.writeError(c, apierror.InvalidSession, nil)
+		return
+	}
+
+	var params dto.BatchIDParams
+	if err := c.ShouldBindUri(&params); err != nil {
+		h.writeError(c, apierror.InvalidRequest, err)
+		return
+	}
+
+	var request dto.TreatmentRequest
+	if !decodeBatchJSON(c, &request) {
+		return
+	}
+
+	metadata, err := batchMetadata(c, claims, true)
+	if err != nil {
+		h.writeError(c, apierror.InvalidRequest, err)
+		return
+	}
+
+	result, err := h.service.RecordTreatment(c.Request.Context(), params.BatchID, request, metadata)
+	if err != nil {
+		h.writeError(c, mapBatchError(err), err)
+		return
+	}
+
+	response.JSON(c, http.StatusOK, result)
+}
+
 func batchMetadata(
 	c *gin.Context,
 	claims *token.Claims,
@@ -260,7 +293,8 @@ func mapBatchError(err error) apierror.Code {
 	case errors.Is(err, service.ErrBatchForbidden):
 		return apierror.Forbidden
 	case errors.Is(err, service.ErrBatchNotFound),
-		errors.Is(err, repository.ErrBatchNotFound):
+		errors.Is(err, repository.ErrBatchNotFound),
+		errors.Is(err, service.ErrBatchEvidenceNotFound):
 		return apierror.NotFound
 	case errors.Is(err, service.ErrBatchValidation):
 		return apierror.ValidationError
