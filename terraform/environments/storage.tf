@@ -24,22 +24,19 @@ resource "azurerm_storage_account" "evidence" {
   account_kind                      = "StorageV2"
   https_traffic_only_enabled        = true
   min_tls_version                   = "TLS1_2"
-  public_network_access_enabled     = false
-  allow_nested_items_to_be_public   = false
-  shared_access_key_enabled         = true # Required for Terraform AzureRM provider management; application strictly uses secretless Managed Identity
+  public_network_access_enabled     = false # Strict zero-trust compliance (ADR D2)
+  allow_nested_items_to_be_public   = false # Disallow anonymous public blob access
+  shared_access_key_enabled         = true  # Required for Terraform AzureRM provider management lifecycle
   default_to_oauth_authentication   = true
   infrastructure_encryption_enabled = true
 
-  blob_properties {
-    versioning_enabled = true
-
-    delete_retention_policy {
-      days = 7
-    }
-
-    container_delete_retention_policy {
-      days = 7
-    }
+  lifecycle {
+    ignore_changes = [
+      blob_properties,
+      share_properties,
+      queue_properties,
+      static_website
+    ]
   }
 
   tags = local.common_tags
