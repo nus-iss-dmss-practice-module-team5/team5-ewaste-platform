@@ -4,6 +4,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from confluent_kafka import Consumer, KafkaException, Producer, TopicPartition
 
@@ -15,11 +16,23 @@ LOG = logging.getLogger("matcher")
 
 def observe(name, delivery=None, **fields):
     # Never log raw records, API bodies, tokens, snapshots or exception strings.
-    payload = {"observation": name, **fields}
+    payload = {"component": "matcher-worker", "observation": name, **fields}
     if delivery is not None:
+        latency_ms = None
+        if hasattr(delivery, "first_seen") and delivery.first_seen:
+            try:
+                dt = datetime.fromisoformat(delivery.first_seen.replace("Z", "+00:00"))
+                latency_ms = max(0, int((datetime.now(timezone.utc) - dt).total_seconds() * 1000))
+            except Exception:
+                pass
         payload.update(topic=delivery.record.topic, partition=delivery.record.partition,
                        offset=str(delivery.record.offset), stage=delivery.stage,
-                       retry_count=delivery.retries, disposition=delivery.disposition)
+                       retry_count=delivery.retries, failure_streak=delivery.failure_streak,
+                       disposition=delivery.disposition)
+        if latency_ms is not None:
+            payload["latency_ms"] = latency_ms
+        if delivery.error_code:
+            payload["error_code"] = delivery.error_code
         if delivery.event:
             payload.update(event_id=delivery.event["event_id"], batch_id=delivery.event["batch_id"],
                            correlation_id=delivery.event["correlation_id"], run_id=delivery.run_id)

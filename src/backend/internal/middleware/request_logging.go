@@ -17,12 +17,15 @@ func RequestLogger(log *zap.Logger) gin.HandlerFunc {
 			return
 		}
 
+		duration := time.Since(startedAt)
 		log.Info(
 			"http request",
+			zap.String("component", "workflow-api"),
 			zap.String("method", c.Request.Method),
 			zap.String("path", c.Request.URL.Path),
 			zap.Int("status", c.Writer.Status()),
-			zap.Duration("duration", time.Since(startedAt)),
+			zap.Duration("duration", duration),
+			zap.Int64("latency_ms", duration.Milliseconds()),
 			zap.String("correlation_id", GetCorrelationID(c)),
 		)
 	}
