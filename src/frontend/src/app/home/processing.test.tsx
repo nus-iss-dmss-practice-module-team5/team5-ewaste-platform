@@ -1,6 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { WorkflowError } from "@/lib/workflow/errors";
 import type { ProcessingBatch } from "@/lib/workflow/types";
 import { ProcessingWork } from "./processing";
@@ -9,6 +9,8 @@ const listProcessingBatches = vi.fn();
 const getProcessingBatch = vi.fn();
 const verifyReceipt = vi.fn();
 const recordTreatment = vi.fn();
+const uploadEvidence = vi.fn();
+const downloadEvidence = vi.fn();
 const newIdempotencyKey = vi.fn();
 
 vi.mock("@/lib/auth/session-context", () => ({
@@ -24,6 +26,8 @@ vi.mock("@/lib/workflow/api", () => ({
   getProcessingBatch: (...args: unknown[]) => getProcessingBatch(...args),
   verifyReceipt: (...args: unknown[]) => verifyReceipt(...args),
   recordTreatment: (...args: unknown[]) => recordTreatment(...args),
+  uploadEvidence: (...args: unknown[]) => uploadEvidence(...args),
+  downloadEvidence: (...args: unknown[]) => downloadEvidence(...args),
   newIdempotencyKey: () => newIdempotencyKey(),
 }));
 
@@ -60,10 +64,27 @@ function page<T>(data: T[]) {
   };
 }
 
+// The list returns summaries only. The declaration comes from the detail.
 function show(batch: ProcessingBatch) {
-  listProcessingBatches.mockResolvedValue(page([batch]));
+  listProcessingBatches.mockResolvedValue(
+    page([
+      {
+        batchId: batch.batchId,
+        status: batch.status,
+        version: batch.version,
+        evidenceStatus: "ABSENT",
+      },
+    ]),
+  );
   getProcessingBatch.mockResolvedValue(batch);
 }
+
+const proof = new File(["pdf"], "proof.pdf", { type: "application/pdf" });
+const saved = {
+  evidenceId: "evidence-1",
+  sha256Hash: "abcdef0123456789".repeat(4),
+  validationStatus: "VALIDATED",
+};
 
 async function openBatch(user: ReturnType<typeof userEvent.setup>) {
   render(<ProcessingWork />);
@@ -104,6 +125,8 @@ describe("processing work", () => {
     getProcessingBatch.mockReset();
     verifyReceipt.mockReset();
     recordTreatment.mockReset();
+    uploadEvidence.mockReset();
+    downloadEvidence.mockReset();
     newIdempotencyKey.mockReset();
     newIdempotencyKey.mockReturnValue("idem-processing");
     show(collected);
@@ -385,6 +408,152 @@ describe("processing work", () => {
     expect(
       screen.queryByTestId("processing-treatment-submit"),
     ).not.toBeInTheDocument();
+  });
+
+  it("attaches uploaded evidence to the treatment", async () => {
+    const user = userEvent.setup();
+    show(verified);
+    uploadEvidence.mockResolvedValue(saved);
+    recordTreatment.mockResolvedValue({
+      batchId: "batch-1",
+      status: "RECYCLED",
+      version: 8,
+    });
+    await openBatch(user);
+    await user.upload(screen.getByTestId("processing-evidence-file"), proof);
+
+    expect(uploadEvidence).toHaveBeenCalledWith(
+      "access-token",
+      "batch-1",
+      proof,
+      "TREATMENT",
+      "idem-processing",
+    );
+    expect(
+      await screen.findByTestId("processing-evidence-attached"),
+    ).toHaveTextContent("proof.pdf · SHA-256 abcdef012345…");
+    await user.click(screen.getByTestId("processing-treatment-submit"));
+    await screen.findByTestId("processing-recycled");
+    expect(recordTreatment.mock.calls[0]?.[3]).toEqual({
+      evidenceId: "evidence-1",
+    });
+  });
+
+  it("leaves removed evidence out of the treatment", async () => {
+    const user = userEvent.setup();
+    show(verified);
+    uploadEvidence.mockResolvedValue(saved);
+    recordTreatment.mockResolvedValue({
+      batchId: "batch-1",
+      status: "RECYCLED",
+      version: 8,
+    });
+    await openBatch(user);
+    await user.upload(screen.getByTestId("processing-evidence-file"), proof);
+    await user.click(await screen.findByTestId("processing-evidence-remove"));
+    expect(
+      screen.queryByTestId("processing-evidence-attached"),
+    ).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("processing-treatment-submit"));
+    await screen.findByTestId("processing-recycled");
+    expect(recordTreatment.mock.calls[0]?.[3]).toEqual({});
+  });
+
+  it.each([
+    [new File(["x"], "notes.txt", { type: "text/plain" }), "PDF, JPEG or PNG"],
+    [new File([], "empty.pdf", { type: "application/pdf" }), "1 byte and 5 MB"],
+    [
+      new File([new Uint8Array(5242881)], "big.png", { type: "image/png" }),
+      "1 byte and 5 MB",
+    ],
+  ])("blocks evidence the API would reject (%#)", async (file, message) => {
+    const user = userEvent.setup({ applyAccept: false });
+    show(verified);
+    await openBatch(user);
+    await user.upload(screen.getByTestId("processing-evidence-file"), file);
+    expect(
+      await screen.findByTestId("processing-action-validation"),
+    ).toHaveTextContent(message);
+    expect(uploadEvidence).not.toHaveBeenCalled();
+  });
+
+  it("does not attach a file the server rejected", async () => {
+    const user = userEvent.setup();
+    show(verified);
+    uploadEvidence.mockResolvedValue({
+      ...saved,
+      validationStatus: "REJECTED",
+    });
+    await openBatch(user);
+    await user.upload(screen.getByTestId("processing-evidence-file"), proof);
+    expect(
+      await screen.findByTestId("processing-action-validation"),
+    ).toHaveTextContent("rejected");
+    expect(
+      screen.queryByTestId("processing-evidence-attached"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("shows a forbidden upload", async () => {
+    const user = userEvent.setup();
+    show(verified);
+    uploadEvidence.mockRejectedValue(
+      new WorkflowError("role denied", "forbidden", "FORBIDDEN", "c", 403),
+    );
+    await openBatch(user);
+    await user.upload(screen.getByTestId("processing-evidence-file"), proof);
+    expect(
+      await screen.findByTestId("processing-action-forbidden"),
+    ).toBeInTheDocument();
+  });
+
+  describe("download", () => {
+    const createObjectURL = vi.fn(() => "blob:evidence");
+    const revokeObjectURL = vi.fn();
+
+    beforeEach(() => {
+      vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it("downloads recorded evidence by the id on the batch", async () => {
+      const user = userEvent.setup();
+      const file = new Blob(["pdf"], { type: "application/pdf" });
+      downloadEvidence.mockResolvedValue(file);
+      show({
+        ...verified,
+        status: "RECYCLED",
+        version: 8,
+        evidenceStatus: "PRESENT",
+        treatment: {
+          reusedKg: "2.00",
+          recycledKg: "9.00",
+          disposedKg: "1.00",
+          unknownKg: "0.00",
+          dataQuality: "COMPLETE",
+          evidenceId: "evidence-1",
+        },
+      });
+      await openBatch(user);
+      expect(screen.getByTestId("processing-treatment")).toHaveTextContent(
+        "Attached",
+      );
+      await user.click(screen.getByTestId("processing-evidence-download"));
+
+      await waitFor(() =>
+        expect(downloadEvidence).toHaveBeenCalledWith(
+          "access-token",
+          "batch-1",
+          "evidence-1",
+        ),
+      );
+      await waitFor(() => expect(createObjectURL).toHaveBeenCalledWith(file));
+      expect(revokeObjectURL).toHaveBeenCalledWith("blob:evidence");
+    });
   });
 
   it("shows an empty facility list", async () => {

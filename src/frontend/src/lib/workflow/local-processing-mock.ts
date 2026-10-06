@@ -2,10 +2,12 @@ import { WorkflowError } from "./errors";
 import { formatKg, parseKg } from "./kg";
 import { parseProcessingBatch } from "./parse";
 import type {
+  Evidence,
   Page,
   ProcessingBatch,
   ProcessingResult,
   ProcessingStatus,
+  ProcessingSummary,
   ReceiptCommand,
   TreatmentCommand,
 } from "./types";
@@ -17,6 +19,7 @@ const STALE_BATCH_ID = "7d2f9b11-8c4e-4a77-b612-9f0e1d2c3b02";
 const FORBIDDEN_BATCH_ID = "e5a1c7d2-3f48-4b96-a0d1-2c3b4a5d6e03";
 
 let rows: ProcessingBatch[] | null = null;
+const uploads = new Map<string, { batchId: string; file: Blob }>();
 
 async function load(): Promise<ProcessingBatch[]> {
   if (rows) {
@@ -45,28 +48,28 @@ async function load(): Promise<ProcessingBatch[]> {
   return rows;
 }
 
+function notFound(): WorkflowError {
+  return new WorkflowError(
+    "That record is missing or no longer visible.",
+    "not_found",
+    "NOT_FOUND",
+    "corr-local-mock",
+    404,
+  );
+}
+
 function requireBatch(
   data: ProcessingBatch[],
   batchId: string,
 ): ProcessingBatch {
   const batch = data.find((row) => row.batchId === batchId);
   if (!batch) {
-    throw new WorkflowError(
-      "That record is missing or no longer visible.",
-      "not_found",
-      "NOT_FOUND",
-      "corr-local-mock",
-      404,
-    );
+    throw notFound();
   }
   return batch;
 }
 
-function requireWritable(
-  batch: ProcessingBatch,
-  version: number,
-  status: ProcessingStatus,
-) {
+function requireAllowed(batch: ProcessingBatch) {
   if (batch.batchId === FORBIDDEN_BATCH_ID) {
     throw new WorkflowError(
       "Your role cannot use this route.",
@@ -76,6 +79,14 @@ function requireWritable(
       403,
     );
   }
+}
+
+function requireWritable(
+  batch: ProcessingBatch,
+  version: number,
+  status: ProcessingStatus,
+) {
+  requireAllowed(batch);
   if (
     batch.batchId === STALE_BATCH_ID ||
     batch.version !== version ||
@@ -93,9 +104,16 @@ function requireWritable(
 
 export async function mockListProcessingBatches(
   status?: ProcessingStatus,
-): Promise<Page<ProcessingBatch>> {
+): Promise<Page<ProcessingSummary>> {
   const all = await load();
-  const data = status ? all.filter((row) => row.status === status) : all;
+  const data = (status ? all.filter((row) => row.status === status) : all).map(
+    (row) => ({
+      batchId: row.batchId,
+      status: row.status,
+      version: row.version,
+      evidenceStatus: row.evidenceStatus ?? "ABSENT",
+    }),
+  );
   return {
     data,
     page: 1,
@@ -132,7 +150,11 @@ export async function mockRecordTreatment(
   const batch = requireBatch(await load(), batchId);
   requireWritable(batch, version, "VERIFIED");
   const received = parseKg(batch.receipt?.actualWeightKg ?? "") ?? 0;
-  const { amounts } = command;
+  const { amounts, evidenceId } = command;
+  // Evidence must already belong to this batch.
+  if (evidenceId && uploads.get(evidenceId)?.batchId !== batchId) {
+    throw notFound();
+  }
   if (amounts) {
     const allocated =
       (parseKg(amounts.reusedKg) ?? 0) +
@@ -152,7 +174,37 @@ export async function mockRecordTreatment(
       dataQuality: "MISSING",
     };
   }
+  if (evidenceId) {
+    batch.treatment.evidenceId = evidenceId;
+  }
+  batch.evidenceStatus = evidenceId ? "PRESENT" : "ABSENT";
   batch.status = "RECYCLED";
   batch.version = version + 1;
   return { batchId, status: batch.status, version: batch.version };
+}
+
+export async function mockUploadEvidence(
+  batchId: string,
+  file: Blob,
+): Promise<Evidence> {
+  requireAllowed(requireBatch(await load(), batchId));
+  const evidenceId =
+    globalThis.crypto?.randomUUID?.() ?? `evidence-${Date.now()}`;
+  uploads.set(evidenceId, { batchId, file });
+  return {
+    evidenceId,
+    sha256Hash: "0".repeat(64),
+    validationStatus: "VALIDATED",
+  };
+}
+
+export async function mockDownloadEvidence(
+  batchId: string,
+  evidenceId: string,
+): Promise<Blob> {
+  const upload = uploads.get(evidenceId);
+  if (!upload || upload.batchId !== batchId) {
+    throw notFound();
+  }
+  return upload.file;
 }

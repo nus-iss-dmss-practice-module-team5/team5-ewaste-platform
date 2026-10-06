@@ -176,11 +176,29 @@ export type Treatment = {
   evidenceId?: string;
 };
 
+export const EVIDENCE_STATUSES = [
+  "PRESENT",
+  "ABSENT",
+  "PENDING",
+  "REJECTED",
+] as const;
+
+export type EvidenceStatus = (typeof EVIDENCE_STATUSES)[number];
+
+// A list row. The declaration and the receipt come from the detail read.
+export type ProcessingSummary = {
+  batchId: string;
+  status: ProcessingStatus;
+  version: number;
+  evidenceStatus?: EvidenceStatus;
+};
+
 // Weights are two-decimal kilogram strings, as the API stores them.
 export type ProcessingBatch = {
   batchId: string;
   status: ProcessingStatus;
   version: number;
+  evidenceStatus?: EvidenceStatus;
   category?: string;
   quantity?: number;
   estimatedWeightKg?: string;
@@ -209,4 +227,31 @@ export type TreatmentAmounts = {
 export type TreatmentCommand = {
   amounts?: TreatmentAmounts;
   evidenceId?: string;
+};
+
+export const EVIDENCE_STAGES = ["RECEIPT", "TREATMENT"] as const;
+
+export type EvidenceStage = (typeof EVIDENCE_STAGES)[number];
+
+export const EVIDENCE_VALIDATION_STATUSES = [
+  "PENDING",
+  "VALIDATED",
+  "REJECTED",
+] as const;
+
+export type EvidenceValidationStatus =
+  (typeof EVIDENCE_VALIDATION_STATUSES)[number];
+
+export const EVIDENCE_MIME_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+] as const;
+
+export const MAX_EVIDENCE_BYTES = 5242880;
+
+export type Evidence = {
+  evidenceId: string;
+  sha256Hash: string;
+  validationStatus: EvidenceValidationStatus;
 };

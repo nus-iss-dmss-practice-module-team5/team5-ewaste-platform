@@ -4,8 +4,8 @@ const COLLECTED_ROW = {
   batch_id: "batch-1",
   status: "COLLECTED",
   version: 6,
-  category: "ICT_EQUIPMENT",
-  quantity: 5,
+  declared_category: "ICT_EQUIPMENT",
+  declared_quantity: 5,
   estimated_weight_kg: "12.00",
 };
 
@@ -89,6 +89,65 @@ describe("local processing mock", () => {
       kind: "conflict",
       status: 409,
     });
+  });
+
+  it("lists summaries and keeps the declaration for the detail", async () => {
+    stubMockFile([COLLECTED_ROW]);
+    const { mockGetProcessingBatch, mockListProcessingBatches } =
+      await import("./local-processing-mock");
+
+    await expect(mockListProcessingBatches("COLLECTED")).resolves.toMatchObject(
+      {
+        data: [
+          {
+            batchId: "batch-1",
+            status: "COLLECTED",
+            version: 6,
+            evidenceStatus: "ABSENT",
+          },
+        ],
+      },
+    );
+    await expect(mockGetProcessingBatch("batch-1")).resolves.toMatchObject({
+      category: "ICT_EQUIPMENT",
+      quantity: 5,
+      estimatedWeightKg: "12.00",
+    });
+  });
+
+  it("links only evidence uploaded to the same batch", async () => {
+    const verified = {
+      ...COLLECTED_ROW,
+      status: "VERIFIED",
+      actual_category: "ICT_EQUIPMENT",
+      actual_item_count: 5,
+      actual_weight_kg: "12.00",
+    };
+    stubMockFile([verified, { ...verified, batch_id: "batch-2" }]);
+    const {
+      mockDownloadEvidence,
+      mockGetProcessingBatch,
+      mockRecordTreatment,
+      mockUploadEvidence,
+    } = await import("./local-processing-mock");
+    const file = new Blob(["pdf"], { type: "application/pdf" });
+    const { evidenceId } = await mockUploadEvidence("batch-1", file);
+
+    await expect(
+      mockRecordTreatment("batch-2", 6, { evidenceId }),
+    ).rejects.toMatchObject({ kind: "not_found", status: 404 });
+    await expect(
+      mockDownloadEvidence("batch-2", evidenceId),
+    ).rejects.toMatchObject({ kind: "not_found" });
+
+    await mockRecordTreatment("batch-1", 6, { evidenceId });
+    await expect(mockGetProcessingBatch("batch-1")).resolves.toMatchObject({
+      evidenceStatus: "PRESENT",
+      treatment: { evidenceId },
+    });
+    await expect(mockDownloadEvidence("batch-1", evidenceId)).resolves.toBe(
+      file,
+    );
   });
 
   it("rejects camelCase rows", async () => {

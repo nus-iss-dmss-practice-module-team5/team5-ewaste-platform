@@ -2,23 +2,45 @@
 
 import { useSession } from "@/lib/auth/session-context";
 import {
+  downloadEvidence,
   getProcessingBatch,
   listProcessingBatches,
   newIdempotencyKey,
   recordTreatment,
+  uploadEvidence,
   verifyReceipt,
 } from "@/lib/workflow/api";
 import { formatKg, parseKg } from "@/lib/workflow/kg";
 import { USE_LOCAL_PROCESSING_MOCK } from "@/lib/workflow/local-processing-mock";
 import {
+  EVIDENCE_MIME_TYPES,
   EWASTE_CATEGORIES,
+  MAX_EVIDENCE_BYTES,
+  type EvidenceStatus,
   type EwasteCategory,
   type ProcessingBatch,
+  type ProcessingSummary,
 } from "@/lib/workflow/types";
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { Banner, LoadingLine, bannerForError } from "./workflow-ui";
 
 type Notice = { testId: string; text: string };
+
+// Evidence uploaded in this visit. The detail read does not return an
+// evidence id, so this is the only handle for linking and downloading it.
+type Attachment = {
+  batchId: string;
+  evidenceId: string;
+  fileName: string;
+  sha256Hash: string;
+};
+
+const EVIDENCE_STATUS_LABELS: Record<EvidenceStatus, string> = {
+  PRESENT: "Attached",
+  ABSENT: "None",
+  PENDING: "Being checked",
+  REJECTED: "Rejected",
+};
 
 const MAX_ITEM_COUNT = 100000;
 // Receipt weight bounds in hundredths of a kilogram: 0.10 to 50000.00.
@@ -80,7 +102,7 @@ function receiptDifferences(
 
 export function ProcessingWork() {
   const { session } = useSession();
-  const [rows, setRows] = useState<ProcessingBatch[] | null>(null);
+  const [rows, setRows] = useState<ProcessingSummary[] | null>(null);
   const [detail, setDetail] = useState<ProcessingBatch | null>(null);
   const [loadError, setLoadError] = useState<unknown>(null);
   const [pending, setPending] = useState(false);
@@ -94,8 +116,11 @@ export function ProcessingWork() {
   const [reused, setReused] = useState("");
   const [recycled, setRecycled] = useState("");
   const [disposed, setDisposed] = useState("");
+  const [attachment, setAttachment] = useState<Attachment | null>(null);
   const receiptKey = useRetryKey();
   const treatmentKey = useRetryKey();
+  const evidenceKey = useRetryKey();
+  const attached = attachment?.batchId === detail?.batchId ? attachment : null;
 
   async function reload(batchId: string | null = detail?.batchId ?? null) {
     if (!session) {
@@ -167,8 +192,69 @@ export function ProcessingWork() {
     setReused("");
     setRecycled("");
     setDisposed("");
+    setAttachment(null);
     await finish(async () => {
       setDetail(await getProcessingBatch(session.tokens.accessToken, batchId));
+    });
+  }
+
+  async function onEvidenceChosen(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    // Cleared so choosing the same file again still fires a change.
+    event.target.value = "";
+    if (!session || !detail || !file) {
+      return;
+    }
+    if (!EVIDENCE_MIME_TYPES.some((type) => type === file.type)) {
+      invalid("Evidence must be a PDF, JPEG or PNG file.");
+      return;
+    }
+    if (file.size < 1 || file.size > MAX_EVIDENCE_BYTES) {
+      invalid("Evidence must be between 1 byte and 5 MB.");
+      return;
+    }
+    const { batchId } = detail;
+    await finish(async () => {
+      const saved = await uploadEvidence(
+        session.tokens.accessToken,
+        batchId,
+        file,
+        "TREATMENT",
+        evidenceKey.keyFor(
+          JSON.stringify([batchId, file.name, file.size, file.lastModified]),
+        ),
+      );
+      evidenceKey.clear();
+      if (saved.validationStatus === "REJECTED") {
+        invalid("That file was rejected and is not attached.");
+        return;
+      }
+      setAttachment({
+        batchId,
+        evidenceId: saved.evidenceId,
+        fileName: file.name,
+        sha256Hash: saved.sha256Hash,
+      });
+    });
+  }
+
+  async function onDownload(evidenceId: string, fileName: string) {
+    if (!session || !detail) {
+      return;
+    }
+    const { batchId } = detail;
+    await finish(async () => {
+      const file = await downloadEvidence(
+        session.tokens.accessToken,
+        batchId,
+        evidenceId,
+      );
+      const url = URL.createObjectURL(file);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      link.click();
+      URL.revokeObjectURL(url);
     });
   }
 
@@ -254,8 +340,8 @@ export function ProcessingWork() {
       );
       return;
     }
-    const command =
-      filled === 3
+    const command = {
+      ...(filled === 3
         ? {
             amounts: {
               reusedKg: formatKg(amounts[0] ?? 0),
@@ -263,7 +349,9 @@ export function ProcessingWork() {
               disposedKg: formatKg(amounts[2] ?? 0),
             },
           }
-        : {};
+        : {}),
+      ...(attached ? { evidenceId: attached.evidenceId } : {}),
+    };
     await finish(async () => {
       const result = await recordTreatment(
         session.tokens.accessToken,
@@ -286,6 +374,8 @@ export function ProcessingWork() {
   const loadBanner = loadError
     ? bannerForError(loadError, "processing-list")
     : null;
+  const recordedEvidenceId =
+    detail?.treatment?.evidenceId ?? attached?.evidenceId;
   const differences =
     detail?.status === "COLLECTED"
       ? receiptDifferences(detail, actualCategory, actualCount, actualWeight)
@@ -308,10 +398,9 @@ export function ProcessingWork() {
       {USE_LOCAL_PROCESSING_MOCK ? (
         <div className="mb-4">
           <Banner testId="processing-local-mock" tone="info">
-            Local mock data. ICT equipment can be verified and then treated.
-            Large appliances are stale and conflict. Batteries are forbidden.
-            The second ICT batch is already VERIFIED, and consumer electronics
-            are already RECYCLED.
+            Local mock data. The first batch can be verified and then treated.
+            The second is stale and conflicts. The third is forbidden. The
+            fourth is already VERIFIED, and the fifth is already RECYCLED.
           </Banner>
         </div>
       ) : null}
@@ -356,19 +445,19 @@ export function ProcessingWork() {
           <table className="w-full text-left text-sm">
             <thead className="text-slate-500">
               <tr>
-                <th className="py-2 pr-3">Category</th>
+                <th className="py-2 pr-3">Batch</th>
                 <th className="py-2 pr-3">Status</th>
-                <th className="hidden py-2 pr-3 sm:table-cell">Declared</th>
+                <th className="hidden py-2 pr-3 sm:table-cell">Evidence</th>
                 <th className="py-2">Action</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((row) => (
                 <tr key={row.batchId} className="border-t border-slate-200">
-                  <td className="py-2 pr-3">{row.category ?? row.batchId}</td>
+                  <td className="break-all py-2 pr-3">{row.batchId}</td>
                   <td className="py-2 pr-3">{row.status}</td>
                   <td className="hidden py-2 pr-3 sm:table-cell">
-                    {row.quantity ?? "—"} items · {kg(row.estimatedWeightKg)}
+                    {evidenceLabel(row.evidenceStatus)}
                   </td>
                   <td className="py-2">
                     <button
@@ -558,6 +647,48 @@ export function ProcessingWork() {
                   {treatmentPreview}
                 </Banner>
               ) : null}
+              <label className="grid gap-1 text-sm text-slate-700">
+                Evidence (optional). PDF, JPEG or PNG, up to 5 MB.
+                <input
+                  data-testid="processing-evidence-file"
+                  type="file"
+                  accept={EVIDENCE_MIME_TYPES.join(",")}
+                  disabled={pending}
+                  onChange={(event) => void onEvidenceChosen(event)}
+                  className="text-sm"
+                />
+              </label>
+              {attached ? (
+                <p
+                  data-testid="processing-evidence-attached"
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-slate-700"
+                >
+                  <span className="break-all">
+                    Attached: {attached.fileName} · SHA-256{" "}
+                    {attached.sha256Hash.slice(0, 12)}…
+                  </span>
+                  <button
+                    type="button"
+                    data-testid="processing-evidence-download"
+                    disabled={pending}
+                    className="font-medium text-teal-800 disabled:opacity-50"
+                    onClick={() =>
+                      void onDownload(attached.evidenceId, attached.fileName)
+                    }
+                  >
+                    Download
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="processing-evidence-remove"
+                    disabled={pending}
+                    className="font-medium text-teal-800 disabled:opacity-50"
+                    onClick={() => setAttachment(null)}
+                  >
+                    Remove
+                  </button>
+                </p>
+              ) : null}
               <button
                 type="submit"
                 data-testid="processing-treatment-submit"
@@ -580,6 +711,7 @@ export function ProcessingWork() {
                 ["Disposed", outcome(detail.treatment.disposedKg)],
                 ["Unknown", kg(detail.treatment.unknownKg)],
                 ["Data quality", detail.treatment.dataQuality ?? "—"],
+                ["Evidence", evidenceLabel(detail.evidenceStatus)],
               ].map(([label, value]) => (
                 <div key={label}>
                   <dt className="text-slate-500">{label}</dt>
@@ -588,10 +720,30 @@ export function ProcessingWork() {
               ))}
             </dl>
           ) : null}
+          {detail.treatment && recordedEvidenceId ? (
+            <button
+              type="button"
+              data-testid="processing-evidence-download"
+              disabled={pending}
+              className="w-fit text-sm font-medium text-teal-800 disabled:opacity-50"
+              onClick={() =>
+                void onDownload(
+                  recordedEvidenceId,
+                  attached?.fileName ?? `evidence-${recordedEvidenceId}`,
+                )
+              }
+            >
+              Download evidence
+            </button>
+          ) : null}
         </div>
       ) : null}
     </section>
   );
+}
+
+function evidenceLabel(status?: EvidenceStatus): string {
+  return status ? EVIDENCE_STATUS_LABELS[status] : "—";
 }
 
 // A null amount is an outcome that was never recorded. It is not zero.

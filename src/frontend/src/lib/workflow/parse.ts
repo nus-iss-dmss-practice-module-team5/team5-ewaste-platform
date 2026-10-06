@@ -4,6 +4,8 @@ import {
   ASSIGNMENT_STATUSES,
   BATCH_STATUSES,
   DATA_QUALITIES,
+  EVIDENCE_STATUSES,
+  EVIDENCE_VALIDATION_STATUSES,
   OPPORTUNITY_STATUSES,
   PROCESSING_STATUSES,
   type Assignment,
@@ -14,8 +16,10 @@ import {
   type Opportunity,
   type OpportunityStatus,
   type Page,
+  type Evidence,
   type ProcessingBatch,
   type ProcessingResult,
+  type ProcessingSummary,
 } from "./types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -243,12 +247,16 @@ export function parseProcessingBatch(value: unknown): ProcessingBatch {
     status,
     version: requireNumber(value, "version", label),
   };
-  const category = readString(value, "category");
-  const quantity = readNumber(value, "quantity");
+  const category = readString(value, "declared_category");
+  const quantity = readNumber(value, "declared_quantity");
   const estimatedWeightKg = readKg(value, "estimated_weight_kg", label);
+  const evidenceStatus = readString(value, "evidence_status");
   if (category) batch.category = category;
   if (quantity !== undefined) batch.quantity = quantity;
   if (estimatedWeightKg) batch.estimatedWeightKg = estimatedWeightKg;
+  if (evidenceStatus) {
+    batch.evidenceStatus = oneOf(evidenceStatus, EVIDENCE_STATUSES, label);
+  }
 
   const actualCategory = readString(value, "actual_category");
   if (actualCategory) {
@@ -281,6 +289,43 @@ export function parseProcessingBatch(value: unknown): ProcessingBatch {
     if (evidenceId) batch.treatment.evidenceId = evidenceId;
   }
   return batch;
+}
+
+export function parseProcessingSummary(value: unknown): ProcessingSummary {
+  const label = "Processing batch";
+  if (!isRecord(value)) {
+    throw contractError(`${label} response is not an object.`);
+  }
+  const summary: ProcessingSummary = {
+    batchId: requireString(value, "batch_id", label),
+    status: oneOf(
+      requireString(value, "status", label),
+      PROCESSING_STATUSES,
+      label,
+    ),
+    version: requireNumber(value, "version", label),
+  };
+  const evidenceStatus = readString(value, "evidence_status");
+  if (evidenceStatus) {
+    summary.evidenceStatus = oneOf(evidenceStatus, EVIDENCE_STATUSES, label);
+  }
+  return summary;
+}
+
+export function parseEvidence(value: unknown): Evidence {
+  const label = "Evidence";
+  if (!isRecord(value)) {
+    throw contractError(`${label} response is not an object.`);
+  }
+  return {
+    evidenceId: requireString(value, "evidence_id", label),
+    sha256Hash: requireString(value, "sha256_hash", label),
+    validationStatus: oneOf(
+      requireString(value, "validation_status", label),
+      EVIDENCE_VALIDATION_STATUSES,
+      label,
+    ),
+  };
 }
 
 export function parseProcessingResult(value: unknown): ProcessingResult {
@@ -328,10 +373,10 @@ export function parseAssignmentPage(value: unknown): Page<Assignment> {
   return parsePage(value, parseAssignment, "Assignment");
 }
 
-export function parseProcessingBatchPage(
+export function parseProcessingSummaryPage(
   value: unknown,
-): Page<ProcessingBatch> {
-  return parsePage(value, parseProcessingBatch, "Processing batch");
+): Page<ProcessingSummary> {
+  return parsePage(value, parseProcessingSummary, "Processing batch");
 }
 
 export function parseData<T>(

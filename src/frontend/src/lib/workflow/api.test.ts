@@ -4,6 +4,7 @@ import { api } from "@/lib/auth/api-client";
 import {
   claimOpportunity,
   createBatchDraft,
+  downloadEvidence,
   draftBody,
   getOpportunity,
   getProcessingBatch,
@@ -16,6 +17,7 @@ import {
   reportFailedPickup,
   selectAssignment,
   submitBatch,
+  uploadEvidence,
   verifyReceipt,
 } from "./api";
 
@@ -453,9 +455,7 @@ describe("workflow api", () => {
             batch_id: "batch-1",
             status: "COLLECTED",
             version: 6,
-            category: "ICT_EQUIPMENT",
-            quantity: 12,
-            estimated_weight_kg: 4.5,
+            evidence_status: "ABSENT",
           },
         ],
         page: 1,
@@ -476,11 +476,110 @@ describe("workflow api", () => {
         batchId: "batch-1",
         status: "COLLECTED",
         version: 6,
-        category: "ICT_EQUIPMENT",
-        quantity: 12,
-        estimatedWeightKg: "4.50",
+        evidenceStatus: "ABSENT",
       },
     ]);
+  });
+
+  it("reads the declaration from the declared_ fields of a detail", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: {
+          batch_id: "batch-1",
+          status: "COLLECTED",
+          version: 6,
+          declared_category: "ICT_EQUIPMENT",
+          declared_quantity: 12,
+          estimated_weight_kg: "4.50",
+          actual_category: null,
+          actual_item_count: null,
+          actual_weight_kg: null,
+          evidence_status: "ABSENT",
+          anomaly_codes: [],
+        },
+        correlation_id: "corr-1",
+      },
+    });
+
+    await expect(getProcessingBatch("token", "batch-1")).resolves.toEqual({
+      batchId: "batch-1",
+      status: "COLLECTED",
+      version: 6,
+      category: "ICT_EQUIPMENT",
+      quantity: 12,
+      estimatedWeightKg: "4.50",
+      evidenceStatus: "ABSENT",
+    });
+  });
+
+  it("uploads evidence as a multipart form without a version header", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          evidence_id: "evidence-1",
+          batch_id: "batch-1",
+          lifecycle_stage: "TREATMENT",
+          mime_type: "application/pdf",
+          file_size_bytes: 3,
+          sha256_hash: "a".repeat(64),
+          validation_status: "VALIDATED",
+        },
+        correlation_id: "corr-1",
+      },
+    });
+    const file = new File(["pdf"], "proof.pdf", { type: "application/pdf" });
+
+    await expect(
+      uploadEvidence("token", "batch-1", file, "TREATMENT", "idem-1"),
+    ).resolves.toEqual({
+      evidenceId: "evidence-1",
+      sha256Hash: "a".repeat(64),
+      validationStatus: "VALIDATED",
+    });
+    const [url, body, config] = post.mock.calls[0] ?? [];
+    expect(url).toBe("/api/v1/batches/batch-1/evidence");
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get("file")).toBe(file);
+    expect((body as FormData).get("lifecycle_stage")).toBe("TREATMENT");
+    expect(config).toEqual({
+      headers: {
+        Authorization: "Bearer token",
+        "Idempotency-Key": "idem-1",
+        "Content-Type": "multipart/form-data",
+      },
+    });
+  });
+
+  it("downloads evidence as a file", async () => {
+    const file = new Blob(["pdf"], { type: "application/pdf" });
+    get.mockResolvedValue({ data: file });
+
+    await expect(
+      downloadEvidence("token", "batch-1", "evidence-1"),
+    ).resolves.toBe(file);
+    expect(get).toHaveBeenCalledWith(
+      "/api/v1/batches/batch-1/evidence/evidence-1",
+      { headers: { Authorization: "Bearer token" }, responseType: "blob" },
+    );
+  });
+
+  it("sends the evidence id with a treatment", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: { batch_id: "batch-1", status: "RECYCLED", version: 8 },
+        correlation_id: "corr-1",
+      },
+    });
+
+    await recordTreatment(
+      "token",
+      "batch-1",
+      7,
+      { evidenceId: "evidence-1" },
+      "idem-1",
+    );
+
+    expect(post.mock.calls[0]?.[1]).toEqual({ evidence_id: "evidence-1" });
   });
 
   it("reads an absent treatment outcome as nulls, not zeros", async () => {
