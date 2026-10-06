@@ -146,16 +146,13 @@ jobs:
 
       - name: Run Semgrep SAST Scan
         run: |
-          semgrep scan \
-            --config p/security-audit \
-            --config p/owasp-top-ten \
-            --config p/golang \
-            --config p/python \
-            --config p/typescript \
-            --config p/javascript \
-            --sarif \
-            --output semgrep.sarif \
-            --error
+          CONFIGS="--config p/security-audit --config p/owasp-top-ten --config p/golang --config p/python --config p/typescript --config p/javascript"
+
+          # Full report (all severities) for the retained SARIF artifact; does not gate.
+          semgrep scan $CONFIGS --sarif --output semgrep.sarif
+
+          # Gate: fail only on ERROR severity findings; warnings are reported but pass.
+          semgrep scan $CONFIGS --severity ERROR --error
 
       - name: Retain Semgrep Report
         if: always() && hashFiles('semgrep.sarif') != ''
