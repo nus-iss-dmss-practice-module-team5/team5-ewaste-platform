@@ -51,7 +51,7 @@ The e-Waste platform evidence storage securely stores physical verification and 
 
 ### Key Security Guardrails
 
-1. **Zero-Trust Network Isolation**: `public_network_access_enabled = false`. Direct internet access is blocked. All traffic from `workflow-api` traverses Azure Private Link.
+1. **Zero-Trust Network Isolation**: `public_network_access_enabled = false`. Direct internet access is blocked. All traffic from `workflow-api` traverses Azure Private Link (`10.0.3.7`).
 2. **Secretless Authentication**: No storage account access keys or connection strings are stored in code, environment variables, or config files. The application authenticates dynamically using the User-Assigned Managed Identity (`id-ewaste-{env}`).
 3. **Least Privilege RBAC**: The Managed Identity is assigned the built-in role **Storage Blob Data Contributor** scoped specifically to the evidence storage account.
 
@@ -112,7 +112,7 @@ type EvidenceStorage interface {
 
 ### Step 3: Azure Blob Adapter Implementation
 
-Implement the Azure Blob adapter using `azidentity.NewDefaultAzureCredential`:
+Implement the Azure Blob adapter using `azidentity.NewDefaultAzureCredential` or `azidentity.NewManagedIdentityCredential`:
 
 ```go
 package storage
@@ -226,7 +226,7 @@ func NewEvidenceStorage(cfg config.StorageConfig) (EvidenceStorage, error) {
 
 ### Artifact Evidence 1: Denied Public Internet Access (Zero-Trust Decision D2)
 
-Executed from outside the VNet (GitHub Actions Runner / Public Internet):
+Executed from outside the VNet (Public Internet / Developer Machine / CI Runner):
 
 ```bash
 curl -I https://stgewastedev.blob.core.windows.net/evidence-private/test-probe.txt
@@ -239,36 +239,53 @@ HTTP/1.1 403 This request is not authorized to perform this operation.
 [PASS] Public internet request blocked as expected (HTTP 403).
 ```
 
-**Conclusion**: Direct internet access is completely blocked. The storage account is sealed within the private network perimeter.
+**Conclusion**: Direct internet access is completely blocked (`public_network_access_enabled = false`). Storage account firewall drops external traffic.
 
 ---
 
-### Artifact Evidence 2: Permitted Private Link Reachability (Inside ACA Container)
+### Artifact Evidence 2: Permitted Private Link Read (Inside ACA Container App)
 
-Executed from within `aca-ewaste-dev-api` container (`10.0.8.x`):
+Executed from within the `aca-ewaste-dev-api` container (`/app $`):
 
-```text
-Connecting to stgewastedev.blob.core.windows.net (10.0.3.7:443)
-HTTP/1.1 405 The resource doesn't support specified Http Verb.
+```sh
+IDENTITY_RES_ID="/subscriptions/c17fe099-bd8f-427b-ab53-544bf2af60c3/resourceGroups/rg-ewaste-dev/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-ewaste-dev"
+
+TOKEN=$(wget -qO- --header="X-IDENTITY-HEADER: $IDENTITY_HEADER" "$IDENTITY_ENDPOINT?api-version=2019-08-01&resource=https://storage.azure.com/&mi_res_id=$IDENTITY_RES_ID" | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
+
+wget -qO- \
+  --header="x-ms-version: 2023-11-03" \
+  --header="Authorization: Bearer $TOKEN" \
+  "https://stgewastedev.blob.core.windows.net/evidence-private?restype=container&comp=list&maxresults=5" | \
+  grep -o '<Name>[^<]*' | sed 's/<Name>/  [ACA Read via Private Link] /'
 ```
 
 **Observed Result**:
 
-- `stgewastedev.blob.core.windows.net` resolved to internal private IP **`10.0.3.7`** via Private DNS Zone `privatelink.blob.core.windows.net`.
-- TCP port 443 handshake succeeded with Private Endpoint `pe-stgewaste-dev`.
-- Azure Blob Storage answered the HTTP request through the Private Link tunnel.
+```text
+  [ACA Read via Private Link] evidence-1.txt
+  [ACA Read via Private Link] evidence-2.txt
+  [ACA Read via Private Link] evidence-3.txt
+  [ACA Read via Private Link] evidence-4.txt
+  [ACA Read via Private Link] evidence-5.txt
+```
+
+**Conclusion**:
+
+- DNS queries inside `vnet-ewaste-dev` resolve `stgewastedev.blob.core.windows.net` to internal private IP **`10.0.3.7`** via Private DNS Zone `privatelink.blob.core.windows.net`.
+- Managed Identity `id-ewaste-dev` acquires token from IMDS endpoint with resource URI `https://storage.azure.com/`.
+- Container App connects directly to Blob Storage over Private Link and successfully lists/reads artifacts without leaving the private network.
 
 ---
 
 ### Artifact Evidence 3: Automated Infrastructure Audit Probe
 
-Run in CI/CD or Cloud Shell via `scripts/verify-evidence-storage.sh`:
+Run via [`scripts/verify-evidence-storage.sh`](file:///C:/Users/laksh/Documents/NUS-ISS%20MTech%20SE/1%20-%20SWE5006%20-%20Designing%20Modern%20Software%20Systems/Practice%20Module/GitHub%20Codebase/team5-ewaste-platform/scripts/verify-evidence-storage.sh):
 
 ```bash
 ./scripts/verify-evidence-storage.sh dev
 ```
 
-**Output**:
+**Summary Output**:
 
 ```text
 ==================================================================
@@ -278,27 +295,41 @@ Run in CI/CD or Cloud Shell via `scripts/verify-evidence-storage.sh`:
  Private Endpoint:   pe-stgewaste-dev
  Container App:      aca-ewaste-dev-api
 ==================================================================
-[1/5] Testing Denied Public Internet Access (Decision D2 Zero-Trust)...
+[1/6] Testing Denied Public Internet Access (Decision D2 Zero-Trust)...
   [PASS] Public internet request blocked as expected (HTTP 403).
+         Zero-Trust boundary verified: storage is unreachable from outside VNet.
 
-[2/5] Verifying Private Endpoint Provisioning & Private Link...
+[2/6] Verifying Private Endpoint Provisioning & Private Link...
   [PASS] Private Endpoint Status: Approved
          Private IP Address:     10.0.3.7
 
-[3/5] Verifying Private DNS Zone Link to VNet...
+[3/6] Verifying Private DNS Zone Link to VNet...
   [PASS] Private DNS Zone 'privatelink.blob.core.windows.net' is linked to VNet.
+         Internal queries for stgewastedev.blob.core.windows.net resolve to private IP.
 
-[4/5] Verifying Workload Managed Identity RBAC...
-  Role: Storage Blob Data Contributor | Scope: stgewastedev
+[4/6] Verifying Workload Managed Identity RBAC...
+Role                           PrincipalType
+-----------------------------  ----------------
+Storage Blob Data Contributor  ServicePrincipal
+Storage Blob Data Contributor  ServicePrincipal
+Storage Blob Data Contributor  ServicePrincipal
   [PASS] Role 'Storage Blob Data Contributor' is actively assigned on stgewastedev.
 
-[5/5] Verifying ACA Storage Adapter Environment Injections...
+[5/6] Verifying ACA Storage Adapter Environment Injections...
   STORAGE_ADAPTER_TYPE    azure_blob
   AZURE_STORAGE_ACCOUNT   stgewastedev
   AZURE_STORAGE_CONTAINER evidence-private
   AZURE_STORAGE_ENDPOINT  https://stgewastedev.blob.core.windows.net/
   AZURE_USE_MANAGED_ID    true
   MAX_UPLOAD_SIZE_BYTES   5242880
+
+[6/6] Uploading dummy files & querying real filenames from 'evidence-private'...
+  === Displaying Blob Filenames in 'evidence-private' ===
+  [Verified Blob] evidence-1.txt
+  [Verified Blob] evidence-2.txt
+  [Verified Blob] evidence-3.txt
+  [Verified Blob] evidence-4.txt
+  [Verified Blob] evidence-5.txt
 ==================================================================
  S3-X-I-L-01 Verification Summary:
  [x] Decision D2 Zero-Trust (Public Internet Blocked): PASS
@@ -306,5 +337,6 @@ Run in CI/CD or Cloud Shell via `scripts/verify-evidence-storage.sh`:
  [x] Private DNS Zone Resolution:                      PASS
  [x] Secretless Managed Identity RBAC:                 PASS
  [x] Backend Adapter Settings Injected into ACA:       PASS
+ [x] Zero-Trust Verified & Sealed:                     PASS
 ==================================================================
 ```
