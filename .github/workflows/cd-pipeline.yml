@@ -147,7 +147,7 @@ jobs:
           AZURE_ACR_NAME: ${{ secrets.AZURE_ACR_NAME }}
           TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
           RAW_INPUT: ${{ inputs.rollback_tag }}
-          IMAGE_NAME_API: ${{ env.IMAGE_NAME_API }} 
+          IMAGE_NAME_API: ${{ env.IMAGE_NAME_API }}
         run: |
           ACR_SERVER="${AZURE_ACR_NAME}.azurecr.io"
           ACR_NAME=$(echo "$ACR_SERVER" | cut -d'.' -f1)
