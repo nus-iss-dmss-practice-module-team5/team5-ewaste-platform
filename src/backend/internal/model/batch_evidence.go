@@ -5,13 +5,13 @@ import "time"
 type EvidenceValidationStatus string
 
 const (
-	EvidenceValidationPending   EvidenceValidationStatus = "PENDING"
 	EvidenceValidationValidated EvidenceValidationStatus = "VALIDATED"
 )
 
 type EvidenceLifecycleStage string
 
 const (
+	EvidenceLifecycleReceipt   EvidenceLifecycleStage = "RECEIPT"
 	EvidenceLifecycleTreatment EvidenceLifecycleStage = "TREATMENT"
 )
 

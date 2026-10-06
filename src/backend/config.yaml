@@ -46,6 +46,15 @@ auth:
   access_ttl: "15m"
   refresh_ttl: "24h"
 
+storage:
+  # Keep local development fail-closed until private Azure Blob settings are supplied.
+  adapter_type: "disabled"
+  azure_storage_account: ""
+  azure_storage_container: "evidence-private"
+  azure_storage_endpoint: ""
+  azure_use_managed_id: true
+  max_upload_size_bytes: 5242880
+
 rate_limit:
   requests: 10
   window: "1m"

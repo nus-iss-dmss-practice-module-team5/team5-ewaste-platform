@@ -19,6 +19,7 @@ import (
 func NewAuthRouter(
 	authController *controller.AuthController,
 	batchController *controller.BatchController,
+	evidenceController *controller.EvidenceController,
 	claimController *controller.ClaimController,
 	assignmentController *controller.AssignmentController,
 	tokens *token.Service,
@@ -84,6 +85,10 @@ func NewAuthRouter(
 		batches.POST("/:batch_id/submit", batchController.Submit)
 		batches.POST("/:batch_id/receipt", batchController.VerifyReceipt)
 		batches.POST("/:batch_id/treatment", batchController.RecordTreatment)
+	}
+	if evidenceController != nil {
+		batches.POST("/:batch_id/evidence", evidenceController.Upload)
+		batches.GET("/:batch_id/evidence/:evidence_id", evidenceController.Download)
 	}
 	if claimController != nil {
 		batches.POST("/:batch_id/claim", claimController.Claim)

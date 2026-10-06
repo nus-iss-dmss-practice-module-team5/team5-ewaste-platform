@@ -134,6 +134,13 @@ func run() error {
 	batchRepository := repository.NewGormBatchRepository(db)
 	batchService := service.NewBatchService(batchRepository)
 	batchController := controller.NewBatchController(batchService, appLogger.Logger)
+	evidenceStorage, storageErr := storage.NewEvidenceStorage(cfg.Storage)
+	if storageErr != nil {
+		return fmt.Errorf("create evidence storage: %w", storageErr)
+	}
+	evidenceService := service.NewEvidenceService(batchRepository, evidenceStorage)
+	evidenceService.SetMaxUploadSizeBytes(cfg.Storage.MaxUploadSizeBytes)
+	evidenceController := controller.NewEvidenceController(evidenceService, appLogger.Logger)
 	claimRepository := repository.NewGormClaimRepository(db)
 	claimLease := lease.NewRedisBatchLease(
 		redisClient,
@@ -196,6 +203,7 @@ func run() error {
 	appRouter := router.NewAuthRouter(
 		authController,
 		batchController,
+		evidenceController,
 		claimController,
 		assignmentController,
 		tokens,

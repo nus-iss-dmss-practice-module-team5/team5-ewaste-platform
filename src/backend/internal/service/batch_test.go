@@ -16,6 +16,7 @@ type fakeBatchRepository struct {
 	state        *fakeBatchState
 	transactionN int
 	failOutbox   bool
+	failAudit    bool
 }
 
 type fakeBatchState struct {
@@ -31,6 +32,7 @@ type fakeBatchState struct {
 type fakeBatchTransaction struct {
 	state      *fakeBatchState
 	failOutbox bool
+	failAudit  bool
 }
 
 func newFakeBatchRepository() *fakeBatchRepository {
@@ -55,7 +57,7 @@ func (r *fakeBatchRepository) Transaction(
 	}
 
 	snapshot := cloneFakeBatchState(r.state)
-	err := fn(&fakeBatchTransaction{state: r.state, failOutbox: r.failOutbox})
+	err := fn(&fakeBatchTransaction{state: r.state, failOutbox: r.failOutbox, failAudit: r.failAudit})
 	if err != nil {
 		r.state = snapshot
 	}
@@ -79,6 +81,14 @@ func (t *fakeBatchTransaction) ValidateRecyclerActor(
 	string,
 	string,
 ) error {
+	return nil
+}
+
+func (t *fakeBatchTransaction) ValidateAuditorActor(context.Context, string) error {
+	return nil
+}
+
+func (t *fakeBatchTransaction) ValidateAdminActor(context.Context, string) error {
 	return nil
 }
 
@@ -219,6 +229,26 @@ func (t *fakeBatchTransaction) FindReceipt(
 	return cloneReceipt(receipt), nil
 }
 
+func (t *fakeBatchTransaction) FindEvidence(
+	_ context.Context,
+	batchID string,
+	evidenceID string,
+) (*model.BatchEvidence, error) {
+	evidence, ok := t.state.evidence[evidenceID]
+	if !ok || evidence.BatchID != batchID {
+		return nil, repository.ErrEvidenceNotFound
+	}
+	return cloneEvidence(evidence), nil
+}
+
+func (t *fakeBatchTransaction) CreateEvidence(
+	_ context.Context,
+	evidence *model.BatchEvidence,
+) error {
+	t.state.evidence[evidence.EvidenceID] = cloneEvidence(evidence)
+	return nil
+}
+
 func (t *fakeBatchTransaction) ValidateTreatmentEvidence(
 	_ context.Context,
 	batchID string,
@@ -285,6 +315,9 @@ func (t *fakeBatchTransaction) AppendAudit(
 	_ context.Context,
 	event *model.BatchAuditEvent,
 ) error {
+	if t.failAudit {
+		return errors.New("audit unavailable")
+	}
 	t.state.audits = append(t.state.audits, event)
 	return nil
 }

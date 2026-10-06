@@ -68,6 +68,7 @@ func newRouterTest(t *testing.T, checker *health.Checker) *gin.Engine {
 		nil,
 		nil,
 		nil,
+		nil,
 		tokens,
 		repo,
 		routerTestLimiter{},
@@ -164,6 +165,7 @@ func TestAuthRouterRegistersTreatmentEndpoint(t *testing.T) {
 		batchController,
 		nil,
 		nil,
+		nil,
 		tokens,
 		repo,
 		routerTestLimiter{},
@@ -178,6 +180,35 @@ func TestAuthRouterRegistersTreatmentEndpoint(t *testing.T) {
 		}
 	}
 	t.Fatal("treatment endpoint was not registered")
+}
+
+func TestAuthRouterRegistersEvidenceEndpoints(t *testing.T) {
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authService := service.NewAuthService(repo, tokens, zap.NewNop())
+	authController := controller.NewAuthController(authService, zap.NewNop())
+	evidenceController := controller.NewEvidenceController(nil, zap.NewNop())
+	r := NewAuthRouter(
+		authController,
+		nil,
+		evidenceController,
+		nil,
+		nil,
+		tokens,
+		repo,
+		routerTestLimiter{},
+		nil,
+		nil,
+		zap.NewNop(),
+	)
+
+	paths := map[string]bool{}
+	for _, route := range r.Routes() {
+		paths[route.Method+" "+route.Path] = true
+	}
+	if !paths[http.MethodPost+" /api/v1/batches/:batch_id/evidence"] || !paths[http.MethodGet+" /api/v1/batches/:batch_id/evidence/:evidence_id"] {
+		t.Fatalf("evidence routes were not registered: %+v", paths)
+	}
 }
 
 func TestDocsExposeOpenAPISpecAndSwaggerUI(t *testing.T) {

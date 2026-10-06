@@ -27,6 +27,8 @@ type BatchRepository interface {
 type BatchTransaction interface {
 	FindBatchForUpdate(ctx context.Context, batchID string) (*model.Batch, error)
 	ValidateRecyclerActor(ctx context.Context, userID string, organisationID string) error
+	ValidateAuditorActor(ctx context.Context, userID string) error
+	ValidateAdminActor(ctx context.Context, userID string) error
 	ValidateReceiptScope(ctx context.Context, batchID string, claimID string, assignmentID string, claimEpoch uint64, organisationID string) error
 
 	FindCommand(
@@ -60,6 +62,8 @@ type BatchTransaction interface {
 	CreateReceipt(ctx context.Context, receipt *model.BatchReceipt) error
 	UpdateBatchReceipt(ctx context.Context, batchID string, expectedVersion uint32, now time.Time) (*model.Batch, error)
 	FindReceipt(ctx context.Context, batchID string) (*model.BatchReceipt, error)
+	FindEvidence(ctx context.Context, batchID string, evidenceID string) (*model.BatchEvidence, error)
+	CreateEvidence(ctx context.Context, evidence *model.BatchEvidence) error
 	ValidateTreatmentEvidence(ctx context.Context, batchID string, evidenceID string, organisationID string) error
 	CreateTreatment(ctx context.Context, treatment *model.BatchTreatment) error
 	UpdateBatchTreatment(ctx context.Context, batchID string, expectedVersion uint32, now time.Time) (*model.Batch, error)
@@ -124,6 +128,30 @@ func (t *gormBatchTransaction) ValidateRecyclerActor(
 		`, userID, organisationID, organisationID).
 		Count(&count).
 		Error
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return ErrBatchActorNotEligible
+	}
+	return nil
+}
+
+func (t *gormBatchTransaction) ValidateAuditorActor(ctx context.Context, userID string) error {
+	return t.validatePlatformRole(ctx, userID, "AUDITOR")
+}
+
+func (t *gormBatchTransaction) ValidateAdminActor(ctx context.Context, userID string) error {
+	return t.validatePlatformRole(ctx, userID, "SYSTEM_ADMIN")
+}
+
+func (t *gormBatchTransaction) validatePlatformRole(ctx context.Context, userID string, roleCode string) error {
+	var count int64
+	err := t.db.WithContext(ctx).
+		Table("users AS u").
+		Joins("INNER JOIN roles AS role ON role.role_code = u.role_code").
+		Where("u.user_id = ? AND u.status = 'ACTIVE' AND u.role_code = ? AND role.is_active = TRUE AND role.allowed_organisation_type = 'PLATFORM'", userID, roleCode).
+		Count(&count).Error
 	if err != nil {
 		return err
 	}
@@ -384,6 +412,27 @@ func (t *gormBatchTransaction) FindReceipt(
 		return nil, err
 	}
 	return &receipt, nil
+}
+
+func (t *gormBatchTransaction) FindEvidence(ctx context.Context, batchID string, evidenceID string) (*model.BatchEvidence, error) {
+	var evidence model.BatchEvidence
+	err := t.db.WithContext(ctx).
+		Where("batch_id = ? AND evidence_id = ?", batchID, evidenceID).
+		First(&evidence).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, ErrEvidenceNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &evidence, nil
+}
+
+func (t *gormBatchTransaction) CreateEvidence(ctx context.Context, evidence *model.BatchEvidence) error {
+	if evidence == nil {
+		return errors.New("repository: evidence is nil")
+	}
+	return t.db.WithContext(ctx).Create(evidence).Error
 }
 
 func (t *gormBatchTransaction) ValidateTreatmentEvidence(

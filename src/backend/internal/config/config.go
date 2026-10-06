@@ -16,6 +16,7 @@ type Config struct {
 	Redis     RedisConfig     `mapstructure:"redis"`
 	Kafka     KafkaConfig     `mapstructure:"kafka"`
 	Auth      AuthConfig      `mapstructure:"auth"`
+	Storage   StorageConfig   `mapstructure:"storage"`
 	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
 	Logging   LoggingConfig   `mapstructure:"logging"`
 }
@@ -98,6 +99,18 @@ type AuthConfig struct {
 	RefreshHashSecret string        `mapstructure:"refresh_hash_secret"`
 }
 
+// StorageConfig contains only non-secret Azure Blob configuration. Shared
+// keys and connection strings are intentionally not supported: the runtime
+// uses the Container Apps managed identity for private evidence storage.
+type StorageConfig struct {
+	AdapterType           string `mapstructure:"adapter_type"`
+	AzureStorageAccount   string `mapstructure:"azure_storage_account"`
+	AzureStorageContainer string `mapstructure:"azure_storage_container"`
+	AzureStorageEndpoint  string `mapstructure:"azure_storage_endpoint"`
+	AzureUseManagedID     bool   `mapstructure:"azure_use_managed_id"`
+	MaxUploadSizeBytes    int64  `mapstructure:"max_upload_size_bytes"`
+}
+
 type RateLimitConfig struct {
 	Requests int           `mapstructure:"requests"`
 	Window   time.Duration `mapstructure:"window"`
@@ -166,6 +179,12 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.access_secret", "")
 	v.SetDefault("auth.refresh_secret", "")
 	v.SetDefault("auth.refresh_hash_secret", "")
+	v.SetDefault("storage.adapter_type", "disabled")
+	v.SetDefault("storage.azure_storage_account", "")
+	v.SetDefault("storage.azure_storage_container", "evidence-private")
+	v.SetDefault("storage.azure_storage_endpoint", "")
+	v.SetDefault("storage.azure_use_managed_id", true)
+	v.SetDefault("storage.max_upload_size_bytes", int64(5*1024*1024))
 	v.SetDefault("rate_limit.requests", 10)
 	v.SetDefault("rate_limit.window", time.Minute)
 	v.SetDefault("logging.level", "info")
@@ -211,6 +230,12 @@ func bindEnvironment(v *viper.Viper) {
 		"auth.access_ttl",
 		"auth.refresh_ttl",
 		"auth.refresh_hash_secret",
+		"storage.adapter_type",
+		"storage.azure_storage_account",
+		"storage.azure_storage_container",
+		"storage.azure_storage_endpoint",
+		"storage.azure_use_managed_id",
+		"storage.max_upload_size_bytes",
 		"rate_limit.requests",
 		"rate_limit.window",
 		"logging.level",
@@ -237,6 +262,12 @@ func bindEnvironment(v *viper.Viper) {
 	}
 	for _, key := range keys {
 		envName := "EWASTE_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+		if strings.HasPrefix(key, "storage.") {
+			// Storage names intentionally match the Azure deployment contract.
+			// Accept the application-prefixed alias as well for local consistency.
+			_ = v.BindEnv(key, strings.ToUpper(strings.ReplaceAll(key, ".", "_")), envName)
+			continue
+		}
 		if key == "database.password" {
 			_ = v.BindEnv(key, "MYSQL_PASSWORD", envName)
 			continue
