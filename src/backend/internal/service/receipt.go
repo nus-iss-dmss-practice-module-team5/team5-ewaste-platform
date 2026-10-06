@@ -97,7 +97,9 @@ func (s *BatchService) VerifyReceipt(
 			ActualWeightKg:  normalized.ActualWeightKg,
 			CommandID:       command.ID,
 			CorrelationID:   metadata.CorrelationID,
+			Version:         1,
 			VerifiedAt:      now,
+			CreatedAt:       now,
 		}
 		if err := tx.CreateReceipt(ctx, receipt); err != nil {
 			return err

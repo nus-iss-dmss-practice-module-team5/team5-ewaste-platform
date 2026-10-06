@@ -233,7 +233,12 @@ func (s *EvidenceService) Download(
 		if err != nil {
 			return err
 		}
-		if evidence.ValidationStatus != model.EvidenceValidationValidated {
+		// Successful uploads are synchronously D2-validated before the row is
+		// created. The deployed 026 schema has no separate status column, so an
+		// empty read value represents that implicit VALIDATED state. If a future
+		// schema stores the status explicitly, non-VALIDATED rows still fail
+		// closed.
+		if evidence.ValidationStatus != "" && evidence.ValidationStatus != model.EvidenceValidationValidated {
 			return ErrBatchEvidenceNotFound
 		}
 
@@ -367,10 +372,14 @@ func evidenceObjectKey(batchID string, evidenceID string) string {
 }
 
 func evidenceView(evidence *model.BatchEvidence) dto.EvidenceView {
+	validationStatus := evidence.ValidationStatus
+	if validationStatus == "" {
+		validationStatus = model.EvidenceValidationValidated
+	}
 	return dto.EvidenceView{
 		EvidenceID: evidence.EvidenceID, BatchID: evidence.BatchID, LifecycleStage: string(evidence.LifecycleStage),
 		MIMEType: evidence.MIMEType, FileSizeBytes: evidence.FileSizeBytes, SHA256Hash: evidence.SHA256Hash,
-		ValidationStatus: string(evidence.ValidationStatus),
+		ValidationStatus: string(validationStatus),
 	}
 }
 

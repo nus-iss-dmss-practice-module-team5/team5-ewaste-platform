@@ -186,6 +186,43 @@ func TestAuthRouterRegistersTreatmentEndpoint(t *testing.T) {
 	t.Fatal("treatment endpoint was not registered")
 }
 
+func TestAuthRouterRegistersProcessingReadEndpoints(t *testing.T) {
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authService := service.NewAuthService(repo, tokens, zap.NewNop())
+	authController := controller.NewAuthController(authService, zap.NewNop())
+	reads := controller.NewWorkflowReadController(nil, zap.NewNop())
+	r := NewAuthRouter(
+		authController,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		tokens,
+		repo,
+		routerTestLimiter{},
+		nil,
+		nil,
+		zap.NewNop(),
+		"",
+		reads,
+	)
+
+	paths := map[string]bool{}
+	for _, route := range r.Routes() {
+		paths[route.Method+" "+route.Path] = true
+	}
+	if !paths[http.MethodGet+" /api/v1/processing/batches"] || !paths[http.MethodGet+" /api/v1/processing/batches/:batch_id"] {
+		t.Fatalf("processing read routes were not registered: %+v", paths)
+	}
+	if !paths[http.MethodGet+" /api/v1/audit/batches/:batch_id/timeline"] ||
+		!paths[http.MethodGet+" /api/v1/audit/batches/:batch_id/anomalies"] ||
+		!paths[http.MethodGet+" /api/v1/audit/impact"] {
+		t.Fatalf("auditor read routes were not registered: %+v", paths)
+	}
+}
+
 func TestAuthRouterRegistersEvidenceEndpoints(t *testing.T) {
 	repo := routerTestRepository{}
 	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)

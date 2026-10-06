@@ -179,6 +179,9 @@ func pythonAnalyticsAcknowledgement(payload map[string]any, sourceEventID string
 	if dataQuality == string(model.TreatmentDataQualityMissing) {
 		anomalyCodes = append(anomalyCodes, string(model.AnomalyMissingOutcome))
 	}
+	weightDelta, _ := signedDecimalDifference(stringValue(data["actual_weight_kg"]), stringValue(data["declared_weight_kg"]))
+	declaredCount := int(numberValue(data["declared_quantity"]))
+	actualCount := int(numberValue(data["actual_item_count"]))
 	return dto.AnalyticsAcknowledgement{
 		SourceEventID:      sourceEventID,
 		SourceEventVersion: uint32(numberValue(payload["aggregate_version"])),
@@ -193,6 +196,8 @@ func pythonAnalyticsAcknowledgement(payload map[string]any, sourceEventID string
 			DeclaredQuantity: intPointer(numberValue(data["declared_quantity"])),
 			ActualItemCount:  intPointer(numberValue(data["actual_item_count"])),
 			CategoryMatch:    boolPointer(stringValue(data["declared_category"]) == stringValue(data["actual_category"])),
+			WeightDeltaKg:    stringPointer(weightDelta),
+			CountDelta:       new(actualCount - declaredCount),
 		},
 		AnomalyCodes: anomalyCodes,
 	}, nil

@@ -1150,20 +1150,73 @@ components:
       type: object
       required: [data, correlation_id]
       properties:
-        data: {type: array, items: {type: object}}
+        data: {type: array, items: {$ref: '#/components/schemas/AuditTimelineEntry'}}
         correlation_id: {type: string}
     AnomalyListResponse:
       type: object
       required: [data, correlation_id]
       properties:
-        data: {type: array, items: {type: object}}
+        data: {type: array, items: {$ref: '#/components/schemas/Anomaly'}}
         correlation_id: {type: string}
     ImpactResponse:
       type: object
       required: [data, correlation_id]
       properties:
-        data: {type: object}
+        data:
+          type: object
+          required: [items, total_count]
+          properties:
+            items: {type: array, items: {$ref: '#/components/schemas/ImpactResult'}}
+            total_count: {type: integer, minimum: 0}
         correlation_id: {type: string}
+    AuditTimelineEntry:
+      type: object
+      required: [audit_id, batch_id, command_id, event_type, from_status, to_status, batch_version, sequence_in_command, occurred_at, correlation_id, details]
+      properties:
+        audit_id: {type: string, format: uuid}
+        batch_id: {type: string, format: uuid}
+        command_id: {type: string, format: uuid}
+        actor_user_id: {type: string, nullable: true}
+        actor_organisation_id: {type: string, nullable: true}
+        service_principal: {type: string, nullable: true}
+        event_type: {type: string}
+        from_status: {type: string}
+        to_status: {type: string}
+        batch_version: {type: integer, minimum: 1}
+        sequence_in_command: {type: integer, minimum: 1}
+        occurred_at: {type: string, format: date-time}
+        correlation_id: {type: string}
+        details: {type: object}
+    Anomaly:
+      type: object
+      required: [anomaly_id, batch_id, result_id, code, detected_at]
+      properties:
+        anomaly_id: {type: string, format: uuid}
+        batch_id: {type: string, format: uuid}
+        result_id: {type: string, format: uuid}
+        code: {type: string, enum: [CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT]}
+        declared_value: {type: string, nullable: true}
+        actual_value: {type: string, nullable: true}
+        delta_kg: {type: string, nullable: true}
+        detected_at: {type: string, format: date-time}
+    ImpactResult:
+      type: object
+      required: [result_id, batch_id, source_event_id, source_event_version, receipt_id, receipt_version, treatment_id, treatment_version, rule_version, input_hash, data_quality, metrics, anomaly_codes, acknowledged_at]
+      properties:
+        result_id: {type: string, format: uuid}
+        batch_id: {type: string, format: uuid}
+        source_event_id: {type: string, format: uuid}
+        source_event_version: {type: integer, minimum: 1}
+        receipt_id: {type: string, format: uuid}
+        receipt_version: {type: integer, minimum: 1}
+        treatment_id: {type: string, format: uuid}
+        treatment_version: {type: integer, minimum: 1}
+        rule_version: {type: string}
+        input_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
+        metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
+        anomaly_codes: {type: array, items: {type: string}}
+        acknowledged_at: {type: string, format: date-time}
     BatchListResponse:
       type: object
       required: [data, page, page_size, total_count, correlation_id]

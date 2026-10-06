@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -104,6 +105,8 @@ func (s *BatchService) AcknowledgeAnalytics(
 				result.EventID = completedEvent.EventID
 			}
 			return nil
+		} else if errors.Is(lookupErr, repository.ErrAnalyticsSourceConflict) {
+			return ErrBatchIdempotencyConflict
 		} else if !errors.Is(lookupErr, repository.ErrAnalyticsNotFound) {
 			return lookupErr
 		}
@@ -145,10 +148,17 @@ func (s *BatchService) AcknowledgeAnalytics(
 		if !ok {
 			return NewBatchValidationError(map[string]string{"source_event_id": "source event data is invalid"})
 		}
+		if err := validateAnalyticsMetricsAgainstFrozenInput(data, request); err != nil {
+			return err
+		}
 		receiptID, _ := data["receipt_id"].(string)
 		treatmentID, _ := data["treatment_id"].(string)
 		if receiptID == "" || treatmentID == "" {
 			return NewBatchValidationError(map[string]string{"source_event_id": "receipt and treatment identifiers are required"})
+		}
+		frozenInput, err := analyticsCanonicalInput(envelope)
+		if err != nil {
+			return err
 		}
 
 		now := s.clock().UTC()
@@ -160,19 +170,52 @@ func (s *BatchService) AcknowledgeAnalytics(
 		if err != nil {
 			return err
 		}
+		snapshotJSON, err := json.Marshal(map[string]any{
+			"frozen_input":     frozenInput,
+			"analytics_run_id": request.AnalyticsRunID,
+			"metrics":          request.Metrics,
+			"anomaly_codes":    request.AnomalyCodes,
+		})
+		if err != nil {
+			return err
+		}
+		resultHash, err := analyticsResultHash(request)
+		if err != nil {
+			return err
+		}
+		facilityOrgID := stringValue(data["facility_org_id"])
+		receiptVersion := uint32(numberValue(data["receipt_version"]))
+		if receiptVersion == 0 {
+			receiptVersion = 1
+		}
+		treatmentVersion := uint32(numberValue(data["treatment_version"]))
+		if treatmentVersion == 0 {
+			treatmentVersion = 1
+		}
 		claimEpoch := stringValue(data["claim_epoch"])
 		analyticsResult := &model.AnalyticsResult{
 			ResultID:           s.newID(),
 			BatchID:            batch.ID,
 			SourceEventID:      request.SourceEventID,
 			SourceEventVersion: request.SourceEventVersion,
+			FacilityOrgID:      facilityOrgID,
 			ReceiptID:          receiptID,
+			ReceiptVersion:     receiptVersion,
 			TreatmentID:        treatmentID,
+			TreatmentVersion:   treatmentVersion,
 			ClaimEpoch:         nullableString(claimEpoch),
 			AnalyticsRunID:     request.AnalyticsRunID,
 			InputHash:          request.InputHash,
 			RuleVersion:        request.RuleVersion,
 			DataQuality:        model.AnalyticsDataQuality(request.DataQuality),
+			ReceivedWeightKg:   stringValue(data["actual_weight_kg"]),
+			ReusedKg:           nullableEventString(data["reused_kg"]),
+			RecycledKg:         nullableEventString(data["recycled_kg"]),
+			DisposedKg:         nullableEventString(data["disposed_kg"]),
+			InputSnapshotJSON:  snapshotJSON,
+			ResultHash:         resultHash,
+			CommandID:          command.ID,
+			CorrelationID:      metadata.CorrelationID,
 			MetricsJSON:        metricsJSON,
 			AcknowledgedAt:     now,
 		}
@@ -357,6 +400,159 @@ func validateAnalyticsMetrics(metrics dto.AnalyticsMetrics) error {
 	return nil
 }
 
+// validateAnalyticsMetricsAgainstFrozenInput ensures Python cannot
+// acknowledge a result calculated from values other than the immutable
+// RecyclingCompleted snapshot. Rule ownership remains with Python: Go checks
+// the frozen measurements and derived arithmetic, while the worker supplies
+// the deterministic anomaly code list.
+func validateAnalyticsMetricsAgainstFrozenInput(data map[string]any, request dto.AnalyticsAcknowledgement) error {
+	metrics := request.Metrics
+	if request.DataQuality != stringValue(data["data_quality"]) {
+		return NewBatchValidationError(map[string]string{"data_quality": "does not match the frozen RecyclingCompleted input"})
+	}
+
+	for field, actual := range map[string]any{
+		"declared_weight_kg": data["declared_weight_kg"],
+		"actual_weight_kg":   data["actual_weight_kg"],
+		"reused_kg":          data["reused_kg"],
+		"recycled_kg":        data["recycled_kg"],
+		"disposed_kg":        data["disposed_kg"],
+		"unknown_kg":         data["unknown_kg"],
+		"diverted_kg":        data["diverted_kg"],
+	} {
+		if !sameNullableString(metricString(metrics, field), nullableEventString(actual)) {
+			return NewBatchValidationError(map[string]string{"metrics." + field: "does not match the frozen RecyclingCompleted input"})
+		}
+	}
+
+	if !sameNullableInt(metrics.DeclaredQuantity, eventIntPointer(data["declared_quantity"])) {
+		return NewBatchValidationError(map[string]string{"metrics.declared_quantity": "does not match the frozen RecyclingCompleted input"})
+	}
+	if !sameNullableInt(metrics.ActualItemCount, eventIntPointer(data["actual_item_count"])) {
+		return NewBatchValidationError(map[string]string{"metrics.actual_item_count": "does not match the frozen RecyclingCompleted input"})
+	}
+
+	expectedCategoryMatch := strings.EqualFold(stringValue(data["declared_category"]), stringValue(data["actual_category"]))
+	if metrics.CategoryMatch == nil || *metrics.CategoryMatch != expectedCategoryMatch {
+		return NewBatchValidationError(map[string]string{"metrics.category_match": "does not match the frozen category values"})
+	}
+
+	declaredWeight := stringValue(data["declared_weight_kg"])
+	actualWeight := stringValue(data["actual_weight_kg"])
+	if expected, ok := signedDecimalDifference(actualWeight, declaredWeight); ok {
+		if !sameNullableString(metrics.WeightDeltaKg, &expected) {
+			return NewBatchValidationError(map[string]string{"metrics.weight_delta_kg": "does not match the frozen weight values"})
+		}
+	}
+	declaredCount := eventIntPointer(data["declared_quantity"])
+	actualCount := eventIntPointer(data["actual_item_count"])
+	if declaredCount != nil && actualCount != nil {
+		expected := *actualCount - *declaredCount
+		if metrics.CountDelta == nil || *metrics.CountDelta != expected {
+			return NewBatchValidationError(map[string]string{"metrics.count_delta": "does not match the frozen count values"})
+		}
+	}
+	return nil
+}
+
+func metricString(metrics dto.AnalyticsMetrics, field string) *string {
+	switch field {
+	case "declared_weight_kg":
+		return metrics.DeclaredWeightKg
+	case "actual_weight_kg":
+		return metrics.ActualWeightKg
+	case "reused_kg":
+		return metrics.ReusedKg
+	case "recycled_kg":
+		return metrics.RecycledKg
+	case "disposed_kg":
+		return metrics.DisposedKg
+	case "unknown_kg":
+		return metrics.UnknownKg
+	case "diverted_kg":
+		return metrics.DivertedKg
+	default:
+		return nil
+	}
+}
+
+func nullableEventString(value any) *string {
+	if value == nil {
+		return nil
+	}
+	stringValue := stringValue(value)
+	return &stringValue
+}
+
+func eventIntPointer(value any) *int {
+	if value == nil {
+		return nil
+	}
+	number := int(numberValue(value))
+	return &number
+}
+
+func sameNullableString(left, right *string) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func sameNullableInt(left, right *int) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func signedDecimalDifference(left, right string) (string, bool) {
+	leftCents, okLeft := signedCents(left)
+	rightCents, okRight := signedCents(right)
+	if !okLeft || !okRight {
+		return "", false
+	}
+	return formatSignedCents(leftCents - rightCents), true
+}
+
+func signedCents(raw string) (int64, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0, false
+	}
+	negative := strings.HasPrefix(raw, "-")
+	if negative {
+		raw = strings.TrimPrefix(raw, "-")
+	}
+	parts := strings.SplitN(raw, ".", 2)
+	whole, err := strconv.ParseInt(parts[0], 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	fraction := int64(0)
+	if len(parts) == 2 {
+		if len(parts[1]) > 2 || parts[1] == "" {
+			return 0, false
+		}
+		fraction, err = strconv.ParseInt(parts[1]+strings.Repeat("0", 2-len(parts[1])), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+	}
+	value := whole*100 + fraction
+	if negative {
+		value = -value
+	}
+	return value, true
+}
+
+func formatSignedCents(value int64) string {
+	if value < 0 {
+		return fmt.Sprintf("-%d.%02d", (-value)/100, (-value)%100)
+	}
+	return fmt.Sprintf("%d.%02d", value/100, value%100)
+}
+
 func validAnomalyCode(code model.AnomalyCode) bool {
 	switch code {
 	case model.AnomalyCategoryMismatch, model.AnomalyCountMismatch, model.AnomalyWeightMismatch, model.AnomalyMissingOutcome, model.AnomalyUnallocated:
@@ -382,9 +578,22 @@ func validateSourceEvent(payload map[string]any, batchID string, request dto.Ana
 }
 
 func analyticsInputHash(payload map[string]any) (string, error) {
+	canonical, err := analyticsCanonicalInput(payload)
+	if err != nil {
+		return "", err
+	}
+	raw, err := json.Marshal(canonical)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func analyticsCanonicalInput(payload map[string]any) (map[string]any, error) {
 	data, ok := payload["data"].(map[string]any)
 	if !ok {
-		return "", NewBatchValidationError(map[string]string{"source_event_id": "source event data is invalid"})
+		return nil, NewBatchValidationError(map[string]string{"source_event_id": "source event data is invalid"})
 	}
 	keys := []string{"actor_user_id", "actual_category", "actual_item_count", "actual_weight_kg", "aggregate_version", "batch_id", "claim_epoch", "data_quality", "declared_category", "declared_quantity", "declared_weight_kg", "disposed_kg", "diverted_kg", "evidence_id", "evidence_status", "facility_org_id", "receipt_id", "receipt_version", "recycled_kg", "reused_kg", "treatment_id", "treatment_version", "unknown_kg"}
 	canonical := make(map[string]any, len(keys))
@@ -395,9 +604,19 @@ func analyticsInputHash(payload map[string]any) (string, error) {
 		}
 		canonical[key] = data[key]
 	}
+	return canonical, nil
+}
+
+func analyticsResultHash(request dto.AnalyticsAcknowledgement) (string, error) {
+	canonical := struct {
+		RuleVersion  string               `json:"rule_version"`
+		DataQuality  string               `json:"data_quality"`
+		Metrics      dto.AnalyticsMetrics `json:"metrics"`
+		AnomalyCodes []string             `json:"anomaly_codes"`
+	}{request.RuleVersion, request.DataQuality, request.Metrics, request.AnomalyCodes}
 	raw, err := json.Marshal(canonical)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("analytics: hash result: %w", err)
 	}
 	sum := sha256.Sum256(raw)
 	return hex.EncodeToString(sum[:]), nil

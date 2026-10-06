@@ -30,6 +30,8 @@ type WorkflowReadPage struct {
 type WorkflowReadRepository interface {
 	ListBatches(context.Context, WorkflowReadScope, *model.BatchStatus, WorkflowReadPage) ([]model.Batch, int64, error)
 	FindBatch(context.Context, string, WorkflowReadScope) (*model.Batch, error)
+	ListProcessingBatches(context.Context, WorkflowReadScope, *model.BatchStatus, WorkflowReadPage) ([]model.ProcessingSummary, int64, error)
+	FindProcessingBatch(context.Context, string, WorkflowReadScope) (*model.ProcessingDetail, error)
 	FindRecyclerOrganisation(context.Context, string) (string, error)
 	ListOpportunities(context.Context, string, WorkflowReadPage) ([]model.WorkflowOpportunity, int64, error)
 	FindOpportunity(context.Context, string, string) (*model.WorkflowOpportunity, error)
@@ -97,6 +99,116 @@ func (r *GormWorkflowReadRepository) FindBatch(
 	return &batch, nil
 }
 
+func (r *GormWorkflowReadRepository) ListProcessingBatches(
+	ctx context.Context,
+	scope WorkflowReadScope,
+	status *model.BatchStatus,
+	page WorkflowReadPage,
+) ([]model.ProcessingSummary, int64, error) {
+	query, err := r.processingBatchQuery(ctx, scope)
+	if err != nil {
+		return nil, 0, err
+	}
+	if status != nil {
+		query = query.Where("b.status = ?", *status)
+	}
+
+	var countResult struct {
+		Total int64 `gorm:"column:total"`
+	}
+	if err := query.Session(&gorm.Session{}).Select("COUNT(*) AS total").Scan(&countResult).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var summaries []model.ProcessingSummary
+	err = query.
+		Select(`
+			b.id AS batch_id,
+			b.status,
+			b.version,
+			CASE WHEN EXISTS (
+				SELECT 1 FROM batch_evidence AS e WHERE e.batch_id = b.id
+			) THEN 'PRESENT' ELSE 'ABSENT' END AS evidence_status
+		`).
+		Joins("LEFT JOIN batch_treatments AS t ON t.batch_id = b.id").
+		Order("b.created_at DESC, b.id DESC").
+		Offset((page.Page - 1) * page.PageSize).
+		Limit(page.PageSize).
+		Scan(&summaries).
+		Error
+	return summaries, countResult.Total, err
+}
+
+func (r *GormWorkflowReadRepository) FindProcessingBatch(
+	ctx context.Context,
+	batchID string,
+	scope WorkflowReadScope,
+) (*model.ProcessingDetail, error) {
+	query, err := r.processingBatchQuery(ctx, scope)
+	if err != nil {
+		return nil, err
+	}
+
+	var detail model.ProcessingDetail
+	result := query.
+		Select(`
+			b.id AS batch_id,
+			b.status,
+			b.version,
+			b.category AS declared_category,
+			b.quantity AS declared_quantity,
+			b.estimated_weight_kg,
+			r.actual_category,
+			r.actual_item_count,
+			r.actual_weight_kg,
+			t.reused_kg,
+			t.recycled_kg,
+			t.disposed_kg,
+			CASE
+				WHEN t.treatment_id IS NULL THEN NULL
+				WHEN t.reused_kg IS NULL THEN t.received_weight_kg
+				ELSE t.received_weight_kg - t.reused_kg - t.recycled_kg - t.disposed_kg
+			END AS unknown_kg,
+			CASE
+				WHEN t.treatment_id IS NULL OR t.reused_kg IS NULL THEN NULL
+				ELSE t.reused_kg + t.recycled_kg
+			END AS diverted_kg,
+			CASE
+				WHEN t.treatment_id IS NULL THEN NULL
+				WHEN t.reused_kg IS NULL THEN 'MISSING'
+				WHEN t.reused_kg + t.recycled_kg + t.disposed_kg = t.received_weight_kg THEN 'COMPLETE'
+				ELSE 'PARTIAL'
+			END AS data_quality,
+			CASE WHEN EXISTS (
+				SELECT 1 FROM batch_evidence AS e WHERE e.batch_id = b.id
+			) THEN 'PRESENT' ELSE 'ABSENT' END AS evidence_status
+		`).
+		Joins("LEFT JOIN batch_receipts AS r ON r.batch_id = b.id").
+		Joins("LEFT JOIN batch_treatments AS t ON t.batch_id = b.id").
+		Where("b.id = ?", batchID).
+		Take(&detail)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, ErrWorkflowReadNotFound
+		}
+		return nil, result.Error
+	}
+	if detail.BatchID == "" {
+		return nil, ErrWorkflowReadNotFound
+	}
+
+	anomalyCodes := make([]string, 0)
+	if err := r.db.WithContext(ctx).
+		Table("batch_anomalies").
+		Where("batch_id = ?", batchID).
+		Order("anomaly_id ASC").
+		Pluck("anomaly_code", &anomalyCodes).Error; err != nil {
+		return nil, err
+	}
+	detail.AnomalyCodes = anomalyCodes
+	return &detail, nil
+}
+
 func (r *GormWorkflowReadRepository) scopedBatchQuery(
 	ctx context.Context,
 	scope WorkflowReadScope,
@@ -157,6 +269,35 @@ func (r *GormWorkflowReadRepository) scopedBatchQuery(
 	default:
 		return nil, ErrWorkflowReadForbidden
 	}
+}
+
+func (r *GormWorkflowReadRepository) processingBatchQuery(
+	ctx context.Context,
+	scope WorkflowReadScope,
+) (*gorm.DB, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository: workflow read database is nil")
+	}
+	if strings.TrimSpace(scope.OrganisationID) == "" || !strings.EqualFold(scope.RoleCode, "RECYCLER") {
+		return nil, ErrWorkflowReadForbidden
+	}
+
+	return r.db.WithContext(ctx).
+		Table("ewaste_batches AS b").
+		Joins(`
+			INNER JOIN batch_claims AS claim
+				ON claim.id = b.current_claim_id
+				AND claim.batch_id = b.id
+				AND claim.claim_epoch = b.claim_epoch
+				AND claim.recycler_org_id = ?
+				AND claim.claim_status = ?
+		`, scope.OrganisationID, model.ClaimStatusAccepted).
+		Where("b.status IN ?", []model.BatchStatus{
+			model.BatchStatusCollected,
+			model.BatchStatusVerified,
+			model.BatchStatusRecycled,
+			model.BatchStatusCompleted,
+		}), nil
 }
 
 // Resolve opportunity scope from current database membership, not stale JWT claims.

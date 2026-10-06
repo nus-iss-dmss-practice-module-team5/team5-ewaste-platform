@@ -80,6 +80,11 @@ func NewAuthRouter(
 	if len(readControllers) > 0 && readControllers[0] != nil {
 		batches.GET("", readControllers[0].ListBatches)
 		batches.GET("/:batch_id", readControllers[0].GetBatch)
+
+		processingBatches := r.Group("/api/v1/processing/batches")
+		processingBatches.Use(middleware.RequireAccessTokens(tokens, repo))
+		processingBatches.GET("", readControllers[0].ListProcessingBatches)
+		processingBatches.GET("/:batch_id", readControllers[0].GetProcessingBatch)
 	}
 	if batchController != nil {
 		batches.POST("", batchController.CreateDraft)
@@ -122,6 +127,12 @@ func NewAuthRouter(
 		opportunities.Use(middleware.RequireAccessTokens(tokens, repo))
 		opportunities.GET("", readControllers[0].ListOpportunities)
 		opportunities.GET("/:batch_id", readControllers[0].GetOpportunity)
+
+		audit := r.Group("/api/v1/audit")
+		audit.Use(middleware.RequireAccessTokens(tokens, repo))
+		audit.GET("/batches/:batch_id/timeline", readControllers[0].GetAuditTimeline)
+		audit.GET("/batches/:batch_id/anomalies", readControllers[0].GetAuditAnomalies)
+		audit.GET("/impact", readControllers[0].GetAuditImpact)
 	}
 
 	r.NoRoute(func(c *gin.Context) {

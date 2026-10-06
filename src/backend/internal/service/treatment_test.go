@@ -40,8 +40,8 @@ func TestBatchServiceRecordTreatmentAcceptsMissingOutcomesAndPublishesVersionedE
 		"data_quality":      string(model.TreatmentDataQualityMissing),
 		"evidence_status":   "ABSENT",
 		"unknown_kg":        "10.50",
-		"receipt_version":   float64(6),
-		"treatment_version": float64(7),
+		"receipt_version":   float64(1),
+		"treatment_version": float64(1),
 	})
 	if len(repo.state.treatments) != 1 || len(repo.state.audits) != 1 {
 		t.Fatalf("expected treatment and audit to be persisted: treatments=%d audits=%d", len(repo.state.treatments), len(repo.state.audits))

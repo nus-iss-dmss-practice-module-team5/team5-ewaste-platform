@@ -35,6 +35,13 @@ type BatchListResult struct {
 	TotalCount int64
 }
 
+type ProcessingListResult struct {
+	Data       []dto.ProcessingSummaryView
+	Page       int
+	PageSize   int
+	TotalCount int64
+}
+
 type OpportunityListResult struct {
 	Data       []dto.OpportunityView
 	Page       int
@@ -107,6 +114,61 @@ func (s *WorkflowReadService) GetBatch(
 		return dto.BatchView{}, mapWorkflowReadRepositoryError(err)
 	}
 	return batchToDTO(batch), nil
+}
+
+func (s *WorkflowReadService) ListProcessingBatches(
+	ctx context.Context,
+	actor WorkflowReadActor,
+	status string,
+	page WorkflowReadPage,
+) (ProcessingListResult, error) {
+	if err := validatePage(page); err != nil {
+		return ProcessingListResult{}, err
+	}
+	if !isRole(actor.RoleCode, "RECYCLER") {
+		return ProcessingListResult{}, ErrWorkflowReadForbidden
+	}
+
+	var batchStatus *model.BatchStatus
+	if strings.TrimSpace(status) != "" {
+		parsed, ok := parseProcessingStatus(status)
+		if !ok {
+			return ProcessingListResult{}, ErrWorkflowReadInvalid
+		}
+		batchStatus = &parsed
+	}
+
+	summaries, total, err := s.repository.ListProcessingBatches(ctx, toRepositoryScope(actor), batchStatus, toRepositoryPage(page))
+	if err != nil {
+		return ProcessingListResult{}, mapWorkflowReadRepositoryError(err)
+	}
+	result := ProcessingListResult{
+		Page: page.Page, PageSize: page.PageSize, TotalCount: total,
+		Data: make([]dto.ProcessingSummaryView, 0, len(summaries)),
+	}
+	for index := range summaries {
+		result.Data = append(result.Data, processingSummaryToDTO(&summaries[index]))
+	}
+	return result, nil
+}
+
+func (s *WorkflowReadService) GetProcessingBatch(
+	ctx context.Context,
+	batchID string,
+	actor WorkflowReadActor,
+) (dto.ProcessingDetailView, error) {
+	if strings.TrimSpace(batchID) == "" {
+		return dto.ProcessingDetailView{}, ErrWorkflowReadInvalid
+	}
+	if !isRole(actor.RoleCode, "RECYCLER") {
+		return dto.ProcessingDetailView{}, ErrWorkflowReadForbidden
+	}
+
+	detail, err := s.repository.FindProcessingBatch(ctx, batchID, toRepositoryScope(actor))
+	if err != nil {
+		return dto.ProcessingDetailView{}, mapWorkflowReadRepositoryError(err)
+	}
+	return processingDetailToDTO(detail), nil
 }
 
 func (s *WorkflowReadService) ListOpportunities(
@@ -217,6 +279,16 @@ func parseBatchStatus(value string) (model.BatchStatus, bool) {
 	}
 }
 
+func parseProcessingStatus(value string) (model.BatchStatus, bool) {
+	status := model.BatchStatus(strings.ToUpper(strings.TrimSpace(value)))
+	switch status {
+	case model.BatchStatusCollected, model.BatchStatusVerified, model.BatchStatusRecycled, model.BatchStatusCompleted:
+		return status, true
+	default:
+		return "", false
+	}
+}
+
 func isAssignmentStatus(value string) bool {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
 	case model.AssignmentStatusAccepted, model.AssignmentStatusCompleted, model.AssignmentStatusFailed, model.AssignmentStatusSuperseded:
@@ -265,6 +337,35 @@ func assignmentToDTO(assignment *model.BatchAssignment) dto.AssignmentView {
 		CollectorUserID: assignment.CollectorUserID, CollectorScopeID: assignment.CollectorScopeID,
 		AssignmentStatus: assignment.AssignmentStatus, AssignmentSequence: int64(assignment.AssignmentSequence),
 		Version: int64(assignment.Version), CreatedAt: assignment.CreatedAt, UpdatedAt: assignment.UpdatedAt,
+	}
+}
+
+func processingSummaryToDTO(summary *model.ProcessingSummary) dto.ProcessingSummaryView {
+	return dto.ProcessingSummaryView{
+		BatchID: summary.BatchID, Status: string(summary.Status),
+		Version: int64(summary.Version), EvidenceStatus: summary.EvidenceStatus,
+	}
+}
+
+func processingDetailToDTO(detail *model.ProcessingDetail) dto.ProcessingDetailView {
+	return dto.ProcessingDetailView{
+		BatchID:           detail.BatchID,
+		Status:            string(detail.Status),
+		Version:           int64(detail.Version),
+		DeclaredCategory:  detail.DeclaredCategory,
+		DeclaredQuantity:  detail.DeclaredQuantity,
+		EstimatedWeightKg: detail.EstimatedWeightKg,
+		ActualCategory:    detail.ActualCategory,
+		ActualItemCount:   detail.ActualItemCount,
+		ActualWeightKg:    detail.ActualWeightKg,
+		ReusedKg:          detail.ReusedKg,
+		RecycledKg:        detail.RecycledKg,
+		DisposedKg:        detail.DisposedKg,
+		UnknownKg:         detail.UnknownKg,
+		DivertedKg:        detail.DivertedKg,
+		DataQuality:       detail.DataQuality,
+		EvidenceStatus:    detail.EvidenceStatus,
+		AnomalyCodes:      append([]string{}, detail.AnomalyCodes...),
 	}
 }
 

@@ -155,7 +155,9 @@ func run() error {
 	assignmentController := controller.NewAssignmentController(assignmentService, appLogger.Logger)
 	workflowReadRepository := repository.NewGormWorkflowReadRepository(db)
 	workflowReadService := service.NewWorkflowReadService(workflowReadRepository)
-	workflowReadController := controller.NewWorkflowReadController(workflowReadService, appLogger.Logger)
+	auditorReadRepository := repository.NewGormAuditorReadRepository(db)
+	auditorReadService := service.NewAuditorReadService(auditorReadRepository)
+	workflowReadController := controller.NewWorkflowReadController(workflowReadService, appLogger.Logger, auditorReadService)
 
 	if cfg.Kafka.Enabled {
 		kafkaPublisher, publisherErr := eventbus.NewKafkaPublisher(cfg.Kafka)

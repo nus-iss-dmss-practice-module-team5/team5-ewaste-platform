@@ -110,6 +110,8 @@ func (s *BatchService) RecordTreatment(
 			BatchID:          batch.ID,
 			FacilityOrgID:    metadata.Actor.OrganisationID,
 			RecordedBy:       metadata.Actor.UserID,
+			ReceiptID:        receipt.ReceiptID,
+			ReceiptVersion:   normalizedReceiptVersion(receipt),
 			ReceivedWeightKg: values.ReceivedWeightKg,
 			ReusedKg:         values.ReusedKg,
 			RecycledKg:       values.RecycledKg,
@@ -118,8 +120,10 @@ func (s *BatchService) RecordTreatment(
 			DivertedKg:       values.DivertedKg,
 			DataQuality:      values.DataQuality,
 			EvidenceID:       values.EvidenceID,
+			EvidenceStage:    model.EvidenceLifecycleTreatment,
 			CommandID:        command.ID,
 			CorrelationID:    metadata.CorrelationID,
+			Version:          1,
 			RecordedAt:       now,
 		}
 		if err := tx.CreateTreatment(ctx, treatment); err != nil {
@@ -377,8 +381,8 @@ func buildRecyclingCompletedPayload(
 		"data": map[string]any{
 			"treatment_id":       treatment.TreatmentID,
 			"receipt_id":         receipt.ReceiptID,
-			"receipt_version":    before.Version,
-			"treatment_version":  after.Version,
+			"receipt_version":    normalizedReceiptVersion(receipt),
+			"treatment_version":  treatment.Version,
 			"batch_id":           after.ID,
 			"facility_org_id":    treatment.FacilityOrgID,
 			"actor_user_id":      treatment.RecordedBy,
@@ -400,6 +404,13 @@ func buildRecyclingCompletedPayload(
 		},
 	}
 	return json.Marshal(payload)
+}
+
+func normalizedReceiptVersion(receipt *model.BatchReceipt) uint32 {
+	if receipt == nil || receipt.Version == 0 {
+		return 1
+	}
+	return receipt.Version
 }
 
 func mapTreatmentRepositoryError(err error) error {

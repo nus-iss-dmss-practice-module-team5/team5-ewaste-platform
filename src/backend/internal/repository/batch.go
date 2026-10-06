@@ -2,8 +2,11 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
+	"workflow-api/internal/dto"
 	"workflow-api/internal/model"
 
 	"gorm.io/gorm"
@@ -11,15 +14,16 @@ import (
 )
 
 var (
-	ErrBatchNotFound         = errors.New("repository: batch not found")
-	ErrCommandNotFound       = errors.New("repository: command not found")
-	ErrBatchConcurrency      = errors.New("repository: batch concurrency conflict")
-	ErrCommandConcurrency    = errors.New("repository: command concurrency conflict")
-	ErrBatchActorNotEligible = errors.New("repository: receipt actor is not eligible")
-	ErrReceiptNotFound       = errors.New("repository: receipt not found")
-	ErrEvidenceNotFound      = errors.New("repository: evidence not found")
-	ErrEventOutboxNotFound   = errors.New("repository: outbox event not found")
-	ErrAnalyticsNotFound     = errors.New("repository: analytics result not found")
+	ErrBatchNotFound           = errors.New("repository: batch not found")
+	ErrCommandNotFound         = errors.New("repository: command not found")
+	ErrBatchConcurrency        = errors.New("repository: batch concurrency conflict")
+	ErrCommandConcurrency      = errors.New("repository: command concurrency conflict")
+	ErrBatchActorNotEligible   = errors.New("repository: receipt actor is not eligible")
+	ErrReceiptNotFound         = errors.New("repository: receipt not found")
+	ErrEvidenceNotFound        = errors.New("repository: evidence not found")
+	ErrEventOutboxNotFound     = errors.New("repository: outbox event not found")
+	ErrAnalyticsNotFound       = errors.New("repository: analytics result not found")
+	ErrAnalyticsSourceConflict = errors.New("repository: analytics source event already acknowledged by another run")
 )
 
 type BatchRepository interface {
@@ -455,7 +459,7 @@ func (t *gormBatchTransaction) FindAnalyticsResultBySourceRun(ctx context.Contex
 	var result model.AnalyticsResult
 	err := t.db.WithContext(ctx).
 		Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("source_event_id = ? AND analytics_run_id = ?", sourceEventID, analyticsRunID).
+		Where("source_event_id = ?", sourceEventID).
 		First(&result).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, ErrAnalyticsNotFound
@@ -463,15 +467,37 @@ func (t *gormBatchTransaction) FindAnalyticsResultBySourceRun(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
+	if err := hydrateAnalyticsSnapshot(&result); err != nil {
+		return nil, err
+	}
+	if result.AnalyticsRunID != analyticsRunID {
+		return nil, ErrAnalyticsSourceConflict
+	}
 	return &result, nil
 }
 
 func (t *gormBatchTransaction) FindBatchAnomalies(ctx context.Context, resultID string) ([]*model.BatchAnomaly, error) {
 	var anomalies []*model.BatchAnomaly
-	if err := t.db.WithContext(ctx).Where("result_id = ?", resultID).Order("anomaly_id ASC").Find(&anomalies).Error; err != nil {
+	if err := t.db.WithContext(ctx).Where("metric_id = ?", resultID).Order("anomaly_id ASC").Find(&anomalies).Error; err != nil {
 		return nil, err
 	}
 	return anomalies, nil
+}
+
+func hydrateAnalyticsSnapshot(result *model.AnalyticsResult) error {
+	if result == nil || len(result.InputSnapshotJSON) == 0 {
+		return nil
+	}
+	var snapshot struct {
+		AnalyticsRunID string               `json:"analytics_run_id"`
+		Metrics        dto.AnalyticsMetrics `json:"metrics"`
+	}
+	if err := json.Unmarshal(result.InputSnapshotJSON, &snapshot); err != nil {
+		return fmt.Errorf("repository: decode analytics snapshot: %w", err)
+	}
+	result.AnalyticsRunID = snapshot.AnalyticsRunID
+	result.MetricsJSON, _ = json.Marshal(snapshot.Metrics)
+	return nil
 }
 
 func (t *gormBatchTransaction) FindRequestCompletedEvent(ctx context.Context, batchID string, resultID string) (*model.EventOutbox, error) {
@@ -504,12 +530,11 @@ func (t *gormBatchTransaction) ValidateTreatmentEvidence(
 	err := t.db.WithContext(ctx).
 		Table("batch_evidence").
 		Where(
-			"evidence_id = ? AND batch_id = ? AND organisation_id = ? AND lifecycle_stage = ? AND validation_status = ?",
+			"evidence_id = ? AND batch_id = ? AND organisation_id = ? AND lifecycle_stage = ?",
 			evidenceID,
 			batchID,
 			organisationID,
 			model.EvidenceLifecycleTreatment,
-			model.EvidenceValidationValidated,
 		).
 		Count(&count).
 		Error
