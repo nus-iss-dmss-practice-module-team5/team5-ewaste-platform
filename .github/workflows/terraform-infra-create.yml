@@ -2,7 +2,7 @@ name: "IaC - Create Cloud Resources (Dev, Stg, Prod)"
 
 on:
   push:
-    branches: [ewcsb-162-provision-evidence-storage]
+    branches: [dev, main]
     paths:
       - 'terraform/**'
       - '.github/workflows/terraform-infra-create.yml'
@@ -345,7 +345,6 @@ jobs:
         run: |
           chmod +x scripts/verify-evidence-storage.sh
           ./scripts/verify-evidence-storage.sh "${{ needs.resolve-environment.outputs.environment }}"
-
 
       # ------------------------------------------------------------------------
       # 1.3 EXPORT OUTPUTS
