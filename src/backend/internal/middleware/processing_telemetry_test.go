@@ -27,6 +27,12 @@ func TestProcessingRequestTelemetry(t *testing.T) {
 		if entry["batch_id"] != "b-1" || entry["correlation_id"] != "trace-1" || entry["operation"] != "/api/v1/batches/:batch_id/receipt" {
 			t.Fatal(entry)
 		}
+		if entry["component"] != "workflow-api" {
+			t.Fatal("component missing", entry)
+		}
+		if _, ok := entry["latency_ms"]; !ok {
+			t.Fatal("legacy latency missing")
+		}
 		if _, ok := entry["duration_ms"]; !ok {
 			t.Fatal("duration missing")
 		}

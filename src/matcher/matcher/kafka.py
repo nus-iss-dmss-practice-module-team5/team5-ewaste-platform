@@ -4,6 +4,7 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from confluent_kafka import Consumer, KafkaException, Producer, TopicPartition
 
@@ -19,16 +20,28 @@ def observe(name, delivery=None, **fields):
     allowed = {"code", "count", "duration_ms", "operation", "outcome", "ready",
                "consumer_group", "topic", "partition", "consumer_lag", "committed_offset",
                "end_offset", "sample_available"}
-    payload = {"telemetry_version": 1, "service": "analytics", "timestamp": utc_now(),
+    payload = {"component": "matcher-worker", "telemetry_version": 1, "service": "analytics", "timestamp": utc_now(),
                "observation": name, **{k: v for k, v in fields.items() if k in allowed}}
     payload.setdefault("outcome", {"delivery_paused": "RETRYING", "offset_commit_failed": "FAILED",
                                    "consumer_error": "FAILED", "offset_committed": "SUCCEEDED"}.get(name, "OBSERVED"))
     if name == "offset_commit_failed": payload.setdefault("code", "OFFSET_COMMIT_FAILED")
     if name == "consumer_error": payload.setdefault("code", "CONSUMER_UNAVAILABLE")
     if delivery is not None:
+        latency_ms = None
+        if hasattr(delivery, "first_seen") and delivery.first_seen:
+            try:
+                dt = datetime.fromisoformat(delivery.first_seen.replace("Z", "+00:00"))
+                latency_ms = max(0, int((datetime.now(timezone.utc) - dt).total_seconds() * 1000))
+            except Exception:
+                pass
         payload.update(topic=delivery.record.topic, partition=delivery.record.partition,
                        offset=str(delivery.record.offset), stage=delivery.stage,
-                       retry_count=delivery.retries, disposition=delivery.disposition)
+                       retry_count=delivery.retries, failure_streak=delivery.failure_streak,
+                       disposition=delivery.disposition)
+        if latency_ms is not None:
+            payload["latency_ms"] = latency_ms
+        if delivery.error_code:
+            payload["error_code"] = delivery.error_code
         if delivery.event:
             payload.update(event_id=delivery.event["event_id"], batch_id=delivery.event["batch_id"],
                            correlation_id=delivery.event["correlation_id"], run_id=delivery.run_id,
