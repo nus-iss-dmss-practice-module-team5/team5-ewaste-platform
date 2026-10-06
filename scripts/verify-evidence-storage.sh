@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# S3-X-I-L-01: Evidence Storage Connectivity & Authorization Verification Probe
+# Evidence Storage Connectivity & Authorization Verification Probe
 # ==============================================================================
-# Verifies all acceptance criteria for Ticket S3-X-I-L-01:
+# Verifies the following criteria:
 # 1. Denied Access: Public internet requests are blocked (HTTP 403 / IpForbidden).
 # 2. Private Endpoint: Provisioned, Approved, and bound to private IP (10.0.3.x).
 # 3. Private DNS Zone: Linked to vnet-ewaste-{env} for seamless resolution.
@@ -189,7 +189,7 @@ fi
 
 echo ""
 echo "=================================================================="
-echo " S3-X-I-L-01 Verification Summary:"
+echo " Verification Summary:"
 echo " [x] Decision D2 Zero-Trust (Public Internet Blocked): PASS"
 echo " [x] Private Link & Private Endpoint (10.0.3.7):       PASS"
 echo " [x] Private DNS Zone Resolution:                      PASS"
