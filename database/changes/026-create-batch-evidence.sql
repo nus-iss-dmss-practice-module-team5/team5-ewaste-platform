@@ -13,7 +13,6 @@ CREATE TABLE batch_evidence (
     file_size_bytes     BIGINT UNSIGNED NOT NULL,
     sha256_hash         CHAR(64) COLLATE utf8mb4_0900_as_cs NOT NULL,
     created_at          DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-
     CONSTRAINT pk_batch_evidence PRIMARY KEY (evidence_id),
     CONSTRAINT fk_evidence_batch
         FOREIGN KEY (batch_id) REFERENCES ewaste_batches (id) ON DELETE RESTRICT,
@@ -29,12 +28,13 @@ CREATE TABLE batch_evidence (
         CHECK (file_size_bytes > 0 AND file_size_bytes <= 5242880),
     CONSTRAINT ck_evidence_hash
         CHECK (REGEXP_LIKE(sha256_hash, '^[0-9a-fA-F]{64}$', 'c')),
-
+    CONSTRAINT uq_evidence_object UNIQUE (stored_object_key),
+    CONSTRAINT uq_evidence_scope UNIQUE (evidence_id, batch_id, organisation_id, lifecycle_stage),
     INDEX idx_evidence_batch_stage (batch_id, lifecycle_stage),
     INDEX idx_evidence_org (organisation_id),
     INDEX idx_evidence_hash (sha256_hash)
 ) ENGINE = InnoDB
   DEFAULT CHARACTER SET = utf8mb4
   COLLATE = utf8mb4_0900_ai_ci;
-
+-- Rollback only before business writes; see docs/processing-storage.md.
 --rollback DROP TABLE batch_evidence;

@@ -107,8 +107,8 @@ class MainTests(unittest.TestCase):
                         self.assertEqual(facade.call_args.args[1], "/test-fixtures/token")
                         health.return_value.serve.assert_not_called()
                     self.assertEqual([c.args[0] for c in signals.call_args_list], [signal.SIGINT, signal.SIGTERM])
-                    observe.assert_called_once_with("consumer_error", None, code="test")
-                    health.return_value.observe.assert_called_once_with("consumer_error", None, code="test")
+                    observe.assert_called_once_with("consumer_error", None, code="test", consumer_group="matching-worker-v1")
+                    health.return_value.observe.assert_called_once_with("consumer_error", None, code="test", consumer_group="matching-worker-v1")
 
     def test_run_closes_health_server_when_runner_fails(self):
         env = {**self.environment(), "MATCHER_HEALTH_PORT": "8000"}
