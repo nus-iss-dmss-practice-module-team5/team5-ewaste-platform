@@ -6,7 +6,8 @@
 # - Account Tier: Standard_LRS (lowest approved cost tier satisfying 11 9's durability).
 # - Access Tier: Hot (optimized for active verification workflows).
 # - Network: Zero public internet access; strictly isolated via Azure Private Link.
-# - Authentication: Shared access keys disabled; secretless Azure AD Managed Identity.
+# - Authentication: Shared access keys enabled for IaC provider management; runtime
+#   workload strictly authenticates via secretless Azure AD Managed Identity.
 # - Retention: 7-day soft delete and blob versioning enabled for compliance audit trail.
 # ============================================================================
 
@@ -25,7 +26,8 @@ resource "azurerm_storage_account" "evidence" {
   min_tls_version                   = "TLS1_2"
   public_network_access_enabled     = false
   allow_nested_items_to_be_public   = false
-  shared_access_key_enabled         = false # Strictly enforces Azure AD Managed Identity only
+  shared_access_key_enabled         = true # Required for Terraform AzureRM provider management; application strictly uses secretless Managed Identity
+  default_to_oauth_authentication   = true
   infrastructure_encryption_enabled = true
 
   blob_properties {
