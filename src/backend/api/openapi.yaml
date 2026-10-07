@@ -887,12 +887,32 @@ paths:
     get:
       tags: [Auditor]
       summary: Read deterministic impact metrics
+      description: >-
+        Totals and per-batch results for COMPLETED batches. Each batch counts
+        once. Every filter is optional and is echoed in the response.
       operationId: getImpact
       parameters:
         - $ref: '#/components/parameters/Authorization'
         - $ref: '#/components/parameters/CorrelationId'
+        - name: completed_from
+          in: query
+          description: Inclusive start of the completion window. A YYYY-MM-DD day in UTC or an RFC 3339 timestamp.
+          schema: {type: string}
+        - name: completed_to
+          in: query
+          description: Inclusive end of the completion window. A YYYY-MM-DD day covers the whole day in UTC.
+          schema: {type: string}
+        - name: category
+          in: query
+          description: Category the facility received.
+          schema: {type: string, enum: [ICT_EQUIPMENT, LARGE_APPLIANCE, BATTERIES, CONSUMER_ELECTRONICS]}
+        - name: processing_org_id
+          in: query
+          description: Processing facility that treated the batch.
+          schema: {type: string, maxLength: 32}
       responses:
         '200': {description: Impact metrics, content: {application/json: {schema: {$ref: '#/components/schemas/ImpactResponse'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/InvalidSession'}
         '403': {$ref: '#/components/responses/Forbidden'}
 components:
@@ -1228,8 +1248,39 @@ components:
       properties:
         data:
           type: object
-          required: [items, total_count]
+          required: [filter, totals, items, total_count]
           properties:
+            filter:
+              type: object
+              description: The filter the report was built with. A null field was not supplied.
+              required: [completed_from, completed_to, category, processing_org_id]
+              properties:
+                completed_from: {type: string, nullable: true}
+                completed_to: {type: string, nullable: true}
+                category: {type: string, nullable: true}
+                processing_org_id: {type: string, nullable: true}
+            totals:
+              type: object
+              description: >-
+                Sums over the COMPLETED batches in scope. Weights are
+                two-decimal kilogram strings based on the received weight. A
+                weight is null when no batch in scope has it recorded. Batches
+                with no recorded outcome are counted in
+                missing_outcome_batch_count and add nothing to the reused,
+                recycled, disposed or diverted sums.
+              required: [completed_batch_count, complete_batch_count, partial_batch_count, missing_outcome_batch_count, received_kg, reused_kg, recycled_kg, disposed_kg, diverted_kg, unknown_kg, rule_versions]
+              properties:
+                completed_batch_count: {type: integer, minimum: 0}
+                complete_batch_count: {type: integer, minimum: 0}
+                partial_batch_count: {type: integer, minimum: 0}
+                missing_outcome_batch_count: {type: integer, minimum: 0}
+                received_kg: {type: string, nullable: true}
+                reused_kg: {type: string, nullable: true}
+                recycled_kg: {type: string, nullable: true}
+                disposed_kg: {type: string, nullable: true}
+                diverted_kg: {type: string, nullable: true}
+                unknown_kg: {type: string, nullable: true}
+                rule_versions: {type: array, items: {type: string}}
             items: {type: array, items: {$ref: '#/components/schemas/ImpactResult'}}
             total_count: {type: integer, minimum: 0}
         correlation_id: {type: string}
