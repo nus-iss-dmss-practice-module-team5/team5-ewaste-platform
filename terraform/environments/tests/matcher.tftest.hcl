@@ -23,6 +23,7 @@ variables {
   auth_refresh_secret       = "local-test-refresh-secret-at-least-32-characters"
   auth_refresh_hash_secret  = "local-test-refresh-hash-at-least-32-characters"
   matcher_signing_secret    = "local-test-matcher-secret-at-least-32-characters"
+  analytics_service_token   = "local-test-analytics-token-at-least-32-characters"
   enable_self_hosted_runner = false
 }
 
@@ -35,6 +36,14 @@ run "matcher_configuration_survives_iac" {
       one([for s in app.secret : s.value if s.name == "matching-signing-key"]) == var.matcher_signing_secret
     ])
     error_message = "API and worker must retain the same dedicated matcher signing secret."
+  }
+
+  assert {
+    condition = alltrue([
+      for app in [azurerm_container_app.api, azurerm_container_app.analytics] :
+      one([for s in app.secret : s.value if s.name == "analytics-service-token"]) == var.analytics_service_token
+    ])
+    error_message = "API and worker must retain the same dedicated analytics service token."
   }
 
   assert {
@@ -69,6 +78,14 @@ run "matcher_configuration_survives_iac" {
       one([for e in azurerm_container_app.api.template[0].container[0].env : e.secret_name if e.name == "EWASTE_MATCHING_SIGNING_SECRET"]) == "matching-signing-key"
     )
     error_message = "Worker must preserve the existing consumer group and both applications must use secret references."
+  }
+
+  assert {
+    condition = (
+      one([for e in azurerm_container_app.analytics.template[0].container[0].env : e.secret_name if e.name == "ANALYTICS_SERVICE_TOKEN"]) == "analytics-service-token" &&
+      one([for e in azurerm_container_app.api.template[0].container[0].env : e.secret_name if e.name == "EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN"]) == "analytics-service-token"
+    )
+    error_message = "Both applications must reference the analytics service token secret."
   }
 }
 
