@@ -923,6 +923,16 @@ resource "azurerm_container_app" "analytics" {
       }
 
       env {
+        name  = "ANALYTICS_ENABLED"
+        value = "true"
+      }
+
+      env {
+        name  = "ANALYTICS_GROUP_ID"
+        value = "analytics-processing-v1"
+      }
+
+      env {
         name        = "ANALYTICS_SERVICE_TOKEN"
         secret_name = "analytics-service-token"
       }

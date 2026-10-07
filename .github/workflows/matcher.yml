@@ -1,4 +1,4 @@
-name: Matcher Contracts, Kafka Delivery and MySQL Persistence
+name: Matching and Analytics Contracts, Kafka and MySQL Persistence
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
-      - name: Verify matcher against disposable Go, MySQL and Kafka services
+      - name: Verify matching and analytics against disposable Go, MySQL and Kafka services
         run: ./scripts/test-matcher.sh
       - name: Retain verification evidence
         if: always()

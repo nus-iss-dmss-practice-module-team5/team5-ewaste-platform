@@ -120,6 +120,7 @@ jobs:
       - name: Execute Terraform Destroy
         env:
           TF_VAR_matcher_signing_secret: ${{ secrets.MATCHER_SIGNING_SECRET }}
+          TF_VAR_analytics_service_token: ${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN || secrets.ANALYTICS_SERVICE_TOKEN }}
           TARGET_ENV: ${{ inputs.target_env }}
           TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
           TF_STATE_SA_ACCESS_KEY: ${{ secrets.TF_STATE_SA_ACCESS_KEY }}

@@ -113,6 +113,7 @@ ENVIRONMENT=(
   MATCHER_TOPIC=ewaste.batch.events MATCHER_DLQ_TOPIC=ewaste.batch.events.matching.dlq.v1
   # New group avoids inheriting offsets acknowledged by the old analytics demo.
   MATCHER_GROUP_ID=matching-worker-v1 MATCHER_OFFSET_RESET=earliest
+  ANALYTICS_ENABLED=true ANALYTICS_GROUP_ID=analytics-processing-v1
   MATCHER_FACADE_URL="https://${API_FQDN}" MATCHER_LOCAL_TEST=0
   ANALYTICS_FACADE_URL="https://${API_FQDN}" ANALYTICS_SERVICE_TOKEN=secretref:analytics-service-token
   MATCHER_SIGNING_SECRET=secretref:matching-signing-key MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE"
