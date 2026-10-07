@@ -67,7 +67,8 @@ The IaC pipeline automatically provisions and injects the following configuratio
 | `AZURE_STORAGE_ACCOUNT`   | `stgewastedev`                                | The name of the target Azure Storage Account.                                             |
 | `AZURE_STORAGE_CONTAINER` | `evidence-private`                            | The dedicated private blob container for verification evidence.                           |
 | `AZURE_STORAGE_ENDPOINT`  | `https://stgewastedev.blob.core.windows.net/` | Private endpoint URL. If omitted, derived automatically from `AZURE_STORAGE_ACCOUNT`.     |
-| `AZURE_USE_MANAGED_ID`    | `true`                                        | Enables secretless token exchange via Azure Instance Metadata Service (IMDS).             |
+| `AZURE_USE_MANAGED_ID`    | `true`                                        | Enables managed-identity authentication.                                                  |
+| `AZURE_CLIENT_ID`         | API user-assigned identity client ID          | Selects the identity used by Azure Go SDK `DefaultAzureCredential`.                       |
 | `MAX_UPLOAD_SIZE_BYTES`   | `5242880`                                     | Maximum upload size allowed per file (**5 MB**).                                          |
 
 > **Note**: Backward compatibility variables `EWASTE_STORAGE_AZURE_ACCOUNT_NAME`, `EWASTE_STORAGE_AZURE_CONTAINER_NAME`, and `EWASTE_STORAGE_AZURE_ENDPOINT` are also bound to provide full compatibility with existing configuration loaders.
@@ -75,6 +76,8 @@ The IaC pipeline automatically provisions and injects the following configuratio
 ---
 
 ## 3. Go Backend Implementation Guide
+
+This section is the handoff for the separate adapter implementation. The Azure adapter example below is not wired into the application on this branch. `AZURE_CLIENT_ID` is supplied by Terraform; no storage key, connection string or new storage secret reference is required.
 
 ### Step 1: Add Azure Go SDK Dependencies
 
@@ -224,119 +227,24 @@ func NewEvidenceStorage(cfg config.StorageConfig) (EvidenceStorage, error) {
 
 ## 4. Connectivity Verification & Audit Evidence
 
-### Artifact Evidence 1: Denied Public Internet Access (Zero-Trust Decision D2)
+Terraform disables shared-key authentication and public network access. The existing AzAPI provider manages Blob versioning and seven-day soft delete through ARM, so the hosted runner never needs storage data-plane access. The AzureRM `blob_properties` ignore entry avoids competing ownership with the AzAPI resource; those protections are explicitly managed in `storage.tf`.
 
-Executed from outside the VNet (Public Internet / Developer Machine / CI Runner):
+The IaC workflow runs two checks and uploads their logs, including failures:
 
-```bash
-curl -I https://stgewastedev.blob.core.windows.net/evidence-private/test-probe.txt
-```
+| Phase     | Location / identity                                                              | Required evidence                                                                                                                                                                               |
+| --------- | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `public`  | GitHub-hosted runner / existing deployment identity                              | ARM confirms private account/container, disabled keys, versioning and retention; approved private endpoint and DNS link; exact API identity/configuration; authenticated public request denied. |
+| `private` | Existing `self-hosted, azure-vnet, <env>` runner / its existing managed identity | Private DNS resolution, successful upload, downloaded bytes match, anonymous read of that same object denied, synthetic object deleted.                                                         |
 
-**Observed Result**:
+The existing environment runner must be online. No access roles are changed. The private check proves storage access for the runner identity; API identity binding/RBAC/settings are checked separately. An end-to-end API upload/download remains the adapter owner's integration check.
 
-```text
-HTTP/1.1 403 This request is not authorized to perform this operation.
-[PASS] Public internet request blocked as expected (HTTP 403).
-```
-
-**Conclusion**: Direct internet access is completely blocked (`public_network_access_enabled = false`). Storage account firewall drops external traffic.
-
----
-
-### Artifact Evidence 2: Permitted Private Link Read (Inside ACA Container App)
-
-Executed from within the `aca-ewaste-dev-api` container (`/app $`):
+For the corresponding runner location, execute:
 
 ```sh
-IDENTITY_RES_ID="/subscriptions/c17fe099-bd8f-427b-ab53-544bf2af60c3/resourceGroups/rg-ewaste-dev/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-ewaste-dev"
-
-TOKEN=$(wget -qO- --header="X-IDENTITY-HEADER: $IDENTITY_HEADER" "$IDENTITY_ENDPOINT?api-version=2019-08-01&resource=https://storage.azure.com/&mi_res_id=$IDENTITY_RES_ID" | grep -o '"access_token":"[^"]*' | cut -d'"' -f4)
-
-wget -qO- \
-  --header="x-ms-version: 2023-11-03" \
-  --header="Authorization: Bearer $TOKEN" \
-  "https://stgewastedev.blob.core.windows.net/evidence-private?restype=container&comp=list&maxresults=5" | \
-  grep -o '<Name>[^<]*' | sed 's/<Name>/  [ACA Read via Private Link] /'
+bash scripts/verify-evidence-storage.sh dev public
+bash scripts/verify-evidence-storage.sh dev private
 ```
 
-**Observed Result**:
+The script never enables public access or retrieves account keys. It fails on missing resources/settings, failed commands or unexpected responses. It uses one uniquely named `verification/` object, removes it on completion/failure where possible, and retains deleted data according to the approved soft-delete policy. It does not create application evidence metadata.
 
-```text
-  [ACA Read via Private Link] evidence-1.txt
-  [ACA Read via Private Link] evidence-2.txt
-  [ACA Read via Private Link] evidence-3.txt
-  [ACA Read via Private Link] evidence-4.txt
-  [ACA Read via Private Link] evidence-5.txt
-```
-
-**Conclusion**:
-
-- DNS queries inside `vnet-ewaste-dev` resolve `stgewastedev.blob.core.windows.net` to internal private IP **`10.0.3.7`** via Private DNS Zone `privatelink.blob.core.windows.net`.
-- Managed Identity `id-ewaste-dev` acquires token from IMDS endpoint with resource URI `https://storage.azure.com/`.
-- Container App connects directly to Blob Storage over Private Link and successfully lists/reads artifacts without leaving the private network.
-
----
-
-### Artifact Evidence 3: Automated Infrastructure Audit Probe
-
-Run via [`scripts/verify-evidence-storage.sh`](file:///C:/Users/laksh/Documents/NUS-ISS%20MTech%20SE/1%20-%20SWE5006%20-%20Designing%20Modern%20Software%20Systems/Practice%20Module/GitHub%20Codebase/team5-ewaste-platform/scripts/verify-evidence-storage.sh):
-
-```bash
-./scripts/verify-evidence-storage.sh dev
-```
-
-**Summary Output**:
-
-```text
-==================================================================
- S3-X-I-L-01: Evidence Storage Verification Probe (dev)
- Storage Account:    stgewastedev
- Container:          evidence-private
- Private Endpoint:   pe-stgewaste-dev
- Container App:      aca-ewaste-dev-api
-==================================================================
-[1/6] Testing Denied Public Internet Access (Decision D2 Zero-Trust)...
-  [PASS] Public internet request blocked as expected (HTTP 403).
-         Zero-Trust boundary verified: storage is unreachable from outside VNet.
-
-[2/6] Verifying Private Endpoint Provisioning & Private Link...
-  [PASS] Private Endpoint Status: Approved
-         Private IP Address:     10.0.3.7
-
-[3/6] Verifying Private DNS Zone Link to VNet...
-  [PASS] Private DNS Zone 'privatelink.blob.core.windows.net' is linked to VNet.
-         Internal queries for stgewastedev.blob.core.windows.net resolve to private IP.
-
-[4/6] Verifying Workload Managed Identity RBAC...
-Role                           PrincipalType
------------------------------  ----------------
-Storage Blob Data Contributor  ServicePrincipal
-Storage Blob Data Contributor  ServicePrincipal
-Storage Blob Data Contributor  ServicePrincipal
-  [PASS] Role 'Storage Blob Data Contributor' is actively assigned on stgewastedev.
-
-[5/6] Verifying ACA Storage Adapter Environment Injections...
-  STORAGE_ADAPTER_TYPE    azure_blob
-  AZURE_STORAGE_ACCOUNT   stgewastedev
-  AZURE_STORAGE_CONTAINER evidence-private
-  AZURE_STORAGE_ENDPOINT  https://stgewastedev.blob.core.windows.net/
-  AZURE_USE_MANAGED_ID    true
-  MAX_UPLOAD_SIZE_BYTES   5242880
-
-[6/6] Uploading dummy files & querying real filenames from 'evidence-private'...
-  === Displaying Blob Filenames in 'evidence-private' ===
-  [Verified Blob] evidence-1.txt
-  [Verified Blob] evidence-2.txt
-  [Verified Blob] evidence-3.txt
-  [Verified Blob] evidence-4.txt
-  [Verified Blob] evidence-5.txt
-==================================================================
- S3-X-I-L-01 Verification Summary:
- [x] Decision D2 Zero-Trust (Public Internet Blocked): PASS
- [x] Private Link & Private Endpoint (10.0.3.7):       PASS
- [x] Private DNS Zone Resolution:                      PASS
- [x] Secretless Managed Identity RBAC:                 PASS
- [x] Backend Adapter Settings Injected into ACA:       PASS
- [x] Zero-Trust Verified & Sealed:                     PASS
-==================================================================
-```
+Workflow artifacts: `evidence-storage-public-<env>` and `evidence-storage-private-<env>`. These logs are the release evidence; a local syntax/mock test is not proof of deployed Azure connectivity. Attach the successful workflow run link when these changes are deployed.

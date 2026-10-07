@@ -29,7 +29,7 @@ resource "azurerm_storage_account" "evidence" {
   min_tls_version                   = "TLS1_2"
   public_network_access_enabled     = false # Strict zero-trust compliance (ADR D2)
   allow_nested_items_to_be_public   = false # Disallow anonymous public blob access
-  shared_access_key_enabled         = true  # Required for Terraform AzureRM provider management lifecycle
+  shared_access_key_enabled         = false
   default_to_oauth_authentication   = true
   infrastructure_encryption_enabled = true
 
@@ -50,6 +50,21 @@ resource "azurerm_storage_account" "evidence" {
   tags = local.common_tags
 }
 
+# Manage the existing default Blob service without opening the private data plane.
+resource "azapi_update_resource" "evidence_blob_protection" {
+  type        = "Microsoft.Storage/storageAccounts/blobServices@2023-01-01"
+  resource_id = "${azurerm_storage_account.evidence.id}/blobServices/default"
+  body = {
+    properties = {
+      isVersioningEnabled = true
+      deleteRetentionPolicy = {
+        enabled = true
+        days    = 7
+      }
+    }
+  }
+}
+
 # Private Blob container dedicated to verification evidence.
 # Provisioned through the ARM control plane (management.azure.com) rather than
 # azurerm_storage_container, which calls the blob data plane
@@ -66,6 +81,7 @@ resource "azapi_resource" "evidence_private" {
       publicAccess = "None"
     }
   }
+  depends_on = [azapi_update_resource.evidence_blob_protection]
 }
 
 # ============================================================================
