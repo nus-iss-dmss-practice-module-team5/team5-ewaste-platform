@@ -163,7 +163,7 @@ func (s *ClaimWorkflowService) Claim(
 			return err
 		}
 
-		now := s.clock().UTC()
+		now := s.clock().UTC().Truncate(time.Microsecond)
 		if err := tx.ReserveCapacity(
 			ctx,
 			match.CapacityPoolID,

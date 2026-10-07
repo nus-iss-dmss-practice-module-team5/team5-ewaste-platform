@@ -264,6 +264,8 @@ func newClaimServiceFixture() (
 
 func TestClaimSuccessCreatesAtomicEvidence(t *testing.T) {
 	service, repo, request, metadata := newClaimServiceFixture()
+	clock := service.clock()
+	service.clock = func() time.Time { return clock.Add(123456789 * time.Nanosecond) }
 
 	result, err := service.Claim(
 		context.Background(),
@@ -285,6 +287,9 @@ func TestClaimSuccessCreatesAtomicEvidence(t *testing.T) {
 	}
 	if len(repo.state.outbox) != 1 || repo.state.outbox[0].EventType != model.ClaimConfirmedEventType {
 		t.Fatalf("claim outbox evidence missing")
+	}
+	if repo.state.outbox[0].OccurredAt.Nanosecond()%1000 != 0 {
+		t.Fatal("claim event timestamp must be microsecond-aligned before MySQL can round it")
 	}
 }
 

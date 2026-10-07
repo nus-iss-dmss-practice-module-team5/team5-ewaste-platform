@@ -102,6 +102,11 @@ variable "analytics_service_token" {
   sensitive   = true
   default     = "default-dev-analytics-token-minimum-32-chars"
   description = "Shared service bearer token for internal communication between the Analytics worker and the backend API."
+
+  validation {
+    condition     = length(var.analytics_service_token) >= 32
+    error_message = "analytics_service_token must contain at least 32 characters."
+  }
 }
 
 variable "github_repository" {

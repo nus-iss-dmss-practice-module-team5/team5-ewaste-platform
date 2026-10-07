@@ -118,11 +118,11 @@ jobs:
       - name: Validate Matcher Workload Configuration
         env:
           MATCHER_SIGNING_SECRET: ${{ secrets.MATCHER_SIGNING_SECRET }}
-          ANALYTICS_SERVICE_TOKEN: ${{ secrets.ANALYTICS_SERVICE_TOKEN }}
+          ANALYTICS_SERVICE_TOKEN: ${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN || secrets.ANALYTICS_SERVICE_TOKEN }}
         run: |
           test "${#MATCHER_SIGNING_SECRET}" -ge 32
           if [ "${#ANALYTICS_SERVICE_TOKEN}" -lt 32 ]; then
-            echo "::error::Set the environment secret ANALYTICS_SERVICE_TOKEN (at least 32 characters)."
+            echo "::error::Set EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN (or legacy ANALYTICS_SERVICE_TOKEN) with at least 32 characters."
             exit 1
           fi
 
@@ -381,7 +381,7 @@ jobs:
         id: analytics_deploy
         env:
           MATCHER_SIGNING_SECRET: ${{ secrets.MATCHER_SIGNING_SECRET }}
-          ANALYTICS_SERVICE_TOKEN: ${{ secrets.ANALYTICS_SERVICE_TOKEN }}
+          ANALYTICS_SERVICE_TOKEN: ${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN || secrets.ANALYTICS_SERVICE_TOKEN }}
         run: |
           export TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           export RG="${{ needs.resolve-environment.outputs.resource_group }}"

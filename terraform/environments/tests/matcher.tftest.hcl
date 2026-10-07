@@ -82,10 +82,12 @@ run "matcher_configuration_survives_iac" {
 
   assert {
     condition = (
+      one([for e in azurerm_container_app.analytics.template[0].container[0].env : e.value if e.name == "ANALYTICS_ENABLED"]) == "true" &&
+      one([for e in azurerm_container_app.analytics.template[0].container[0].env : e.value if e.name == "ANALYTICS_GROUP_ID"]) == "analytics-processing-v1" &&
       one([for e in azurerm_container_app.analytics.template[0].container[0].env : e.secret_name if e.name == "ANALYTICS_SERVICE_TOKEN"]) == "analytics-service-token" &&
       one([for e in azurerm_container_app.api.template[0].container[0].env : e.secret_name if e.name == "EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN"]) == "analytics-service-token"
     )
-    error_message = "Both applications must reference the analytics service token secret."
+    error_message = "Processing must use separate offsets and both applications must reference the analytics service token secret."
   }
 }
 
