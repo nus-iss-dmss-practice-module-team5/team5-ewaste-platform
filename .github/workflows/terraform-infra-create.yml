@@ -194,6 +194,7 @@ jobs:
           AUTH_ACCESS: ${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}
           AUTH_REFRESH: ${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}
           AUTH_HASH: ${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}
+          ANALYTICS_TOKEN: ${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_RUNNER_PAT: ${{ secrets.GH_RUNNER_PAT }}
         run: |
@@ -246,6 +247,10 @@ jobs:
 
           if [ -n "$GH_RUNNER_PAT" ]; then
             TF_VAR_ARGS+=(-var="github_pat=$GH_RUNNER_PAT")
+          fi
+
+          if [ -n "$ANALYTICS_TOKEN" ]; then
+            TF_VAR_ARGS+=(-var="analytics_service_token=$ANALYTICS_TOKEN")
           fi
 
           # ----------------------------------------------------------------

@@ -97,6 +97,13 @@ variable "matcher_signing_secret" {
   }
 }
 
+variable "analytics_service_token" {
+  type        = string
+  sensitive   = true
+  default     = "default-dev-analytics-token-minimum-32-chars"
+  description = "Shared service bearer token for internal communication between the Analytics worker and the backend API."
+}
+
 variable "github_repository" {
   type        = string
   default     = "nus-iss-dmss-practice-module-team5/team5-ewaste-platform"

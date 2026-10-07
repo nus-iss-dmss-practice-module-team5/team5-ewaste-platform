@@ -406,6 +406,11 @@ resource "azurerm_container_app" "api" {
     value = var.matcher_signing_secret
   }
 
+  secret {
+    name  = "analytics-service-token"
+    value = var.analytics_service_token
+  }
+
   template {
     min_replicas = 1
     max_replicas = 2
@@ -504,6 +509,11 @@ resource "azurerm_container_app" "api" {
       env {
         name        = "EWASTE_AUTH_REFRESH_HASH_SECRET"
         secret_name = "refresh-hash-secret"
+      }
+
+      env {
+        name        = "EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN"
+        secret_name = "analytics-service-token"
       }
 
       env {
@@ -846,6 +856,11 @@ resource "azurerm_container_app" "analytics" {
     value = var.matcher_signing_secret
   }
 
+  secret {
+    name  = "analytics-service-token"
+    value = var.analytics_service_token
+  }
+
   template {
     min_replicas = 1
     max_replicas = 2
@@ -900,6 +915,16 @@ resource "azurerm_container_app" "analytics" {
       env {
         name  = "MATCHER_LOCAL_TEST"
         value = "0"
+      }
+
+      env {
+        name  = "ANALYTICS_FACADE_URL"
+        value = "https://${azurerm_container_app.api.ingress[0].fqdn}"
+      }
+
+      env {
+        name        = "ANALYTICS_SERVICE_TOKEN"
+        secret_name = "analytics-service-token"
       }
 
       env {
