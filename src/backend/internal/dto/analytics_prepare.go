@@ -1,6 +1,7 @@
 package dto
 
-// InputCanonicalJSON is a JSON string, not a second mutable object. Hash its
+// AnalyticsPreparation contains the frozen analytics input. InputCanonicalJSON
+// is a JSON string, not a second mutable object. Hash its
 // exact UTF-8 bytes; parse it to obtain the frozen evaluator measurements.
 type AnalyticsPreparation struct {
 	BatchID            string `json:"batch_id"`

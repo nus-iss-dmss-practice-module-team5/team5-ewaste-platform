@@ -8,6 +8,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+
 	"workflow-api/internal/dto"
 	"workflow-api/internal/middleware"
 	"workflow-api/internal/service"
@@ -18,7 +19,7 @@ type preparationStub struct {
 	err   error
 }
 
-func (s *preparationStub) PrepareAnalytics(_ context.Context, batchID, eventID, principal string) (dto.AnalyticsPreparation, error) {
+func (s *preparationStub) PrepareAnalytics(_ context.Context, batchID, eventID, _ string) (dto.AnalyticsPreparation, error) {
 	s.calls++
 	return dto.AnalyticsPreparation{BatchID: batchID, SourceEventID: eventID, RuleVersion: service.ApprovedAnalyticsRuleVersion}, s.err
 }
