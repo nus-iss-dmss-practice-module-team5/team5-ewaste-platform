@@ -16,6 +16,7 @@ type Config struct {
 	Redis     RedisConfig     `mapstructure:"redis"`
 	Kafka     KafkaConfig     `mapstructure:"kafka"`
 	Auth      AuthConfig      `mapstructure:"auth"`
+	Analytics AnalyticsConfig `mapstructure:"analytics"`
 	Storage   StorageConfig   `mapstructure:"storage"`
 	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
 	Logging   LoggingConfig   `mapstructure:"logging"`
@@ -100,6 +101,10 @@ type AuthConfig struct {
 	AnalyticsServiceToken string        `mapstructure:"analytics_service_token"`
 }
 
+type AnalyticsConfig struct {
+	ApprovedRuleVersion string `mapstructure:"approved_rule_version"`
+}
+
 // StorageConfig contains only non-secret Azure Blob configuration. Shared
 // keys and connection strings are intentionally not supported: the runtime
 // uses the Container Apps managed identity for private evidence storage.
@@ -181,6 +186,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.refresh_secret", "")
 	v.SetDefault("auth.refresh_hash_secret", "")
 	v.SetDefault("auth.analytics_service_token", "")
+	v.SetDefault("analytics.approved_rule_version", "d3-v1")
 	v.SetDefault("storage.adapter_type", "disabled")
 	v.SetDefault("storage.azure_storage_account", "")
 	v.SetDefault("storage.azure_storage_container", "evidence-private")
@@ -233,6 +239,7 @@ func bindEnvironment(v *viper.Viper) {
 		"auth.refresh_ttl",
 		"auth.refresh_hash_secret",
 		"auth.analytics_service_token",
+		"analytics.approved_rule_version",
 		"storage.adapter_type",
 		"storage.azure_storage_account",
 		"storage.azure_storage_container",

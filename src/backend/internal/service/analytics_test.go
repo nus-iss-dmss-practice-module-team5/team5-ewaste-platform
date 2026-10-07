@@ -82,6 +82,45 @@ func TestBatchServiceAcknowledgeAnalyticsReplaysBySourceRunWithoutDuplicateEffec
 	}
 }
 
+func TestBatchServiceAcknowledgeAnalyticsRejectsReplayForAnotherBatchOrSourceVersion(t *testing.T) {
+	service, repo := analyticsFixture(t)
+	request, metadata := analyticsRequest(repo, "analytics-run-identity", "analytics-command-identity-1", 7)
+	if _, err := service.AcknowledgeAnalytics(context.Background(), "batch-receipt-001", request, metadata); err != nil {
+		t.Fatalf("first acknowledgement returned error: %v", err)
+	}
+
+	otherBatchMetadata := metadata
+	otherBatchMetadata.IdempotencyKey = "analytics-command-identity-2"
+	if _, err := service.AcknowledgeAnalytics(context.Background(), "another-batch", request, otherBatchMetadata); !errors.Is(err, ErrBatchIdempotencyConflict) {
+		t.Fatalf("expected cross-batch replay conflict, got %v", err)
+	}
+
+	otherVersionMetadata := metadata
+	otherVersionMetadata.IdempotencyKey = "analytics-command-identity-3"
+	otherVersionRequest := request
+	otherVersionRequest.SourceEventVersion++
+	if _, err := service.AcknowledgeAnalytics(context.Background(), "batch-receipt-001", otherVersionRequest, otherVersionMetadata); !errors.Is(err, ErrBatchIdempotencyConflict) {
+		t.Fatalf("expected source-version replay conflict, got %v", err)
+	}
+
+	if repo.state.batches["batch-receipt-001"].Status != model.BatchStatusCompleted || len(repo.state.analytics) != 1 || len(repo.state.outbox) != 2 {
+		t.Fatalf("identity-conflict replay changed durable state: batch=%+v analytics=%d outbox=%d", repo.state.batches["batch-receipt-001"], len(repo.state.analytics), len(repo.state.outbox))
+	}
+}
+
+func TestBatchServiceAcknowledgeAnalyticsRejectsUnapprovedRuleVersion(t *testing.T) {
+	service, repo := analyticsFixture(t)
+	request, metadata := analyticsRequest(repo, "analytics-run-unapproved", "analytics-command-unapproved", 7)
+	request.RuleVersion = "not-an-approved-policy"
+
+	if _, err := service.AcknowledgeAnalytics(context.Background(), "batch-receipt-001", request, metadata); !errors.Is(err, ErrBatchValidation) {
+		t.Fatalf("expected unapproved rule version validation error, got %v", err)
+	}
+	if repo.state.batches["batch-receipt-001"].Status != model.BatchStatusRecycled || len(repo.state.analytics) != 0 || len(repo.state.outbox) != 1 {
+		t.Fatalf("unapproved rule version changed durable state: batch=%+v analytics=%d outbox=%d", repo.state.batches["batch-receipt-001"], len(repo.state.analytics), len(repo.state.outbox))
+	}
+}
+
 func TestBatchServiceAcknowledgeAnalyticsRejectsFrozenInputMismatchWithoutCompletion(t *testing.T) {
 	service, repo := analyticsFixture(t)
 	request, metadata := analyticsRequest(repo, "analytics-run-invalid", "analytics-command-invalid", 7)

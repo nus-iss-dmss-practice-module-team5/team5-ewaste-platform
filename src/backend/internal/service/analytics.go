@@ -34,7 +34,7 @@ func (s *BatchService) AcknowledgeAnalytics(
 	request dto.AnalyticsAcknowledgement,
 	metadata BatchCommandMetadata,
 ) (dto.CompletionMutationResult, error) {
-	if err := validateAnalyticsRequest(request); err != nil {
+	if err := s.validateAnalyticsRequest(request); err != nil {
 		return dto.CompletionMutationResult{}, err
 	}
 	principal := metadata.ServicePrincipal()
@@ -65,6 +65,9 @@ func (s *BatchService) AcknowledgeAnalytics(
 		}
 
 		if existing, lookupErr := tx.FindAnalyticsResultBySourceRun(ctx, request.SourceEventID, request.AnalyticsRunID); lookupErr == nil {
+			if existing.BatchID != batchID || existing.SourceEventVersion != request.SourceEventVersion {
+				return ErrBatchIdempotencyConflict
+			}
 			metricsJSON, marshalErr := json.Marshal(request.Metrics)
 			if marshalErr != nil {
 				return marshalErr
@@ -245,18 +248,19 @@ func (s *BatchService) AcknowledgeAnalytics(
 
 		eventID := s.newID()
 		payload, err := json.Marshal(map[string]any{
-			"event_id":          eventID,
-			"event_type":        model.RequestCompletedEventType,
-			"schema_version":    1,
-			"producer":          "go-workflow-service",
-			"aggregate_type":    "EWasteBatch",
-			"aggregate_id":      completed.ID,
-			"aggregate_version": completed.Version,
-			"command_id":        command.ID,
-			"batch_id":          completed.ID,
-			"claim_epoch":       stringValue(envelope["claim_epoch"]),
-			"occurred_at":       contractTimestamp(now),
-			"correlation_id":    metadata.CorrelationID,
+			"event_id":            eventID,
+			"event_type":          model.RequestCompletedEventType,
+			"schema_version":      1,
+			"producer":            "go-workflow-service",
+			"aggregate_type":      "EWasteBatch",
+			"aggregate_id":        completed.ID,
+			"aggregate_version":   completed.Version,
+			"command_id":          command.ID,
+			"batch_id":            completed.ID,
+			"sequence_in_command": 1,
+			"claim_epoch":         stringValue(envelope["claim_epoch"]),
+			"occurred_at":         contractTimestamp(now),
+			"correlation_id":      metadata.CorrelationID,
 			"data": map[string]any{
 				"result_id":       analyticsResult.ResultID,
 				"batch_id":        completed.ID,
@@ -336,7 +340,7 @@ func loadAnalyticsReplay(ctx context.Context, tx repository.BatchTransaction, me
 	return &result, nil
 }
 
-func validateAnalyticsRequest(request dto.AnalyticsAcknowledgement) error {
+func (s *BatchService) validateAnalyticsRequest(request dto.AnalyticsAcknowledgement) error {
 	fields := map[string]string{}
 	if strings.TrimSpace(request.SourceEventID) == "" {
 		fields["source_event_id"] = "is required"
@@ -352,6 +356,8 @@ func validateAnalyticsRequest(request dto.AnalyticsAcknowledgement) error {
 	}
 	if strings.TrimSpace(request.RuleVersion) == "" {
 		fields["rule_version"] = "is required"
+	} else if request.RuleVersion != s.approvedAnalyticsRuleVersion {
+		fields["rule_version"] = "does not match the approved analytics rule version"
 	}
 	if request.DataQuality != string(model.AnalyticsDataQualityComplete) && request.DataQuality != string(model.AnalyticsDataQualityPartial) && request.DataQuality != string(model.AnalyticsDataQualityMissing) {
 		fields["data_quality"] = "must be COMPLETE, PARTIAL or MISSING"

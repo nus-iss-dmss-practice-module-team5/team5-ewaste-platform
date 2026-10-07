@@ -43,7 +43,7 @@ func compileSchemas() map[string]*jsonschema.Schema {
 		}
 	}
 	result := map[string]*jsonschema.Schema{}
-	for _, name := range []string{"MatchingInput", "MatchingOutput", "RequestSubmitted", "MatchingCompleted", "ClaimConfirmed", "CollectorAssigned", "CollectionCompleted", "CollectionFailed"} {
+	for _, name := range []string{"MatchingInput", "MatchingOutput", "RequestSubmitted", "MatchingCompleted", "ClaimConfirmed", "CollectorAssigned", "CollectionCompleted", "CollectionFailed", "ReceiptVerified", "RecyclingCompleted", "RequestCompleted"} {
 		result[name] = c.MustCompile(name + ".v1.schema.json")
 	}
 	return result

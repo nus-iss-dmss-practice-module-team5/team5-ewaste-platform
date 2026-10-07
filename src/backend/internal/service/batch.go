@@ -24,6 +24,11 @@ const (
 	EditBatchCommand   = "EditBatchDraft"
 	SubmitBatchCommand = "SubmitBatch"
 
+	// ApprovedAnalyticsRuleVersion is the Sprint 3 D3 rule version used by
+	// local/test deployments. Production-like deployments should set the
+	// operator-approved version through configuration.
+	ApprovedAnalyticsRuleVersion = "d3-v1"
+
 	requestSubmittedTopic = "ewaste.batch.events"
 )
 
@@ -35,18 +40,28 @@ type BatchMutationResult struct {
 }
 
 type BatchService struct {
-	repository repository.BatchRepository
-	clock      func() time.Time
-	newID      func() string
-	retainFor  time.Duration
+	repository                   repository.BatchRepository
+	clock                        func() time.Time
+	newID                        func() string
+	retainFor                    time.Duration
+	approvedAnalyticsRuleVersion string
 }
 
 func NewBatchService(repo repository.BatchRepository) *BatchService {
+	return NewBatchServiceWithAnalyticsRuleVersion(repo, ApprovedAnalyticsRuleVersion)
+}
+
+func NewBatchServiceWithAnalyticsRuleVersion(repo repository.BatchRepository, ruleVersion string) *BatchService {
+	ruleVersion = strings.TrimSpace(ruleVersion)
+	if ruleVersion == "" {
+		ruleVersion = ApprovedAnalyticsRuleVersion
+	}
 	return &BatchService{
-		repository: repo,
-		clock:      func() time.Time { return time.Now().UTC() },
-		newID:      uuid.NewString,
-		retainFor:  24 * time.Hour,
+		repository:                   repo,
+		clock:                        func() time.Time { return time.Now().UTC() },
+		newID:                        uuid.NewString,
+		retainFor:                    24 * time.Hour,
+		approvedAnalyticsRuleVersion: ruleVersion,
 	}
 }
 

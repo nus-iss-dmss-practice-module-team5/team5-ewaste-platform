@@ -1062,7 +1062,11 @@ components:
         source_event_version: {type: integer, minimum: 1}
         analytics_run_id: {type: string, minLength: 1, maxLength: 128}
         input_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
-        rule_version: {type: string, minLength: 1, maxLength: 64}
+        rule_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Must equal the operator-configured approved analytics rule version (EWASTE_ANALYTICS_APPROVED_RULE_VERSION).
         data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
         metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
         anomaly_codes:

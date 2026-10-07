@@ -132,7 +132,7 @@ func run() error {
 	authController := controller.NewAuthController(authService, appLogger.Logger)
 
 	batchRepository := repository.NewGormBatchRepository(db)
-	batchService := service.NewBatchService(batchRepository)
+	batchService := service.NewBatchServiceWithAnalyticsRuleVersion(batchRepository, cfg.Analytics.ApprovedRuleVersion)
 	batchController := controller.NewBatchController(batchService, appLogger.Logger)
 	analyticsController := controller.NewAnalyticsController(batchService, appLogger.Logger)
 	evidenceStorage, storageErr := storage.NewEvidenceStorage(cfg.Storage)

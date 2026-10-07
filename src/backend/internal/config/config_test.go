@@ -70,6 +70,9 @@ auth:
 	if cfg.Auth.AnalyticsServiceToken != "analytics-secret" {
 		t.Fatalf("expected analytics service token from environment")
 	}
+	if cfg.Analytics.ApprovedRuleVersion != "d3-v1" {
+		t.Fatalf("expected default approved analytics rule version, got %q", cfg.Analytics.ApprovedRuleVersion)
+	}
 	if cfg.RateLimit.Requests != 25 || cfg.RateLimit.Window.Minutes() != 2 {
 		t.Fatalf("expected rate limit environment values, got requests=%d window=%s", cfg.RateLimit.Requests, cfg.RateLimit.Window)
 	}
@@ -88,5 +91,17 @@ func TestApplyTestModeUsesLocalDependencies(t *testing.T) {
 	}
 	if cfg.Database.Host != "localhost" || cfg.Database.Port != 3307 || cfg.Redis.Address != "localhost:6379" {
 		t.Fatalf("expected localhost dependency defaults: %+v", cfg)
+	}
+}
+
+func TestLoadReadsApprovedAnalyticsRuleVersionFromEnvironment(t *testing.T) {
+	t.Setenv("EWASTE_ANALYTICS_APPROVED_RULE_VERSION", "d3-v2")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("load configuration: %v", err)
+	}
+	if cfg.Analytics.ApprovedRuleVersion != "d3-v2" {
+		t.Fatalf("expected configured analytics rule version, got %q", cfg.Analytics.ApprovedRuleVersion)
 	}
 }

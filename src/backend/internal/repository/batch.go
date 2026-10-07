@@ -188,7 +188,7 @@ func (t *gormBatchTransaction) ValidateReceiptScope(
 		Joins("INNER JOIN batch_claims AS c ON c.id = b.current_claim_id AND c.batch_id = b.id AND c.claim_epoch = b.claim_epoch").
 		Joins("INNER JOIN batch_assignments AS a ON a.id = b.current_assignment_id AND a.batch_id = b.id AND a.claim_id = c.id AND a.claim_epoch = b.claim_epoch").
 		Where(
-			"b.id = ? AND b.current_claim_id = ? AND b.current_assignment_id = ? AND b.claim_epoch = ? AND c.recycler_org_id = ? AND c.claim_status = ? AND c.superseded_at IS NULL AND a.recycler_org_id = ? AND a.assignment_status = ?",
+			"b.id = ? AND b.current_claim_id = ? AND b.current_assignment_id = ? AND b.claim_epoch = ? AND c.recycler_org_id = ? AND c.claim_status = ? AND c.superseded_at IS NULL AND a.recycler_org_id = ? AND a.assignment_status IN (?, ?)",
 			batchID,
 			claimID,
 			assignmentID,
@@ -197,6 +197,7 @@ func (t *gormBatchTransaction) ValidateReceiptScope(
 			model.ClaimStatusAccepted,
 			organisationID,
 			model.AssignmentStatusAccepted,
+			model.AssignmentStatusCompleted,
 		).
 		Count(&count).
 		Error
