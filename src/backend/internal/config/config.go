@@ -16,6 +16,8 @@ type Config struct {
 	Redis     RedisConfig     `mapstructure:"redis"`
 	Kafka     KafkaConfig     `mapstructure:"kafka"`
 	Auth      AuthConfig      `mapstructure:"auth"`
+	Analytics AnalyticsConfig `mapstructure:"analytics"`
+	Storage   StorageConfig   `mapstructure:"storage"`
 	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
 	Logging   LoggingConfig   `mapstructure:"logging"`
 }
@@ -48,6 +50,9 @@ func (c *Config) ApplyMode(mode string) error {
 		if c.Redis.Address == "" {
 			c.Redis.Address = "localhost:6379"
 		}
+	}
+	if (mode == ModeTest || mode == ModeDevelopment) && c.Storage.AdapterType == "" {
+		c.Storage.AdapterType = "local"
 	}
 	return nil
 }
@@ -90,12 +95,30 @@ type RedisConfig struct {
 }
 
 type AuthConfig struct {
-	Issuer            string        `mapstructure:"issuer"`
-	AccessSecret      string        `mapstructure:"access_secret"`
-	RefreshSecret     string        `mapstructure:"refresh_secret"`
-	AccessTTL         time.Duration `mapstructure:"access_ttl"`
-	RefreshTTL        time.Duration `mapstructure:"refresh_ttl"`
-	RefreshHashSecret string        `mapstructure:"refresh_hash_secret"`
+	Issuer                string        `mapstructure:"issuer"`
+	AccessSecret          string        `mapstructure:"access_secret"`
+	RefreshSecret         string        `mapstructure:"refresh_secret"`
+	AccessTTL             time.Duration `mapstructure:"access_ttl"`
+	RefreshTTL            time.Duration `mapstructure:"refresh_ttl"`
+	RefreshHashSecret     string        `mapstructure:"refresh_hash_secret"`
+	AnalyticsServiceToken string        `mapstructure:"analytics_service_token"`
+}
+
+type AnalyticsConfig struct {
+	ApprovedRuleVersion string `mapstructure:"approved_rule_version"`
+}
+
+// StorageConfig contains only non-secret Azure Blob configuration. Shared
+// keys and connection strings are intentionally not supported: the runtime
+// uses the Container Apps managed identity for private evidence storage.
+type StorageConfig struct {
+	AdapterType           string `mapstructure:"adapter_type"`
+	AzureStorageAccount   string `mapstructure:"azure_storage_account"`
+	AzureStorageContainer string `mapstructure:"azure_storage_container"`
+	AzureStorageEndpoint  string `mapstructure:"azure_storage_endpoint"`
+	AzureUseManagedID     bool   `mapstructure:"azure_use_managed_id"`
+	MaxUploadSizeBytes    int64  `mapstructure:"max_upload_size_bytes"`
+	LocalBaseDir          string `mapstructure:"local_base_dir"`
 }
 
 type RateLimitConfig struct {
@@ -144,6 +167,12 @@ func Load(configFile string) (Config, error) {
 	if err := v.Unmarshal(&cfg, viper.DecodeHook(decodeHook)); err != nil {
 		return Config{}, err
 	}
+
+	// If AZURE_STORAGE_ACCOUNT is provided but AZURE_STORAGE_ENDPOINT is omitted, derive standard endpoint.
+	if cfg.Storage.AzureStorageEndpoint == "" && cfg.Storage.AzureStorageAccount != "" {
+		cfg.Storage.AzureStorageEndpoint = "https://" + cfg.Storage.AzureStorageAccount + ".blob.core.windows.net/"
+	}
+
 	return cfg, nil
 }
 
@@ -166,6 +195,15 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("auth.access_secret", "")
 	v.SetDefault("auth.refresh_secret", "")
 	v.SetDefault("auth.refresh_hash_secret", "")
+	v.SetDefault("auth.analytics_service_token", "")
+	v.SetDefault("analytics.approved_rule_version", "d3-v1")
+	v.SetDefault("storage.adapter_type", "disabled")
+	v.SetDefault("storage.azure_storage_account", "")
+	v.SetDefault("storage.azure_storage_container", "evidence-private")
+	v.SetDefault("storage.azure_storage_endpoint", "")
+	v.SetDefault("storage.azure_use_managed_id", true)
+	v.SetDefault("storage.max_upload_size_bytes", int64(5*1024*1024))
+	v.SetDefault("storage.local_base_dir", "data/evidence")
 	v.SetDefault("rate_limit.requests", 10)
 	v.SetDefault("rate_limit.window", time.Minute)
 	v.SetDefault("logging.level", "info")
@@ -211,6 +249,15 @@ func bindEnvironment(v *viper.Viper) {
 		"auth.access_ttl",
 		"auth.refresh_ttl",
 		"auth.refresh_hash_secret",
+		"auth.analytics_service_token",
+		"analytics.approved_rule_version",
+		"storage.adapter_type",
+		"storage.azure_storage_account",
+		"storage.azure_storage_container",
+		"storage.azure_storage_endpoint",
+		"storage.azure_use_managed_id",
+		"storage.max_upload_size_bytes",
+		"storage.local_base_dir",
 		"rate_limit.requests",
 		"rate_limit.window",
 		"logging.level",
@@ -237,6 +284,29 @@ func bindEnvironment(v *viper.Viper) {
 	}
 	for _, key := range keys {
 		envName := "EWASTE_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
+		if strings.HasPrefix(key, "storage.") {
+			// Storage names intentionally match the Azure deployment contract.
+			// Accept application-prefixed and legacy aliases as well.
+			envAliases := []string{envName}
+			switch key {
+			case "storage.adapter_type":
+				envAliases = append([]string{"STORAGE_ADAPTER_TYPE", "EWASTE_STORAGE_ADAPTER_TYPE", "EWASTE_STORAGE_TYPE"}, envAliases...)
+			case "storage.azure_storage_account":
+				envAliases = append([]string{"AZURE_STORAGE_ACCOUNT", "EWASTE_AZURE_STORAGE_ACCOUNT", "EWASTE_STORAGE_AZURE_ACCOUNT_NAME"}, envAliases...)
+			case "storage.azure_storage_container":
+				envAliases = append([]string{"AZURE_STORAGE_CONTAINER", "EWASTE_AZURE_STORAGE_CONTAINER", "EWASTE_STORAGE_AZURE_CONTAINER_NAME"}, envAliases...)
+			case "storage.azure_storage_endpoint":
+				envAliases = append([]string{"AZURE_STORAGE_ENDPOINT", "EWASTE_AZURE_STORAGE_ENDPOINT", "EWASTE_STORAGE_AZURE_ENDPOINT"}, envAliases...)
+			case "storage.azure_use_managed_id":
+				envAliases = append([]string{"AZURE_USE_MANAGED_ID", "EWASTE_AZURE_USE_MANAGED_ID"}, envAliases...)
+			case "storage.max_upload_size_bytes":
+				envAliases = append([]string{"MAX_UPLOAD_SIZE_BYTES", "EWASTE_MAX_UPLOAD_SIZE_BYTES"}, envAliases...)
+			case "storage.local_base_dir":
+				envAliases = append([]string{"STORAGE_LOCAL_BASE_DIR", "EWASTE_STORAGE_LOCAL_BASE_DIR"}, envAliases...)
+			}
+			_ = v.BindEnv(append([]string{key}, envAliases...)...)
+			continue
+		}
 		if key == "database.password" {
 			_ = v.BindEnv(key, "MYSQL_PASSWORD", envName)
 			continue

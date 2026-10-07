@@ -14,6 +14,7 @@ func JSON(c *gin.Context, status int, body any) {
 }
 
 func Error(c *gin.Context, code apierror.Code, correlationID string) {
+	c.Set("telemetry_error_code", string(code))
 	c.AbortWithStatusJSON(apierror.Status(code), dto.ErrorResponse{
 		Code:          string(code),
 		Message:       apierror.Messages[code],

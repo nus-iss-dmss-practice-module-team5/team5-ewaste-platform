@@ -42,8 +42,10 @@ class PersistenceTests(unittest.TestCase):
                   "batch.collection.completed", "batch.collection.failed", "ewaste.batch.events.matching.dlq.v1"]
         admin = AdminClient({"bootstrap.servers": cls.broker})
         existing = admin.list_topics(timeout=10).topics
-        for future in admin.create_topics([NewTopic(t, 1, 1) for t in topics if t not in existing]).values():
-            future.result(10)
+        missing = [NewTopic(t, 1, 1) for t in topics if t not in existing]
+        if missing:
+            for future in admin.create_topics(missing).values():
+                future.result(10)
         def ready():
             try:
                 with urllib.request.urlopen(cls.url + "/readyz", timeout=2) as response:

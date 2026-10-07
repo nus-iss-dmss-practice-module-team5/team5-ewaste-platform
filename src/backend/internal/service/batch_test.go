@@ -15,23 +15,37 @@ import (
 type fakeBatchRepository struct {
 	state        *fakeBatchState
 	transactionN int
+	failOutbox   bool
+	failAudit    bool
 }
 
 type fakeBatchState struct {
-	batches  map[string]*model.Batch
-	commands []*model.CommandIdempotency
-	audits   []*model.BatchAuditEvent
-	outbox   []*model.EventOutbox
+	batches    map[string]*model.Batch
+	receipts   map[string]*model.BatchReceipt
+	treatments map[string]*model.BatchTreatment
+	evidence   map[string]*model.BatchEvidence
+	analytics  map[string]*model.AnalyticsResult
+	anomalies  map[string]*model.BatchAnomaly
+	commands   []*model.CommandIdempotency
+	audits     []*model.BatchAuditEvent
+	outbox     []*model.EventOutbox
 }
 
 type fakeBatchTransaction struct {
-	state *fakeBatchState
+	state      *fakeBatchState
+	failOutbox bool
+	failAudit  bool
 }
 
 func newFakeBatchRepository() *fakeBatchRepository {
 	return &fakeBatchRepository{
 		state: &fakeBatchState{
-			batches: make(map[string]*model.Batch),
+			batches:    make(map[string]*model.Batch),
+			receipts:   make(map[string]*model.BatchReceipt),
+			treatments: make(map[string]*model.BatchTreatment),
+			evidence:   make(map[string]*model.BatchEvidence),
+			analytics:  make(map[string]*model.AnalyticsResult),
+			anomalies:  make(map[string]*model.BatchAnomaly),
 		},
 	}
 }
@@ -46,7 +60,12 @@ func (r *fakeBatchRepository) Transaction(
 		return errors.New("callback is nil")
 	}
 
-	return fn(&fakeBatchTransaction{state: r.state})
+	snapshot := cloneFakeBatchState(r.state)
+	err := fn(&fakeBatchTransaction{state: r.state, failOutbox: r.failOutbox, failAudit: r.failAudit})
+	if err != nil {
+		r.state = snapshot
+	}
+	return err
 }
 
 func (t *fakeBatchTransaction) FindBatchForUpdate(
@@ -59,6 +78,33 @@ func (t *fakeBatchTransaction) FindBatchForUpdate(
 	}
 
 	return cloneBatch(batch), nil
+}
+
+func (t *fakeBatchTransaction) ValidateRecyclerActor(
+	context.Context,
+	string,
+	string,
+) error {
+	return nil
+}
+
+func (t *fakeBatchTransaction) ValidateAuditorActor(context.Context, string) error {
+	return nil
+}
+
+func (t *fakeBatchTransaction) ValidateAdminActor(context.Context, string) error {
+	return nil
+}
+
+func (t *fakeBatchTransaction) ValidateReceiptScope(
+	context.Context,
+	string,
+	string,
+	string,
+	uint64,
+	string,
+) error {
+	return nil
 }
 
 func (t *fakeBatchTransaction) FindCommand(
@@ -149,6 +195,199 @@ func (t *fakeBatchTransaction) SubmitDraft(
 	return cloneBatch(batch), nil
 }
 
+func (t *fakeBatchTransaction) CreateReceipt(
+	_ context.Context,
+	receipt *model.BatchReceipt,
+) error {
+	t.state.receipts[receipt.BatchID] = cloneReceipt(receipt)
+	return nil
+}
+
+func (t *fakeBatchTransaction) UpdateBatchReceipt(
+	_ context.Context,
+	batchID string,
+	expectedVersion uint32,
+	now time.Time,
+) (*model.Batch, error) {
+	batch, ok := t.state.batches[batchID]
+	if !ok {
+		return nil, repository.ErrBatchNotFound
+	}
+	if batch.Status != model.BatchStatusCollected || batch.Version != expectedVersion {
+		return nil, repository.ErrBatchConcurrency
+	}
+	batch.Status = model.BatchStatusVerified
+	batch.Version++
+	batch.UpdatedAt = now
+	return cloneBatch(batch), nil
+}
+
+func (t *fakeBatchTransaction) FindReceipt(
+	_ context.Context,
+	batchID string,
+) (*model.BatchReceipt, error) {
+	receipt, ok := t.state.receipts[batchID]
+	if !ok {
+		return nil, repository.ErrReceiptNotFound
+	}
+	return cloneReceipt(receipt), nil
+}
+
+func (t *fakeBatchTransaction) FindEvidence(
+	_ context.Context,
+	batchID string,
+	evidenceID string,
+) (*model.BatchEvidence, error) {
+	evidence, ok := t.state.evidence[evidenceID]
+	if !ok || evidence.BatchID != batchID {
+		return nil, repository.ErrEvidenceNotFound
+	}
+	return cloneEvidence(evidence), nil
+}
+
+func (t *fakeBatchTransaction) FindOutboxEvent(
+	_ context.Context,
+	batchID string,
+	eventID string,
+	eventType string,
+) (*model.EventOutbox, error) {
+	for _, event := range t.state.outbox {
+		if event.BatchID == batchID && event.EventID == eventID && event.EventType == eventType {
+			copyEvent := *event
+			copyEvent.PayloadJSON = append([]byte(nil), event.PayloadJSON...)
+			return &copyEvent, nil
+		}
+	}
+	return nil, repository.ErrEventOutboxNotFound
+}
+
+func (t *fakeBatchTransaction) FindAnalyticsResultBySourceRun(
+	_ context.Context,
+	sourceEventID string,
+	analyticsRunID string,
+) (*model.AnalyticsResult, error) {
+	for _, result := range t.state.analytics {
+		if result.SourceEventID == sourceEventID && result.AnalyticsRunID == analyticsRunID {
+			return cloneAnalyticsResult(result), nil
+		}
+	}
+	return nil, repository.ErrAnalyticsNotFound
+}
+
+func (t *fakeBatchTransaction) FindBatchAnomalies(_ context.Context, resultID string) ([]*model.BatchAnomaly, error) {
+	var anomalies []*model.BatchAnomaly
+	for _, anomaly := range t.state.anomalies {
+		if anomaly.ResultID == resultID {
+			anomalies = append(anomalies, cloneAnomaly(anomaly))
+		}
+	}
+	return anomalies, nil
+}
+
+func (t *fakeBatchTransaction) FindRequestCompletedEvent(_ context.Context, batchID string, resultID string) (*model.EventOutbox, error) {
+	for _, event := range t.state.outbox {
+		if event.BatchID != batchID || event.EventType != model.RequestCompletedEventType {
+			continue
+		}
+		payload, err := decodeEventPayload(event.PayloadJSON)
+		if err != nil {
+			continue
+		}
+		data, _ := payload["data"].(map[string]any)
+		if stringValue(data["result_id"]) == resultID {
+			copyEvent := *event
+			copyEvent.PayloadJSON = append([]byte(nil), event.PayloadJSON...)
+			return &copyEvent, nil
+		}
+	}
+	return nil, repository.ErrEventOutboxNotFound
+}
+
+func (t *fakeBatchTransaction) CreateEvidence(
+	_ context.Context,
+	evidence *model.BatchEvidence,
+) error {
+	t.state.evidence[evidence.EvidenceID] = cloneEvidence(evidence)
+	return nil
+}
+
+func (t *fakeBatchTransaction) ValidateTreatmentEvidence(
+	_ context.Context,
+	batchID string,
+	evidenceID string,
+	organisationID string,
+) error {
+	evidence, ok := t.state.evidence[evidenceID]
+	if !ok || evidence.BatchID != batchID || evidence.OrganisationID != organisationID ||
+		evidence.LifecycleStage != model.EvidenceLifecycleTreatment ||
+		evidence.ValidationStatus != model.EvidenceValidationValidated {
+		return repository.ErrEvidenceNotFound
+	}
+	return nil
+}
+
+func (t *fakeBatchTransaction) CreateTreatment(
+	_ context.Context,
+	treatment *model.BatchTreatment,
+) error {
+	t.state.treatments[treatment.BatchID] = cloneTreatment(treatment)
+	return nil
+}
+
+func (t *fakeBatchTransaction) UpdateBatchTreatment(
+	_ context.Context,
+	batchID string,
+	expectedVersion uint32,
+	now time.Time,
+) (*model.Batch, error) {
+	batch, ok := t.state.batches[batchID]
+	if !ok {
+		return nil, repository.ErrBatchNotFound
+	}
+	if batch.Status != model.BatchStatusVerified || batch.Version != expectedVersion {
+		return nil, repository.ErrBatchConcurrency
+	}
+	batch.Status = model.BatchStatusRecycled
+	batch.Version++
+	batch.UpdatedAt = now
+	return cloneBatch(batch), nil
+}
+
+func (t *fakeBatchTransaction) CreateAnalyticsResult(
+	_ context.Context,
+	result *model.AnalyticsResult,
+) error {
+	t.state.analytics[result.ResultID] = cloneAnalyticsResult(result)
+	return nil
+}
+
+func (t *fakeBatchTransaction) CreateBatchAnomaly(
+	_ context.Context,
+	anomaly *model.BatchAnomaly,
+) error {
+	t.state.anomalies[anomaly.AnomalyID] = cloneAnomaly(anomaly)
+	return nil
+}
+
+func (t *fakeBatchTransaction) UpdateBatchAnalytics(
+	_ context.Context,
+	batchID string,
+	expectedVersion uint32,
+	now time.Time,
+) (*model.Batch, error) {
+	batch, ok := t.state.batches[batchID]
+	if !ok {
+		return nil, repository.ErrBatchNotFound
+	}
+	if batch.Status != model.BatchStatusRecycled || batch.Version != expectedVersion {
+		return nil, repository.ErrBatchConcurrency
+	}
+	batch.Status = model.BatchStatusCompleted
+	batch.Version++
+	batch.UpdatedAt = now
+	return cloneBatch(batch), nil
+}
+
 func (t *fakeBatchTransaction) CompleteCommand(
 	_ context.Context,
 	commandID string,
@@ -173,6 +412,9 @@ func (t *fakeBatchTransaction) AppendAudit(
 	_ context.Context,
 	event *model.BatchAuditEvent,
 ) error {
+	if t.failAudit {
+		return errors.New("audit unavailable")
+	}
 	t.state.audits = append(t.state.audits, event)
 	return nil
 }
@@ -181,8 +423,57 @@ func (t *fakeBatchTransaction) EnqueueOutbox(
 	_ context.Context,
 	event *model.EventOutbox,
 ) error {
+	if t.failOutbox {
+		return errors.New("outbox unavailable")
+	}
 	t.state.outbox = append(t.state.outbox, event)
 	return nil
+}
+
+func cloneFakeBatchState(source *fakeBatchState) *fakeBatchState {
+	clone := &fakeBatchState{
+		batches:    make(map[string]*model.Batch, len(source.batches)),
+		receipts:   make(map[string]*model.BatchReceipt, len(source.receipts)),
+		treatments: make(map[string]*model.BatchTreatment, len(source.treatments)),
+		evidence:   make(map[string]*model.BatchEvidence, len(source.evidence)),
+		analytics:  make(map[string]*model.AnalyticsResult, len(source.analytics)),
+		anomalies:  make(map[string]*model.BatchAnomaly, len(source.anomalies)),
+		commands:   make([]*model.CommandIdempotency, 0, len(source.commands)),
+		audits:     make([]*model.BatchAuditEvent, 0, len(source.audits)),
+		outbox:     make([]*model.EventOutbox, 0, len(source.outbox)),
+	}
+	for id, batch := range source.batches {
+		clone.batches[id] = cloneBatch(batch)
+	}
+	for id, receipt := range source.receipts {
+		clone.receipts[id] = cloneReceipt(receipt)
+	}
+	for id, treatment := range source.treatments {
+		clone.treatments[id] = cloneTreatment(treatment)
+	}
+	for id, evidence := range source.evidence {
+		clone.evidence[id] = cloneEvidence(evidence)
+	}
+	for id, result := range source.analytics {
+		clone.analytics[id] = cloneAnalyticsResult(result)
+	}
+	for id, anomaly := range source.anomalies {
+		clone.anomalies[id] = cloneAnomaly(anomaly)
+	}
+	for _, command := range source.commands {
+		clone.commands = append(clone.commands, cloneCommand(command))
+	}
+	for _, audit := range source.audits {
+		copyAudit := *audit
+		copyAudit.DetailsJSON = append([]byte(nil), audit.DetailsJSON...)
+		clone.audits = append(clone.audits, &copyAudit)
+	}
+	for _, event := range source.outbox {
+		copyEvent := *event
+		copyEvent.PayloadJSON = append([]byte(nil), event.PayloadJSON...)
+		clone.outbox = append(clone.outbox, &copyEvent)
+	}
+	return clone
 }
 
 func cloneBatch(source *model.Batch) *model.Batch {
@@ -204,6 +495,69 @@ func cloneCommand(source *model.CommandIdempotency) *model.CommandIdempotency {
 	*clone = *source
 	clone.ResponseJSON = append([]byte(nil), source.ResponseJSON...)
 	return clone
+}
+
+func cloneReceipt(source *model.BatchReceipt) *model.BatchReceipt {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.BatchReceipt)
+	*clone = *source
+	return clone
+}
+
+func cloneTreatment(source *model.BatchTreatment) *model.BatchTreatment {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.BatchTreatment)
+	*clone = *source
+	clone.ReusedKg = cloneString(source.ReusedKg)
+	clone.RecycledKg = cloneString(source.RecycledKg)
+	clone.DisposedKg = cloneString(source.DisposedKg)
+	clone.UnknownKg = cloneString(source.UnknownKg)
+	clone.DivertedKg = cloneString(source.DivertedKg)
+	clone.EvidenceID = cloneString(source.EvidenceID)
+	return clone
+}
+
+func cloneEvidence(source *model.BatchEvidence) *model.BatchEvidence {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.BatchEvidence)
+	*clone = *source
+	return clone
+}
+
+func cloneAnalyticsResult(source *model.AnalyticsResult) *model.AnalyticsResult {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.AnalyticsResult)
+	*clone = *source
+	clone.ClaimEpoch = cloneString(source.ClaimEpoch)
+	clone.MetricsJSON = append([]byte(nil), source.MetricsJSON...)
+	return clone
+}
+
+func cloneAnomaly(source *model.BatchAnomaly) *model.BatchAnomaly {
+	if source == nil {
+		return nil
+	}
+	clone := new(model.BatchAnomaly)
+	*clone = *source
+	clone.DeclaredValue = cloneString(source.DeclaredValue)
+	clone.ActualValue = cloneString(source.ActualValue)
+	clone.DeltaKg = cloneString(source.DeltaKg)
+	return clone
+}
+
+func cloneString(source *string) *string {
+	if source == nil {
+		return nil
+	}
+	return new(*source)
 }
 
 func applyFakeChanges(batch *model.Batch, changes map[string]any) {

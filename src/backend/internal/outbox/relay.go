@@ -170,70 +170,56 @@ func (r *Relay) processOnce(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-
-		publishContext, cancel := context.WithTimeout(
-			ctx,
-			r.config.PublishTimeout,
-		)
+		started := time.Now()
+		publishContext, cancel := context.WithTimeout(ctx, r.config.PublishTimeout)
 		publishErr := r.publisher.Publish(publishContext, event)
 		cancel()
 		if ctx.Err() != nil {
 			return
 		}
-
 		if publishErr != nil {
 			var permanentError interface{ Permanent() bool }
 			if errors.As(publishErr, &permanentError) && permanentError.Permanent() {
-				if quarantineErr := r.repository.MarkQuarantined(
-					ctx,
-					event.EventID,
-					"OUTBOX_EVENT_INVALID",
-				); quarantineErr != nil {
-					r.logger.Error(
-						"quarantine outbox event",
-						zap.String("event_id", event.EventID),
-						zap.Error(quarantineErr),
-					)
+				if err := r.repository.MarkQuarantined(ctx, event.EventID, "OUTBOX_EVENT_INVALID"); err != nil {
+					r.observe(event, "outbox_persistence_failed", "QUARANTINE_PERSIST_FAILED", "FAILED", started)
+				} else {
+					r.observe(event, "outbox_quarantined", "OUTBOX_EVENT_INVALID", "QUARANTINED", started)
 				}
 				continue
 			}
-
-			// Transient broker outages remain PENDING and recover automatically.
-			// MaxAttempts bounds each Kafka send, not the lifetime of durable intent.
-
-			if retryErr := r.repository.MarkRetry(
-				ctx,
-				event.EventID,
-				r.now().Add(r.config.RetryBackoff),
-				KafkaPublishErrorCode,
-			); retryErr != nil {
-				r.logger.Error(
-					"reschedule outbox event",
-					zap.String("event_id", event.EventID),
-					zap.Error(retryErr),
-				)
+			// Keep the existing recoverable PENDING behavior on transient broker failure.
+			if err := r.repository.MarkRetry(ctx, event.EventID, r.now().Add(r.config.RetryBackoff), KafkaPublishErrorCode); err != nil {
+				r.observe(event, "outbox_persistence_failed", "RETRY_PERSIST_FAILED", "FAILED", started)
+			} else {
+				r.observe(event, "outbox_retry", KafkaPublishErrorCode, "RETRYING", started)
 			}
-
-			r.logger.Warn(
-				"publish outbox event failed",
-				zap.String("event_id", event.EventID),
-				zap.String("event_type", event.EventType),
-				zap.Error(publishErr),
-			)
 			continue
 		}
-
-		if markErr := r.repository.MarkPublished(
-			ctx,
-			event.EventID,
-			r.now(),
-		); markErr != nil {
-			r.logger.Error(
-				"mark outbox event published",
-				zap.String("event_id", event.EventID),
-				zap.Error(markErr),
-			)
+		if err := r.repository.MarkPublished(ctx, event.EventID, r.now()); err != nil {
+			r.observe(event, "outbox_persistence_failed", "PUBLISH_ACK_PERSIST_FAILED", "FAILED", started)
+		} else {
+			r.observe(event, "outbox_published", "", "SUCCEEDED", started)
 		}
+	}
+}
+
+func (r *Relay) observe(event model.EventOutbox, observation, code, outcome string, started time.Time) {
+	fields := []zap.Field{
+		zap.Int("telemetry_version", 1), zap.String("service", "api"),
+		zap.String("observation", observation), zap.String("operation", event.EventType),
+		zap.String("event_id", event.EventID), zap.String("batch_id", event.BatchID),
+		zap.String("command_id", event.CommandID), zap.String("correlation_id", event.CorrelationID),
+		zap.String("topic", event.Topic), zap.Uint32("batch_version", event.AggregateVersion),
+		zap.Uint32("retry_count", event.AttemptCount), zap.Uint32("attempt", event.AttemptCount+1),
+		zap.String("code", code), zap.String("outcome", outcome),
+		zap.Float64("duration_ms", float64(time.Since(started).Microseconds())/1000),
+	}
+	if outcome == "FAILED" || outcome == "QUARANTINED" {
+		r.logger.Error("outbox delivery", fields...)
+	} else if outcome == "RETRYING" {
+		r.logger.Warn("outbox delivery", fields...)
+	} else {
+		r.logger.Info("outbox delivery", fields...)
 	}
 }
 

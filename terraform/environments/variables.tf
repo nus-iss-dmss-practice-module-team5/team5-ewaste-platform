@@ -97,6 +97,17 @@ variable "matcher_signing_secret" {
   }
 }
 
+variable "analytics_service_token" {
+  type        = string
+  sensitive   = true
+  description = "Required shared service bearer token for internal communication between the Analytics worker and the backend API; inject it through a secret or an untracked .tfvars file."
+
+  validation {
+    condition     = length(var.analytics_service_token) >= 32
+    error_message = "analytics_service_token must contain at least 32 characters."
+  }
+}
+
 variable "github_repository" {
   type        = string
   default     = "nus-iss-dmss-practice-module-team5/team5-ewaste-platform"

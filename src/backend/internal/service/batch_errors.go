@@ -13,6 +13,7 @@ var (
 	ErrBatchValidation          = errors.New("batch: validation failed")
 	ErrBatchIdempotencyConflict = errors.New("batch: idempotency conflict")
 	ErrBatchInProgress          = errors.New("batch: command already in progress")
+	ErrBatchEvidenceNotFound    = errors.New("batch: evidence not found")
 )
 
 type BatchValidationError struct {

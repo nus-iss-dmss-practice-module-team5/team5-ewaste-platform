@@ -11,6 +11,20 @@ from helpers import fixture
 
 
 class MainTests(unittest.TestCase):
+    def test_run_starts_both_consumers_with_combined_probes(self):
+        env = {**self.environment(), "MATCHER_HEALTH_PORT": "8000"}
+        with patch.dict(os.environ, env, clear=True), patch("sys.argv", ["matcher", "run"]), \
+                patch("matcher.facade.FacadeClient"), patch("matcher.kafka.QuarantinePublisher"), \
+                patch("matcher.kafka.KafkaRunner") as matching, patch("matcher.health.Health") as health, \
+                patch("matcher.analytics_runtime.analytics_runner", return_value=("analytics-runner", "analytics-health")), \
+                patch("matcher.analytics_runtime.CombinedHealth") as combined, \
+                patch("matcher.analytics_runtime.run_workers") as run, patch("signal.signal"):
+            self.assertEqual(main(), 0)
+            self.assertEqual(run.call_args.args[0], [matching.return_value, "analytics-runner"])
+            self.assertEqual(combined.call_args.args[0], [health.return_value, "analytics-health"])
+            combined.return_value.serve.assert_called_once_with(8000)
+            combined.return_value.serve.return_value.shutdown.assert_called_once_with()
+
     def environment(self):
         return {
             "MATCHER_LOCAL_TEST": "1", "KAFKA_BOOTSTRAP_SERVERS": "kafka:9092",
@@ -107,8 +121,8 @@ class MainTests(unittest.TestCase):
                         self.assertEqual(facade.call_args.args[1], "/test-fixtures/token")
                         health.return_value.serve.assert_not_called()
                     self.assertEqual([c.args[0] for c in signals.call_args_list], [signal.SIGINT, signal.SIGTERM])
-                    observe.assert_called_once_with("consumer_error", None, code="test")
-                    health.return_value.observe.assert_called_once_with("consumer_error", None, code="test")
+                    observe.assert_called_once_with("consumer_error", None, code="test", consumer_group="matching-worker-v1")
+                    health.return_value.observe.assert_called_once_with("consumer_error", None, code="test", consumer_group="matching-worker-v1")
 
     def test_run_closes_health_server_when_runner_fails(self):
         env = {**self.environment(), "MATCHER_HEALTH_PORT": "8000"}

@@ -406,6 +406,11 @@ resource "azurerm_container_app" "api" {
     value = var.matcher_signing_secret
   }
 
+  secret {
+    name  = "analytics-service-token"
+    value = var.analytics_service_token
+  }
+
   template {
     min_replicas = 1
     max_replicas = 2
@@ -504,6 +509,11 @@ resource "azurerm_container_app" "api" {
       env {
         name        = "EWASTE_AUTH_REFRESH_HASH_SECRET"
         secret_name = "refresh-hash-secret"
+      }
+
+      env {
+        name        = "EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN"
+        secret_name = "analytics-service-token"
       }
 
       env {
@@ -632,6 +642,63 @@ resource "azurerm_container_app" "api" {
         name  = "EWASTE_KAFKA_LEADER_LEASE_DURATION"
         value = "300s"
       }
+
+      # ---- Evidence Storage Adapter (Decision D2 & Backend Integration) ----
+      env {
+        name  = "STORAGE_ADAPTER_TYPE"
+        value = "azure_blob"
+      }
+
+      env {
+        name  = "AZURE_STORAGE_ACCOUNT"
+        value = azurerm_storage_account.evidence.name
+      }
+
+      env {
+        name  = "AZURE_STORAGE_CONTAINER"
+        value = azapi_resource.evidence_private.name
+      }
+
+      env {
+        name  = "AZURE_STORAGE_ENDPOINT"
+        value = azurerm_storage_account.evidence.primary_blob_endpoint
+      }
+
+      env {
+        name  = "AZURE_USE_MANAGED_ID"
+        value = "true"
+      }
+
+      env {
+        name  = "AZURE_CLIENT_ID"
+        value = azurerm_user_assigned_identity.aca_identity.client_id
+      }
+
+      env {
+        name  = "MAX_UPLOAD_SIZE_BYTES"
+        value = "5242880"
+      }
+
+      # Backward compatibility aliases
+      env {
+        name  = "EWASTE_STORAGE_TYPE"
+        value = "azure_blob"
+      }
+
+      env {
+        name  = "EWASTE_STORAGE_AZURE_ACCOUNT_NAME"
+        value = azurerm_storage_account.evidence.name
+      }
+
+      env {
+        name  = "EWASTE_STORAGE_AZURE_CONTAINER_NAME"
+        value = azapi_resource.evidence_private.name
+      }
+
+      env {
+        name  = "EWASTE_STORAGE_AZURE_ENDPOINT"
+        value = azurerm_storage_account.evidence.primary_blob_endpoint
+      }
     }
   }
 
@@ -660,7 +727,10 @@ resource "azurerm_container_app" "api" {
     azurerm_mysql_flexible_server.db,
     azurerm_redis_cache.redis,
     azurerm_role_assignment.eventhub_sender,
-    azurerm_eventhub_namespace_authorization_rule.app_auth
+    azurerm_eventhub_namespace_authorization_rule.app_auth,
+    azurerm_role_assignment.storage_blob_data_contributor,
+    azurerm_private_endpoint.storage_pe,
+    azapi_resource.evidence_private
   ]
 }
 
@@ -786,6 +856,11 @@ resource "azurerm_container_app" "analytics" {
     value = var.matcher_signing_secret
   }
 
+  secret {
+    name  = "analytics-service-token"
+    value = var.analytics_service_token
+  }
+
   template {
     min_replicas = 1
     max_replicas = 2
@@ -840,6 +915,26 @@ resource "azurerm_container_app" "analytics" {
       env {
         name  = "MATCHER_LOCAL_TEST"
         value = "0"
+      }
+
+      env {
+        name  = "ANALYTICS_FACADE_URL"
+        value = "https://${azurerm_container_app.api.ingress[0].fqdn}"
+      }
+
+      env {
+        name  = "ANALYTICS_ENABLED"
+        value = "true"
+      }
+
+      env {
+        name  = "ANALYTICS_GROUP_ID"
+        value = "analytics-processing-v1"
+      }
+
+      env {
+        name        = "ANALYTICS_SERVICE_TOKEN"
+        secret_name = "analytics-service-token"
       }
 
       env {

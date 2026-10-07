@@ -13,6 +13,10 @@ tags:
   - name: Batches
   - name: Opportunities
   - name: Assignments
+  - name: Processing
+  - name: Evidence
+  - name: Analytics
+  - name: Auditor
 paths:
   /healthz:
     get:
@@ -305,6 +309,45 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/BatchMutationResponse'
+          headers:
+            X-Correlation-ID:
+              $ref: '#/components/headers/CorrelationId'
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/batches/{batch_id}/receipt:
+    post:
+      tags: [Batches]
+      summary: Verify the facility-received batch
+      operationId: verifyReceipt
+      description: |
+        A permitted RECYCLER records the authoritative facility receipt. The command is valid
+        only for a COLLECTED batch with an accepted claim and assignment in the caller's
+        processing-facility organisation. It advances COLLECTED to VERIFIED atomically with the
+        receipt row, audit event, and ReceiptVerified outbox record. Final analytics anomaly_codes
+        are not returned by this command.
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatchVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiptRequest'
+      responses:
+        '200':
+          description: Receipt verified and batch advanced to VERIFIED
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReceiptMutationResponse'
           headers:
             X-Correlation-ID:
               $ref: '#/components/headers/CorrelationId'
@@ -631,6 +674,227 @@ paths:
         '404': {$ref: '#/components/responses/NotFound'}
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/ValidationError'}
+  /api/v1/batches/{batch_id}/treatment:
+    post:
+      tags: [Processing]
+      summary: Record a facility treatment outcome
+      operationId: recordTreatment
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatchVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/TreatmentRequest'}
+      responses:
+        '200': {description: Treatment recorded and batch advanced to RECYCLED, content: {application/json: {schema: {$ref: '#/components/schemas/TreatmentMutationResponse'}}}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /api/v1/batches/{batch_id}/evidence:
+    post:
+      tags: [Evidence]
+      summary: Upload optional receipt or treatment evidence after synchronous D2 validation
+      operationId: uploadEvidence
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, lifecycle_stage]
+              properties:
+                file: {type: string, format: binary}
+                lifecycle_stage: {type: string, enum: [RECEIPT, TREATMENT]}
+      responses:
+        '201': {description: Evidence metadata saved after synchronous D2 ingestion validation. Invalid type or size returns 422 and does not persist an evidence row., content: {application/json: {schema: {$ref: '#/components/schemas/EvidenceResponse'}}}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/batches/{batch_id}/evidence/{evidence_id}:
+    get:
+      tags: [Evidence]
+      summary: Download authorised evidence
+      operationId: downloadEvidence
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: evidence_id
+          in: path
+          required: true
+          schema: {type: string, format: uuid}
+        - name: X-Admin-Access-Reason
+          in: header
+          required: false
+          description: Required for System Administrator downloads and recorded in the audit event; ignored for other authorised roles.
+          schema: {type: string, minLength: 1, maxLength: 256}
+      responses:
+        '200':
+          description: Validated evidence bytes. Downloads are authorised by the owning facility, Auditor, or System Administrator policy.
+          content:
+            application/pdf: {schema: {type: string, format: binary}}
+            image/jpeg: {schema: {type: string, format: binary}}
+            image/png: {schema: {type: string, format: binary}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/processing/batches:
+    get:
+      tags: [Processing]
+      summary: List processing batches scoped to the owning facility
+      operationId: listProcessingBatches
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: status
+          in: query
+          schema: {type: string, enum: [COLLECTED, VERIFIED, RECYCLED, COMPLETED]}
+        - name: page
+          in: query
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: page_size
+          in: query
+          schema: {type: integer, minimum: 1, maximum: 100, default: 20}
+      responses:
+        '200': {description: Processing list, content: {application/json: {schema: {$ref: '#/components/schemas/ProcessingListResponse'}}}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/processing/batches/{batch_id}:
+    get:
+      tags: [Processing]
+      summary: Read processing details for an owning facility
+      operationId: getProcessingBatch
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200': {description: Processing details, content: {application/json: {schema: {$ref: '#/components/schemas/ProcessingDetailResponse'}}}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/batches/{batch_id}/analytics-input:
+    get:
+      tags: [Analytics]
+      summary: Prepare frozen inputs for a committed treatment event
+      operationId: prepareAnalyticsInput
+      description: Requires the analytics service bearer token. Returns the immutable source snapshot without creating rows; repeatable after completion. Hash the unchanged UTF-8 bytes of input_canonical_json before parsing it for evaluation.
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/AnalyticsAuthorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: source_event_id
+          in: query
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200': {description: Frozen inputs and source identity, content: {application/json: {schema: {$ref: '#/components/schemas/AnalyticsPreparation'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/batches/{batch_id}/analytics-results:
+    post:
+      tags: [Analytics]
+      summary: Acknowledge a durable deterministic analytics result
+      operationId: acknowledgeAnalyticsResult
+      description: Only the authenticated analytics service identity may call this operation. Authorization must carry the configured analytics service bearer token; user access tokens are not accepted. If-Match-Version must equal the prepared source_event_version, including replay after completion.
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/AnalyticsAuthorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/IfMatchVersion'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {$ref: '#/components/schemas/AnalyticsAcknowledgement'}
+      responses:
+        '200': {description: Analytics result saved or identical replay returned, content: {application/json: {schema: {$ref: '#/components/schemas/CompletionMutationResponse'}}}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
+  /api/v1/audit/batches/{batch_id}/timeline:
+    get:
+      tags: [Auditor]
+      summary: Read the batch custody timeline
+      operationId: getBatchTimeline
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: page_size
+          in: query
+          required: false
+          description: Maximum number of timeline rows to return. Defaults to 100 for an audit batch history.
+          schema: {type: integer, minimum: 1, maximum: 100, default: 100}
+      responses:
+        '200': {description: Audit timeline, content: {application/json: {schema: {$ref: '#/components/schemas/TimelineResponse'}}}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/audit/batches/{batch_id}/anomalies:
+    get:
+      tags: [Auditor]
+      summary: Read stored analytics anomaly codes
+      operationId: getBatchAnomalies
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: page_size
+          in: query
+          required: false
+          description: Maximum number of anomaly rows to return. Defaults to 100 for an audit batch.
+          schema: {type: integer, minimum: 1, maximum: 100, default: 100}
+      responses:
+        '200': {description: Stored anomaly flags, content: {application/json: {schema: {$ref: '#/components/schemas/AnomalyListResponse'}}}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/audit/impact:
+    get:
+      tags: [Auditor]
+      summary: Read deterministic impact metrics
+      operationId: getImpact
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200': {description: Impact metrics, content: {application/json: {schema: {$ref: '#/components/schemas/ImpactResponse'}}}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
 components:
   parameters:
     Authorization:
@@ -638,6 +902,12 @@ components:
       in: header
       required: true
       description: Access token using the Bearer scheme.
+      schema: {type: string}
+    AnalyticsAuthorization:
+      name: Authorization
+      in: header
+      required: true
+      description: Bearer token for the configured analytics worker service identity; user access tokens are rejected.
       schema: {type: string}
     CorrelationId:
       name: X-Correlation-ID
@@ -723,7 +993,7 @@ components:
         batch_id: {type: string, format: uuid}
         status:
           type: string
-          enum: [DRAFT, SUBMITTED, MATCHED, APPROVED, ASSIGNED, COLLECTED, FAILED_COLLECTION]
+          enum: [DRAFT, SUBMITTED, MATCHED, APPROVED, ASSIGNED, COLLECTED, VERIFIED, RECYCLED, COMPLETED, FAILED_COLLECTION]
         version: {type: integer, minimum: 1}
         claim_epoch: {type: string, pattern: '^[0-9]+$'}
         collector_scope_id: {type: string, format: uuid}
@@ -745,6 +1015,272 @@ components:
         correlation_id: {type: string}
         event_id: {type: string, format: uuid}
         event_state: {type: string, enum: [PENDING, PUBLISHED]}
+    ReceiptRequest:
+      type: object
+      additionalProperties: false
+      required: [actual_category, actual_item_count, actual_weight_kg]
+      properties:
+        actual_category:
+          type: string
+          enum: [ICT_EQUIPMENT, LARGE_APPLIANCE, BATTERIES, CONSUMER_ELECTRONICS]
+        actual_item_count: {type: integer, minimum: 1, maximum: 100000}
+        actual_weight_kg:
+          type: string
+          pattern: '^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,2})?$'
+          description: Decimal kilograms with at most two decimal places; accepted range is 0.10 to 50000.00.
+    ReceiptMutationResponse:
+      type: object
+      required: [data, correlation_id, event_id, event_state]
+      properties:
+        data:
+          type: object
+          required: [batch_id, status, version, receipt_id, actual_category, actual_item_count, actual_weight_kg]
+          properties:
+            batch_id: {type: string, format: uuid}
+            status: {type: string, enum: [VERIFIED]}
+            version: {type: integer, minimum: 1}
+            receipt_id: {type: string, format: uuid}
+            actual_category: {type: string}
+            actual_item_count: {type: integer, minimum: 1, maximum: 100000}
+            actual_weight_kg: {type: string}
+        correlation_id: {type: string}
+        event_id: {type: string, format: uuid}
+        event_state: {type: string, enum: [PENDING, PUBLISHED]}
+    TreatmentRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        reused_kg: {type: string, nullable: true, pattern: '^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,2})?$'}
+        recycled_kg: {type: string, nullable: true, pattern: '^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,2})?$'}
+        disposed_kg: {type: string, nullable: true, pattern: '^(?:0|[1-9][0-9]*)(?:\.[0-9]{1,2})?$'}
+        evidence_id: {type: string, nullable: true, format: uuid}
+      description: Either all three treatment amounts are absent or all three are supplied. Explicit zero is valid; unknown_kg is server-derived.
+    TreatmentMutationResponse:
+      type: object
+      required: [data, correlation_id, event_id, event_state]
+      properties:
+        data:
+          type: object
+          required: [batch_id, status, version, treatment_id, data_quality]
+          properties:
+            batch_id: {type: string, format: uuid}
+            status: {type: string, enum: [RECYCLED]}
+            version: {type: integer, minimum: 1}
+            treatment_id: {type: string, format: uuid}
+            reused_kg: {type: string, nullable: true}
+            recycled_kg: {type: string, nullable: true}
+            disposed_kg: {type: string, nullable: true}
+            unknown_kg: {type: string, nullable: true}
+            diverted_kg: {type: string, nullable: true}
+            data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
+            evidence_status: {type: string, enum: [PRESENT, ABSENT], description: PRESENT means a validated evidence object is linked; ABSENT means no evidence is linked. Rejected uploads are not persisted.}
+        correlation_id: {type: string}
+        event_id: {type: string, format: uuid}
+        event_state: {type: string, enum: [PENDING, PUBLISHED]}
+    EvidenceResponse:
+      type: object
+      required: [data, correlation_id]
+      properties:
+        data:
+          type: object
+          required: [evidence_id, batch_id, lifecycle_stage, mime_type, file_size_bytes, sha256_hash, validation_status]
+          properties:
+            evidence_id: {type: string, format: uuid}
+            batch_id: {type: string, format: uuid}
+            lifecycle_stage: {type: string, enum: [RECEIPT, TREATMENT]}
+            mime_type: {type: string, enum: [application/pdf, image/jpeg, image/png]}
+            file_size_bytes: {type: integer, minimum: 1, maximum: 5242880}
+            sha256_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+            validation_status: {type: string, enum: [VALIDATED], description: Evidence is accepted only after synchronous D2 ingestion validation. Invalid uploads return 422 and do not create metadata.}
+        correlation_id: {type: string}
+    AnalyticsPreparation:
+      type: object
+      additionalProperties: false
+      required: [batch_id, source_event_id, source_event_version, rule_version, correlation_id, input_hash, input_canonical_json]
+      properties:
+        batch_id: {type: string, format: uuid}
+        source_event_id: {type: string, format: uuid}
+        source_event_version: {type: integer, minimum: 1}
+        rule_version: {type: string, minLength: 1, maxLength: 64}
+        correlation_id: {type: string, minLength: 1, maxLength: 128}
+        input_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        input_canonical_json:
+          type: string
+          description: Exact JSON input bytes encoded as a string, including source/batch IDs, source version, receipt/treatment IDs and versions, measurements, outcomes, correlation and frozen rule version. SHA-256 the UTF-8 value without re-serializing it.
+    AnalyticsAcknowledgement:
+      type: object
+      required: [source_event_id, source_event_version, analytics_run_id, input_hash, rule_version, data_quality, metrics, anomaly_codes]
+      additionalProperties: false
+      properties:
+        source_event_id: {type: string, format: uuid}
+        source_event_version: {type: integer, minimum: 1}
+        analytics_run_id: {type: string, minLength: 1, maxLength: 128}
+        input_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        rule_version:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Must equal the rule version frozen in the source event and returned by preparation. EWASTE_ANALYTICS_APPROVED_RULE_VERSION selects the policy for newly recorded treatments only.
+        data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
+        metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
+        anomaly_codes:
+          type: array
+          uniqueItems: true
+          items: {type: string, enum: [CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT]}
+    AnalyticsMetrics:
+      type: object
+      additionalProperties: false
+      required: [declared_weight_kg, actual_weight_kg, reused_kg, recycled_kg, disposed_kg, unknown_kg, diverted_kg, declared_quantity, actual_item_count, category_match, weight_delta_kg, count_delta]
+      properties:
+        declared_weight_kg: {type: string, nullable: true}
+        actual_weight_kg: {type: string, nullable: true}
+        reused_kg: {type: string, nullable: true}
+        recycled_kg: {type: string, nullable: true}
+        disposed_kg: {type: string, nullable: true}
+        unknown_kg: {type: string, nullable: true}
+        diverted_kg: {type: string, nullable: true}
+        declared_quantity: {type: integer, nullable: true}
+        actual_item_count: {type: integer, nullable: true}
+        category_match: {type: boolean, nullable: true}
+        weight_delta_kg: {type: string, nullable: true}
+        count_delta: {type: integer, nullable: true}
+    CompletionMutationResponse:
+      type: object
+      required: [data, correlation_id]
+      properties:
+        data:
+          type: object
+          required: [batch_id, status, version, analytics_result_id, data_quality, metrics, anomaly_codes]
+          properties:
+            batch_id: {type: string, format: uuid}
+            status: {type: string, enum: [COMPLETED]}
+            version: {type: integer, minimum: 1}
+            analytics_result_id: {type: string, format: uuid}
+            data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
+            metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
+            anomaly_codes: {type: array, items: {type: string}}
+        correlation_id: {type: string}
+        event_id: {type: string, format: uuid}
+        event_state: {type: string, enum: [PENDING, REPLAYED]}
+    ProcessingSummary:
+      type: object
+      required: [batch_id, status, version, evidence_status]
+      properties:
+        batch_id: {type: string, format: uuid}
+        status: {type: string, enum: [COLLECTED, VERIFIED, RECYCLED, COMPLETED]}
+        version: {type: integer}
+        evidence_status: {type: string, enum: [PRESENT, ABSENT], description: Evidence presence is independent of treatment data quality; rejected uploads are not represented.}
+    ProcessingListResponse:
+      type: object
+      required: [data, page, page_size, total_count, correlation_id]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/ProcessingSummary'}}
+        page: {type: integer}
+        page_size: {type: integer}
+        total_count: {type: integer}
+        correlation_id: {type: string}
+    ProcessingDetailResponse:
+      type: object
+      required: [data, correlation_id]
+      properties:
+        data:
+          type: object
+          properties:
+            batch_id: {type: string, format: uuid}
+            status: {type: string}
+            version: {type: integer}
+            declared_category: {type: string, nullable: true}
+            declared_quantity: {type: integer, nullable: true}
+            estimated_weight_kg: {type: string, nullable: true}
+            actual_category: {type: string, nullable: true}
+            actual_item_count: {type: integer, nullable: true}
+            actual_weight_kg: {type: string, nullable: true}
+            reused_kg: {type: string, nullable: true}
+            recycled_kg: {type: string, nullable: true}
+            disposed_kg: {type: string, nullable: true}
+            unknown_kg: {type: string, nullable: true}
+            diverted_kg: {type: string, nullable: true}
+            data_quality: {type: string, nullable: true, enum: [COMPLETE, PARTIAL, MISSING]}
+            evidence_status: {type: string, enum: [PRESENT, ABSENT], description: Evidence presence is independent of treatment data quality; rejected uploads are not represented.}
+            anomaly_codes: {type: array, items: {type: string}}
+        correlation_id: {type: string}
+    TimelineResponse:
+      type: object
+      required: [data, page, page_size, total_count, correlation_id]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/AuditTimelineEntry'}}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1, maximum: 100}
+        total_count: {type: integer, minimum: 0}
+        correlation_id: {type: string}
+    AnomalyListResponse:
+      type: object
+      required: [data, page, page_size, total_count, correlation_id]
+      properties:
+        data: {type: array, items: {$ref: '#/components/schemas/Anomaly'}}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1, maximum: 100}
+        total_count: {type: integer, minimum: 0}
+        correlation_id: {type: string}
+    ImpactResponse:
+      type: object
+      required: [data, correlation_id]
+      properties:
+        data:
+          type: object
+          required: [items, total_count]
+          properties:
+            items: {type: array, items: {$ref: '#/components/schemas/ImpactResult'}}
+            total_count: {type: integer, minimum: 0}
+        correlation_id: {type: string}
+    AuditTimelineEntry:
+      type: object
+      required: [audit_id, batch_id, command_id, event_type, from_status, to_status, batch_version, sequence_in_command, occurred_at, correlation_id, details]
+      properties:
+        audit_id: {type: string, format: uuid}
+        batch_id: {type: string, format: uuid}
+        command_id: {type: string, format: uuid}
+        actor_user_id: {type: string, nullable: true}
+        actor_organisation_id: {type: string, nullable: true}
+        service_principal: {type: string, nullable: true}
+        event_type: {type: string}
+        from_status: {type: string}
+        to_status: {type: string}
+        batch_version: {type: integer, minimum: 1}
+        sequence_in_command: {type: integer, minimum: 1}
+        occurred_at: {type: string, format: date-time}
+        correlation_id: {type: string}
+        details: {type: object}
+    Anomaly:
+      type: object
+      required: [anomaly_id, batch_id, result_id, code, detected_at]
+      properties:
+        anomaly_id: {type: string, format: uuid}
+        batch_id: {type: string, format: uuid}
+        result_id: {type: string, format: uuid}
+        code: {type: string, enum: [CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT]}
+        declared_value: {type: string, nullable: true}
+        actual_value: {type: string, nullable: true}
+        delta_kg: {type: string, nullable: true}
+        detected_at: {type: string, format: date-time}
+    ImpactResult:
+      type: object
+      required: [result_id, batch_id, source_event_id, source_event_version, receipt_id, receipt_version, treatment_id, treatment_version, rule_version, input_hash, data_quality, metrics, anomaly_codes, acknowledged_at]
+      properties:
+        result_id: {type: string, format: uuid}
+        batch_id: {type: string, format: uuid}
+        source_event_id: {type: string, format: uuid}
+        source_event_version: {type: integer, minimum: 1}
+        receipt_id: {type: string, format: uuid}
+        receipt_version: {type: integer, minimum: 1}
+        treatment_id: {type: string, format: uuid}
+        treatment_version: {type: integer, minimum: 1}
+        rule_version: {type: string}
+        input_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
+        metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
+        anomaly_codes: {type: array, items: {type: string}}
+        acknowledged_at: {type: string, format: date-time}
     BatchListResponse:
       type: object
       required: [data, page, page_size, total_count, correlation_id]

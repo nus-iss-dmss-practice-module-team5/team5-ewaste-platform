@@ -16,6 +16,14 @@ terraform {
       source  = "hashicorp/tls"
       version = "~> 4.0"
     }
+
+    # ARM control-plane management for child resources (e.g. blob containers)
+    # that azurerm 3.x would otherwise manage through the network-blocked
+    # storage data plane.
+    azapi = {
+      source  = "Azure/azapi"
+      version = "~> 2.0"
+    }
   }
 
   backend "azurerm" {
@@ -25,8 +33,16 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
+  features {
+    storage {
+      data_plane_available = false
+    }
+  }
+  storage_use_azuread = true
 }
+
+# Authenticates with the same ARM_* environment variables as azurerm.
+provider "azapi" {}
 
 locals {
   name_prefix = "ewaste-${var.environment}"

@@ -50,8 +50,9 @@ def main():
                           positive("MATCHER_HTTP_TIMEOUT_SECONDS"), positive("MATCHER_MAX_RESPONSE_BYTES"),
                           local=local, token_provider=provider)
     publisher = QuarantinePublisher(common, dlq, positive("MATCHER_DELIVERY_TIMEOUT_SECONDS"))
-    health = Health()
+    health = Health(observer=observe)
     def observer(name, delivery=None, **fields):
+        fields.setdefault("consumer_group", os.environ.get("MATCHER_GROUP_ID") or os.environ.get("KAFKA_CONSUMER_GROUP"))
         observe(name, delivery, **fields)
         health.observe(name, delivery, **fields)
     processor = Processor(facade, publisher, max_bytes=positive("MATCHER_MAX_RECORD_BYTES"),
@@ -62,12 +63,18 @@ def main():
                          offset_reset=required("MATCHER_OFFSET_RESET"), max_poll_ms=positive("MATCHER_MAX_POLL_MS"),
                          session_timeout_ms=positive("MATCHER_SESSION_TIMEOUT_MS"), workers=positive("MATCHER_WORKERS"),
                          processor=processor, observer=observer, health=health)
+    from .analytics_runtime import CombinedHealth, analytics_runner, run_workers
+    analytics = analytics_runner(common, topic, runner.group_id, observe, positive, local)
+    probe_health = CombinedHealth([health, analytics[1]], observe) if analytics else health
     stop = threading.Event()
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: stop.set())
-    server = health.serve(positive("MATCHER_HEALTH_PORT")) if os.environ.get("MATCHER_HEALTH_PORT") else None
+    server = probe_health.serve(positive("MATCHER_HEALTH_PORT")) if os.environ.get("MATCHER_HEALTH_PORT") else None
     try:
-        runner.run(stop)
+        if analytics:
+            run_workers([runner, analytics[0]], stop)
+        else:
+            runner.run(stop)
     finally:
         if server:
             server.shutdown()

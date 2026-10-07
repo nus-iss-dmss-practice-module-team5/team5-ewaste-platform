@@ -44,8 +44,21 @@ auth:
   access_secret: ""
   refresh_secret: ""
   refresh_hash_secret: ""
+  # Supply through EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN; the analytics endpoint fails closed when empty.
+  analytics_service_token: ""
   access_ttl: "15m"
   refresh_ttl: "24h"
+
+storage:
+  # Use local for development/unit tests or azure_blob in Azure Container Apps.
+  # The disabled default fails closed until an adapter is explicitly selected.
+  adapter_type: "disabled"
+  azure_storage_account: ""
+  azure_storage_container: "evidence-private"
+  azure_storage_endpoint: ""
+  azure_use_managed_id: true
+  max_upload_size_bytes: 5242880
+  local_base_dir: "data/evidence"
 
 rate_limit:
   requests: 10

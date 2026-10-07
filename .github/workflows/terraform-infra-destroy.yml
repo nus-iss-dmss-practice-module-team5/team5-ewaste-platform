@@ -31,10 +31,10 @@ jobs:
     environment: "${{ inputs.target_env }}"
     steps:
       - name: Validate Target Environment and Confirmation
+        env:
+          TARGET_ENV: ${{ inputs.target_env }}
+          CONFIRM: ${{ inputs.confirmation }}
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
-          CONFIRM="${{ inputs.confirmation }}"
-
           echo "=========================================================="
           echo " Validating Destruction Request for Environment: $TARGET_ENV"
           echo "=========================================================="
@@ -92,8 +92,9 @@ jobs:
           echo "ARM_ACCESS_KEY=${{ secrets.TF_STATE_SA_ACCESS_KEY }}" >> $GITHUB_ENV
 
       - name: Teardown Deployed Container Apps
+        env:
+          TARGET_ENV: ${{ inputs.target_env }}
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
           RG="rg-ewaste-${TARGET_ENV}"
 
           echo "=========================================================="
@@ -119,18 +120,23 @@ jobs:
       - name: Execute Terraform Destroy
         env:
           TF_VAR_matcher_signing_secret: ${{ secrets.MATCHER_SIGNING_SECRET }}
+          TF_VAR_analytics_service_token: ${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN || secrets.ANALYTICS_SERVICE_TOKEN }}
+          TARGET_ENV: ${{ inputs.target_env }}
+          TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
+          TF_STATE_SA_ACCESS_KEY: ${{ secrets.TF_STATE_SA_ACCESS_KEY }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          MYSQL_PASS: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
           cd terraform/environments
 
           echo "=========================================================="
           echo " Initializing Terraform Backend for $TARGET_ENV"
           echo "=========================================================="
           terraform init \
-            -backend-config="storage_account_name=${{ secrets.TF_STATE_STORAGE_ACCOUNT }}" \
+            -backend-config="storage_account_name=${TF_STATE_STORAGE_ACCOUNT}" \
             -backend-config="container_name=tfstate" \
             -backend-config="key=${TARGET_ENV}.tfstate" \
-            -backend-config="access_key=${{ secrets.TF_STATE_SA_ACCESS_KEY }}"
+            -backend-config="access_key=${TF_STATE_SA_ACCESS_KEY}"
 
           TF_VARS_FILE="environments/${TARGET_ENV}.tfvars"
           if [ ! -f "$TF_VARS_FILE" ]; then
@@ -138,9 +144,7 @@ jobs:
             TF_VARS_FILE="environments/dev.tfvars"
           fi
 
-          TENANT="${ARM_TENANT_ID:-${{ secrets.AZURE_TENANT_ID }}}"
-
-          MYSQL_PASS="${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}"
+          TENANT="${ARM_TENANT_ID:-${AZURE_TENANT_ID}}"
 
           echo "=========================================================="
           echo " Executing Terraform Destroy for Environment: $TARGET_ENV"
@@ -152,8 +156,9 @@ jobs:
             -var="db_admin_password=${MYSQL_PASS}"
 
       - name: Purge Soft-Deleted Azure Key Vault (Post-Cleanup)
+        env:
+          TARGET_ENV: ${{ inputs.target_env }}
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
           KV_NAME="kv-ewaste-${TARGET_ENV}"
 
           echo "Checking if soft-deleted Key Vault $KV_NAME requires purge..."
@@ -161,8 +166,9 @@ jobs:
           az keyvault purge --name "$KV_NAME" >/dev/null 2>&1 || true
 
       - name: Teardown Summary
+        env:
+          TARGET_ENV: ${{ inputs.target_env }}
         run: |
-          TARGET_ENV="${{ inputs.target_env }}"
           echo "=========================================================="
           echo " Infrastructure destruction completed for: $TARGET_ENV"
           echo " Environment-specific resources (VNet, DB, Redis, KV, ACA CAE) removed."

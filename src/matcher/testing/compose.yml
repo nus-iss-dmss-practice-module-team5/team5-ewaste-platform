@@ -69,6 +69,7 @@ services:
       MATCHER_TEST_BROKER: kafka:9092
       MATCHER_TEST_API: http://api:8080
       MATCHER_TEST_MYSQL: mysql
+      ANALYTICS_SERVICE_TOKEN: local-analytics-service-token-at-least-32-characters
     command: [python, -m, unittest, discover, -s, src/matcher/tests, -v]
     depends_on:
       kafka:
@@ -88,6 +89,7 @@ services:
       EWASTE_AUTH_ACCESS_SECRET: local-access-secret-at-least-32-characters
       EWASTE_AUTH_REFRESH_SECRET: local-refresh-secret-at-least-32-characters
       EWASTE_AUTH_REFRESH_HASH_SECRET: local-refresh-hash-at-least-32-characters
+      EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN: local-analytics-service-token-at-least-32-characters
       EWASTE_MATCHING_ENABLED: 'true'
       EWASTE_MATCHING_ISSUER: matcher-integration-test
       EWASTE_MATCHING_AUDIENCE: matching-api

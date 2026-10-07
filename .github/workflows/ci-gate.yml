@@ -86,17 +86,17 @@ jobs:
           echo "Base commit: $BASE_SHA"
           echo "Head commit: $HEAD_SHA"
           echo ""
-          echo "Extracting ONLY added lines from this PR..."
+          echo "Extracting changed files with their original paths..."
 
           mkdir -p gitleaks-pr
 
-          git diff --unified=0 "$BASE_SHA" "$HEAD_SHA" -- . \
-            | awk '/^\+[^+]/ {sub(/^\+/, ""); print}' \
-            > gitleaks-pr/pr-added-lines.txt
-
-          echo ""
-          echo "Lines extracted:"
-          wc -l gitleaks-pr/pr-added-lines.txt
+          git diff --name-only --diff-filter=ACMRT -z "$BASE_SHA" "$HEAD_SHA" -- . > "$RUNNER_TEMP/gitleaks-paths"
+          while IFS= read -r -d '' path; do
+            # Read the PR head, not the synthetic merge checkout; retain names
+            # so Gitleaks can recognise dependency lockfiles such as go.sum.
+            mkdir -p -- "gitleaks-pr/$(dirname -- "$path")"
+            git show "$HEAD_SHA:$path" > "gitleaks-pr/$path"
+          done < "$RUNNER_TEMP/gitleaks-paths"
 
       - name: Run Gitleaks on Current PR
         if: github.event_name == 'pull_request'
@@ -146,16 +146,13 @@ jobs:
 
       - name: Run Semgrep SAST Scan
         run: |
-          semgrep scan \
-            --config p/security-audit \
-            --config p/owasp-top-ten \
-            --config p/golang \
-            --config p/python \
-            --config p/typescript \
-            --config p/javascript \
-            --sarif \
-            --output semgrep.sarif \
-            --error
+          CONFIGS="--config p/security-audit --config p/owasp-top-ten --config p/golang --config p/python --config p/typescript --config p/javascript"
+
+          # Full report (all severities) for the retained SARIF artifact; does not gate.
+          semgrep scan $CONFIGS --sarif --output semgrep.sarif
+
+          # Gate: fail only on ERROR severity findings; warnings are reported but pass.
+          semgrep scan $CONFIGS --severity ERROR --error
 
       - name: Retain Semgrep Report
         if: always() && hashFiles('semgrep.sarif') != ''

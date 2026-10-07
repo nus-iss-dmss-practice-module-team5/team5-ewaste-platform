@@ -132,8 +132,16 @@ func run() error {
 	authController := controller.NewAuthController(authService, appLogger.Logger)
 
 	batchRepository := repository.NewGormBatchRepository(db)
-	batchService := service.NewBatchService(batchRepository)
+	batchService := service.NewBatchServiceWithAnalyticsRuleVersion(batchRepository, cfg.Analytics.ApprovedRuleVersion)
 	batchController := controller.NewBatchController(batchService, appLogger.Logger)
+	analyticsController := controller.NewAnalyticsController(batchService, appLogger.Logger)
+	evidenceStorage, storageErr := storage.NewEvidenceStorage(cfg.Storage)
+	if storageErr != nil {
+		return fmt.Errorf("create evidence storage: %w", storageErr)
+	}
+	evidenceService := service.NewEvidenceService(batchRepository, evidenceStorage)
+	evidenceService.SetMaxUploadSizeBytes(cfg.Storage.MaxUploadSizeBytes)
+	evidenceController := controller.NewEvidenceController(evidenceService, appLogger.Logger)
 	claimRepository := repository.NewGormClaimRepository(db)
 	claimLease := lease.NewRedisBatchLease(
 		redisClient,
@@ -147,7 +155,9 @@ func run() error {
 	assignmentController := controller.NewAssignmentController(assignmentService, appLogger.Logger)
 	workflowReadRepository := repository.NewGormWorkflowReadRepository(db)
 	workflowReadService := service.NewWorkflowReadService(workflowReadRepository)
-	workflowReadController := controller.NewWorkflowReadController(workflowReadService, appLogger.Logger)
+	auditorReadRepository := repository.NewGormAuditorReadRepository(db)
+	auditorReadService := service.NewAuditorReadService(auditorReadRepository)
+	workflowReadController := controller.NewWorkflowReadController(workflowReadService, appLogger.Logger, auditorReadService)
 
 	if cfg.Kafka.Enabled {
 		kafkaPublisher, publisherErr := eventbus.NewKafkaPublisher(cfg.Kafka)
@@ -196,14 +206,17 @@ func run() error {
 	appRouter := router.NewAuthRouter(
 		authController,
 		batchController,
+		evidenceController,
 		claimController,
 		assignmentController,
+		analyticsController,
 		tokens,
 		repo,
 		limiter,
 		checker,
 		cfg.Server.AllowedOrigins,
 		appLogger.Logger,
+		cfg.Auth.AnalyticsServiceToken,
 		workflowReadController,
 	)
 

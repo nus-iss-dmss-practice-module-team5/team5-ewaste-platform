@@ -29,7 +29,11 @@ func TestMySQLWorkflowEvidenceRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { pool.Close() })
+	t.Cleanup(func() {
+		if err := pool.Close(); err != nil {
+			t.Error(err)
+		}
+	})
 	var database string
 	if err := db.Raw("SELECT DATABASE()").Scan(&database).Error; err != nil || database != "matcher_test" {
 		t.Fatalf("requires disposable matcher_test database: %q %v", database, err)

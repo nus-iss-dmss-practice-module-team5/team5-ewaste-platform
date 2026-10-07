@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Self-contained persistence suite for migrations 001-025 (Sprint 1, C1, C2/C3, C4).
+# Persistence suite for migrations 001-030 (Sprint 1, C1-C4 and processing).
 # SQL checks, fixtures, concurrency probes and Docker configuration are embedded.
 # Only production migrations, seed/repair changesets and database/Dockerfile are inputs.
 # No src/ files, Go toolchain, or external test packages are required.
@@ -45,16 +45,18 @@ trap finish EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# Copy just the inputs under test. Existing test files are deliberately excluded,
-# so deleting the earlier per-task test packages cannot change this suite.
+# Copy production inputs and the two processing SQL suites. Legacy tests remain embedded.
 cd "$ROOT_DIR"
 git rev-parse HEAD > "$RUN_DIR/base-commit.txt"
 git branch --show-current > "$RUN_DIR/branch.txt"
 "${HASH[@]}" scripts/test-persistence.sh database/Dockerfile database/changelog-master.yaml \
-  database/changes/*.sql database/seed/10[1235678]-*.sql > "$RUN_DIR/source-inputs.sha256"
+  database/changes/*.sql database/seed/10[1235678]-*.sql \
+  database/tests/test-processing-fixtures.sql database/tests/verify-processing-migrations.sql > "$RUN_DIR/source-inputs.sha256"
 mkdir -p "$WORK_DIR/database/changes" "$WORK_DIR/database/seed"
 cp database/Dockerfile database/changelog-master.yaml "$WORK_DIR/database/"
 cp database/changes/*.sql "$WORK_DIR/database/changes/"
+mkdir -p "$WORK_DIR/database/tests"
+cp database/tests/test-processing-fixtures.sql database/tests/verify-processing-migrations.sql "$WORK_DIR/database/tests/"
 cp database/seed/10[1235678]-*.sql "$WORK_DIR/database/seed/"
 
 mysql_query() {
@@ -2729,7 +2731,7 @@ SQL_SEEDED_REPLACEMENT
 reject_recycler_seed() {
   local name="$1"
   dump_rows recycler_upgrade "$EVIDENCE_DIR/$name-before.sql" "${RECYCLER_TABLES[@]}" DATABASECHANGELOG
-  if lb recycler_upgrade "$name" update --context-filter=seed; then
+  if lb recycler_upgrade "$name" --changelog-file=seed/108-seed-recycler-matching-config.sql update --context-filter=seed; then
     echo "FAIL: recycler seed unexpectedly succeeded: $name" >&2; return 1
   fi
   grep -q 'SQL Precondition failed' "$EVIDENCE_DIR/recycler_upgrade-$name.log"
@@ -2795,7 +2797,7 @@ RECYCLER_REJECTIONS
   dump_rows recycler_upgrade "$EVIDENCE_DIR/profile-before.sql" recycler_matching_profiles
   dump_rows recycler_upgrade "$EVIDENCE_DIR/existing-before.sql" "${RECYCLER_TABLES[@]:1}"
   dump_rows recycler_upgrade "$EVIDENCE_DIR/scopes-before.sql" recycler_collector_scopes
-  lb recycler_upgrade upgrade update --context-filter=seed
+  lb recycler_upgrade upgrade --changelog-file=seed/108-seed-recycler-matching-config.sql update --context-filter=seed
   check_scalar recycler_upgrade filled_counts 'SELECT CONCAT((SELECT COUNT(*) FROM recycler_matching_profiles),":",(SELECT COUNT(*) FROM recycler_capacity_pools),":",(SELECT COUNT(*) FROM recycler_category_capabilities),":",(SELECT COUNT(*) FROM recycler_service_zones))' '2:2:8:10'
   check_scalar recycler_upgrade shared_existing_pool "SELECT COUNT(*) FROM recycler_category_capabilities WHERE recycler_org_id='PROC-001' AND capacity_pool_id='f1080000-0000-4000-8000-000000000001'" 4
   check_scalar recycler_upgrade reservation_preserved "SELECT total_kg-reserved_kg FROM recycler_capacity_pools WHERE recycler_org_id='PROC-001' AND pool_code='MAIN'" '49875.00'
@@ -2808,12 +2810,60 @@ RECYCLER_REJECTIONS
   # Simulate data committed before changelog recording in this disposable DB.
   mysql_query recycler_upgrade -e "DELETE FROM DATABASECHANGELOG WHERE ID='EWCSB129-108'"
   dump_rows recycler_upgrade "$EVIDENCE_DIR/adopt-before.sql" "${RECYCLER_TABLES[@]}"
-  lb recycler_upgrade adopt update --context-filter=seed
+  lb recycler_upgrade adopt --changelog-file=seed/108-seed-recycler-matching-config.sql update --context-filter=seed
   dump_rows recycler_upgrade "$EVIDENCE_DIR/adopt-after.sql" "${RECYCLER_TABLES[@]}"
   diff -u "$EVIDENCE_DIR/adopt-before.sql" "$EVIDENCE_DIR/adopt-after.sql" > "$EVIDENCE_DIR/adopt.diff"
   check_scalar recycler_upgrade recorded_once "SELECT COUNT(*) FROM DATABASECHANGELOG WHERE ID='EWCSB129-108' AND EXECTYPE='EXECUTED'" 1
   printf 'PASS\n' > "$EVIDENCE_DIR/result.txt"
   printf 'recycler-matching-config\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
+}
+
+run_processing() {
+  EVIDENCE_DIR="$RUN_DIR/processing"
+  CHANGELOG="changelog-processing-schema.yaml"
+  mkdir -p "$EVIDENCE_DIR"
+  printf 'test_name\tactual\texpected\n' > "$EVIDENCE_DIR/migration-checks.tsv"
+  # Exclude all seeds: upgrading the schema must not modify existing configuration.
+  awk '
+    NR == 1 { print; next }
+    /^  - include:/ { block=$0 ORS; next }
+    { block=block $0 ORS }
+    /relativeToChangelogFile:/ { if (block ~ /file: changes\//) printf "%s",block; block="" }
+  ' database/changelog-master.yaml > "database/$CHANGELOG"
+  lb processing_clean validate validate
+  lb processing_clean clean update --context-filter=none
+  for seed in database/seed/10[123]-*.sql; do
+    lb processing_clean "$(basename "$seed" .sql)" --changelog-file="${seed#database/}" update --context-filter=seed
+  done
+  # c4_clean has committed claims, assignments, handoffs, audit and concurrent-race history.
+  LEGACY_TABLES=(organisations roles users sessions login_audit ewaste_batches command_idempotency batch_audit_events event_outbox matching_rule_sets recycler_matching_profiles recycler_capacity_pools recycler_category_capabilities recycler_service_zones matching_decisions matched_results batch_claims capacity_reservations recycler_collector_scopes batch_assignments batch_handoffs assignment_actions)
+  dump_rows c4_clean "$EVIDENCE_DIR/legacy-before.sql" "${LEGACY_TABLES[@]}"
+  mysql_query c4_clean -e 'SELECT ID,AUTHOR,FILENAME,MD5SUM,DATEEXECUTED FROM DATABASECHANGELOG ORDER BY ID' > "$EVIDENCE_DIR/changelog-before.tsv"
+  lb c4_clean upgrade-preview update-sql --context-filter=none
+  lb c4_clean upgrade update --context-filter=none
+  dump_rows c4_clean "$EVIDENCE_DIR/legacy-after.sql" "${LEGACY_TABLES[@]}"
+  diff -u "$EVIDENCE_DIR/legacy-before.sql" "$EVIDENCE_DIR/legacy-after.sql" > "$EVIDENCE_DIR/legacy-preserved.diff"
+  mysql_query c4_clean -e "SELECT ID,AUTHOR,FILENAME,MD5SUM,DATEEXECUTED FROM DATABASECHANGELOG WHERE ID NOT IN ('EWCSB3-026','EWCSB3-027','EWCSB3-028','EWCSB3-029','EWCSB3-030') ORDER BY ID" > "$EVIDENCE_DIR/changelog-after.tsv"
+  diff -u "$EVIDENCE_DIR/changelog-before.tsv" "$EVIDENCE_DIR/changelog-after.tsv" > "$EVIDENCE_DIR/changelog-preserved.diff"
+  for db in processing_clean c4_clean; do
+    mysql_query "$db" < database/tests/verify-processing-migrations.sql > "$EVIDENCE_DIR/$db-schema.tsv"
+    if grep -q $'\tFAIL' "$EVIDENCE_DIR/$db-schema.tsv"; then cat "$EVIDENCE_DIR/$db-schema.tsv" >&2; return 1; fi
+    for pass in first repeat; do
+      mysql_query "$db" < database/tests/test-processing-fixtures.sql > "$EVIDENCE_DIR/$db-$pass-fixtures.tsv" 2> "$EVIDENCE_DIR/$db-$pass-errors.txt" || {
+        cat "$EVIDENCE_DIR/$db-$pass-errors.txt" >&2; return 1;
+      }
+      if grep -q $'\tFAIL\t' "$EVIDENCE_DIR/$db-$pass-fixtures.tsv"; then cat "$EVIDENCE_DIR/$db-$pass-fixtures.tsv" >&2; return 1; fi
+    done
+    diff -u "$EVIDENCE_DIR/$db-first-fixtures.tsv" "$EVIDENCE_DIR/$db-repeat-fixtures.tsv" > "$EVIDENCE_DIR/$db-fixtures-repeat.diff"
+    TABLES=("${LEGACY_TABLES[@]}" batch_evidence batch_receipts batch_treatments batch_impact_metrics batch_anomalies DATABASECHANGELOG)
+    dump_rows "$db" "$EVIDENCE_DIR/$db-before-repeat.sql" "${TABLES[@]}"
+    lb "$db" repeat update --context-filter=none
+    dump_rows "$db" "$EVIDENCE_DIR/$db-after-repeat.sql" "${TABLES[@]}"
+    diff -u "$EVIDENCE_DIR/$db-before-repeat.sql" "$EVIDENCE_DIR/$db-after-repeat.sql" > "$EVIDENCE_DIR/$db-repeat.diff"
+    check_scalar "$db" no_fixture_residue "SELECT COUNT(*) FROM ewaste_batches WHERE id LIKE 'b3100000-%'" 0
+  done
+  printf 'PASS\n' > "$EVIDENCE_DIR/result.txt"
+  printf 'processing\tPASS\t%s\n' "$EVIDENCE_DIR" >> "$RUN_DIR/summary.tsv"
 }
 
 main() {
@@ -2825,7 +2875,7 @@ main() {
     /^  - include:/ { block = $0 ORS; next }
     { block = block $0 ORS }
     /relativeToChangelogFile:/ {
-      if (block !~ /108-seed-recycler-matching-config/) printf "%s", block
+      if (block ~ /(changes\/0(0[1-9]|1[0-9]|2[0-5])|seed\/10[1-7])/) printf "%s", block
       block = ""
     }
   ' database/changelog-master.yaml > database/changelog-before-recycler-config.yaml
@@ -2845,6 +2895,8 @@ main() {
   DOCKER_STARTED=1
   "${COMPOSE[@]}" up -d --wait --wait-timeout 180 mysql > "$RUN_DIR/startup.log" 2>&1 || { cat "$RUN_DIR/startup.log" >&2; return 1; }
   "${COMPOSE[@]}" exec -T -e MYSQL_PWD=persistence-root-test-only mysql mysql -uroot <<'PERSISTENCE_DATABASES'
+CREATE DATABASE processing_clean CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+GRANT ALL ON processing_clean.* TO 'persistence_test'@'%';
 CREATE DATABASE c1_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c3_clean CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE DATABASE c3_upgrade CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
@@ -2873,6 +2925,7 @@ PERSISTENCE_DATABASES
   run_matcher_repair
   run_collector_scope_seed
   run_recycler_matching_seed
+  run_processing
   cat "$RUN_DIR/summary.tsv"
   echo 'All embedded schema, migration and SQL persistence checks passed.'
 }

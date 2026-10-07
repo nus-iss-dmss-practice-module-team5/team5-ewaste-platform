@@ -75,6 +75,21 @@ databaseChangeLog:
       file: changes/025-link-assignment-pointers-and-history.sql
       relativeToChangelogFile: true
   - include:
+      file: changes/026-create-batch-evidence.sql
+      relativeToChangelogFile: true
+  - include:
+      file: changes/027-create-batch-receipts.sql
+      relativeToChangelogFile: true
+  - include:
+      file: changes/028-create-batch-treatments.sql
+      relativeToChangelogFile: true
+  - include:
+      file: changes/029-create-batch-impact-metrics.sql
+      relativeToChangelogFile: true
+  - include:
+      file: changes/030-create-batch-anomalies.sql
+      relativeToChangelogFile: true
+  - include:
       file: seed/101-seed-organisations.sql
       relativeToChangelogFile: true
   - include:

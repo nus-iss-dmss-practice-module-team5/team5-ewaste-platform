@@ -120,7 +120,7 @@ func (s *AssignmentWorkflowService) Select(ctx context.Context, batchID string, 
 			previousID = new(previous.ID)
 		}
 
-		now := s.clock().UTC()
+		now := s.clock().UTC().Truncate(time.Microsecond)
 		command := newCommand(metadata, batch.ID, now, s.retainFor)
 		if err := tx.CreateCommand(ctx, command); err != nil {
 			return err
@@ -252,7 +252,7 @@ func (s *AssignmentWorkflowService) changeAssignment(ctx context.Context, assign
 		if batch.Version != uint32(metadata.ExpectedVersion) || batch.CurrentAssignmentID == nil || *batch.CurrentAssignmentID != assignment.ID {
 			return ErrAssignmentStaleVersion
 		}
-		now := s.clock().UTC()
+		now := s.clock().UTC().Truncate(time.Microsecond)
 		command := newCommand(metadata, batch.ID, now, s.retainFor)
 		if err := tx.CreateCommand(ctx, command); err != nil {
 			return err
@@ -398,7 +398,7 @@ func (s *AssignmentWorkflowService) recordPickup(ctx context.Context, assignment
 				return ErrAssignmentValidation
 			}
 		}
-		now := s.clock().UTC()
+		now := s.clock().UTC().Truncate(time.Microsecond)
 		command := newCommand(metadata, batch.ID, now, s.retainFor)
 		if err := tx.CreateCommand(ctx, command); err != nil {
 			return err
@@ -515,7 +515,7 @@ func (s *AssignmentWorkflowService) RecoverFailedCollection(ctx context.Context,
 		if assignment.AssignmentStatus != model.AssignmentStatusFailed || batch.Status != model.BatchStatusFailedCollection || batch.CurrentAssignmentID == nil || *batch.CurrentAssignmentID != assignment.ID {
 			return ErrAssignmentInvalidState
 		}
-		now := s.clock().UTC()
+		now := s.clock().UTC().Truncate(time.Microsecond)
 		command := &model.CommandIdempotency{ID: s.newID(), ServicePrincipal: new(servicePrincipal), ActorScope: metadata.ActorScope, CommandName: metadata.CommandName, IdempotencyKey: metadata.IdempotencyKey, RequestHash: metadata.RequestHash, BatchID: new(batch.ID), AssignmentID: new(assignment.ID), State: model.CommandStateInProgress, CreatedAt: now, RetainUntil: now.Add(s.retainFor)}
 		if err := tx.CreateCommand(ctx, command); err != nil {
 			return err

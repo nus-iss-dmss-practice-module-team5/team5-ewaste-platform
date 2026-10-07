@@ -19,14 +19,17 @@ import (
 func NewAuthRouter(
 	authController *controller.AuthController,
 	batchController *controller.BatchController,
+	evidenceController *controller.EvidenceController,
 	claimController *controller.ClaimController,
 	assignmentController *controller.AssignmentController,
+	analyticsController *controller.AnalyticsController,
 	tokens *token.Service,
 	repo repository.AuthRepository,
 	limiter ratelimit.Limiter,
 	checker *health.Checker,
 	allowedOrigins []string,
 	logger *zap.Logger,
+	analyticsServiceToken string,
 	readControllers ...*controller.WorkflowReadController,
 ) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
@@ -77,17 +80,34 @@ func NewAuthRouter(
 	if len(readControllers) > 0 && readControllers[0] != nil {
 		batches.GET("", readControllers[0].ListBatches)
 		batches.GET("/:batch_id", readControllers[0].GetBatch)
+
+		processingBatches := r.Group("/api/v1/processing/batches")
+		processingBatches.Use(middleware.RequireAccessTokens(tokens, repo))
+		processingBatches.GET("", readControllers[0].ListProcessingBatches)
+		processingBatches.GET("/:batch_id", readControllers[0].GetProcessingBatch)
 	}
 	if batchController != nil {
 		batches.POST("", batchController.CreateDraft)
 		batches.PATCH("/:batch_id", batchController.EditDraft)
 		batches.POST("/:batch_id/submit", batchController.Submit)
+		batches.POST("/:batch_id/receipt", batchController.VerifyReceipt)
+		batches.POST("/:batch_id/treatment", batchController.RecordTreatment)
+	}
+	if evidenceController != nil {
+		batches.POST("/:batch_id/evidence", evidenceController.Upload)
+		batches.GET("/:batch_id/evidence/:evidence_id", evidenceController.Download)
 	}
 	if claimController != nil {
 		batches.POST("/:batch_id/claim", claimController.Claim)
 	}
 	if assignmentController != nil {
 		batches.POST("/:batch_id/assignments", assignmentController.Select)
+	}
+	analyticsBatches := r.Group("/api/v1/batches")
+	analyticsBatches.Use(middleware.RequireAnalyticsService(analyticsServiceToken))
+	if analyticsController != nil {
+		analyticsBatches.GET("/:batch_id/analytics-input", analyticsController.Prepare)
+		analyticsBatches.POST("/:batch_id/analytics-results", analyticsController.Acknowledge)
 	}
 
 	assignments := r.Group("/api/v1/assignments")
@@ -108,6 +128,12 @@ func NewAuthRouter(
 		opportunities.Use(middleware.RequireAccessTokens(tokens, repo))
 		opportunities.GET("", readControllers[0].ListOpportunities)
 		opportunities.GET("/:batch_id", readControllers[0].GetOpportunity)
+
+		audit := r.Group("/api/v1/audit")
+		audit.Use(middleware.RequireAccessTokens(tokens, repo))
+		audit.GET("/batches/:batch_id/timeline", readControllers[0].GetAuditTimeline)
+		audit.GET("/batches/:batch_id/anomalies", readControllers[0].GetAuditAnomalies)
+		audit.GET("/impact", readControllers[0].GetAuditImpact)
 	}
 
 	r.NoRoute(func(c *gin.Context) {

@@ -4,25 +4,49 @@ import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 from confluent_kafka import Consumer, KafkaException, Producer, TopicPartition
 
 from .contract import loads, require, validate
 from .worker import Delivery, PublishError, Record, utc_now
+from .telemetry import lag_samples
 
 LOG = logging.getLogger("matcher")
 
 
 def observe(name, delivery=None, **fields):
     # Never log raw records, API bodies, tokens, snapshots or exception strings.
-    payload = {"observation": name, **fields}
+    allowed = {"code", "count", "duration_ms", "operation", "outcome", "ready",
+               "consumer_group", "topic", "partition", "consumer_lag", "committed_offset",
+               "end_offset", "sample_available"}
+    payload = {"component": "matcher-worker", "telemetry_version": 1, "service": "analytics", "timestamp": utc_now(),
+               "observation": name, **{k: v for k, v in fields.items() if k in allowed}}
+    payload.setdefault("outcome", {"delivery_paused": "RETRYING", "offset_commit_failed": "FAILED",
+                                   "consumer_error": "FAILED", "offset_committed": "SUCCEEDED"}.get(name, "OBSERVED"))
+    if name == "offset_commit_failed": payload.setdefault("code", "OFFSET_COMMIT_FAILED")
+    if name == "consumer_error": payload.setdefault("code", "CONSUMER_UNAVAILABLE")
     if delivery is not None:
+        latency_ms = None
+        if hasattr(delivery, "first_seen") and delivery.first_seen:
+            try:
+                dt = datetime.fromisoformat(delivery.first_seen.replace("Z", "+00:00"))
+                latency_ms = max(0, int((datetime.now(timezone.utc) - dt).total_seconds() * 1000))
+            except Exception:
+                pass
         payload.update(topic=delivery.record.topic, partition=delivery.record.partition,
                        offset=str(delivery.record.offset), stage=delivery.stage,
-                       retry_count=delivery.retries, disposition=delivery.disposition)
+                       retry_count=delivery.retries, failure_streak=delivery.failure_streak,
+                       disposition=delivery.disposition)
+        if latency_ms is not None:
+            payload["latency_ms"] = latency_ms
+        if delivery.error_code:
+            payload["error_code"] = delivery.error_code
         if delivery.event:
             payload.update(event_id=delivery.event["event_id"], batch_id=delivery.event["batch_id"],
-                           correlation_id=delivery.event["correlation_id"], run_id=delivery.run_id)
+                           correlation_id=delivery.event["correlation_id"], run_id=delivery.run_id,
+                           command_id=delivery.event.get("command_id"),
+                           event_type=delivery.event.get("event_type"))
     LOG.info(json.dumps(payload, separators=(",", ":"), ensure_ascii=True))
 
 
@@ -66,7 +90,8 @@ class KafkaRunner:
         require(offset_reset in ("earliest", "latest", "error"))
         self.topic, self.processor, self.observe = topic, processor, observer
         self.health = health
-        monitoring = {"statistics.interval.ms": 1000, "stats_cb": health.stats} if health else {}
+        self.group_id, self.next_telemetry_at = group_id, 0
+        monitoring = {"statistics.interval.ms": 1000, "stats_cb": self._stats}
         self.consumer = Consumer({**common_config, **monitoring, "group.id": group_id,
                                   "enable.auto.commit": False, "enable.auto.offset.store": False,
                                   "auto.offset.reset": offset_reset, "isolation.level": "read_committed",
@@ -75,6 +100,25 @@ class KafkaRunner:
                                   "allow.auto.create.topics": False})
         self.executor = ThreadPoolExecutor(max_workers=workers, thread_name_prefix="matching-delivery")
         self.jobs, self.owned, self.generation = {}, set(), 0
+
+    def _stats(self, raw):
+        # Keep one-second health updates; rate-limit telemetry to one sample per 30s.
+        try:
+            if self.health:
+                self.health.stats(raw)
+            now = time.monotonic()
+            if now < self.next_telemetry_at:
+                return
+            self.next_telemetry_at = now + 30
+            for sample in lag_samples(json.loads(raw), self.owned):
+                self.observe("consumer_lag", consumer_group=self.group_id, **sample)
+            if self.health:
+                ready = self.health.state(ready=True)
+                self.observe("readiness", ready=ready, outcome="READY" if ready else "NOT_READY",
+                             code="" if ready else "DEPENDENCY_UNAVAILABLE")
+        except (ValueError, TypeError, KeyError, AttributeError):
+            self.observe("consumer_lag", consumer_group=self.group_id, sample_available=False,
+                         outcome="UNKNOWN", code="LAG_SAMPLE_FAILED")
 
     def _assign(self, consumer, partitions):
         for job in self.jobs.values():

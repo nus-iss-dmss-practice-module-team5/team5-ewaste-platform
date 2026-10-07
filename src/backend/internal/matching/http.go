@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// AuthConfig configures matching workload-token validation.
 // Workload tokens use a dedicated signing key, not user access/refresh secrets.
 // Issuer and audience must be explicitly selected by the deployment operator.
 type AuthConfig struct {
@@ -60,8 +61,7 @@ func Register(r *gin.Engine, store *Store, cfg AuthConfig) error {
 	}
 	errorResponse := func(c *gin.Context, err error) {
 		code := "UNAVAILABLE"
-		var contract contractError
-		if errors.As(err, &contract) {
+		if contract, ok := errors.AsType[contractError](err); ok {
 			code = string(contract)
 		} else if errors.Is(err, gorm.ErrRecordNotFound) {
 			code = "NOT_FOUND"

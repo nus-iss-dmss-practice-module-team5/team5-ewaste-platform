@@ -68,12 +68,15 @@ func newRouterTest(t *testing.T, checker *health.Checker) *gin.Engine {
 		nil,
 		nil,
 		nil,
+		nil,
+		nil,
 		tokens,
 		repo,
 		routerTestLimiter{},
 		checker,
 		nil,
 		zap.NewNop(),
+		"",
 	)
 }
 
@@ -147,6 +150,135 @@ func TestAuthRouterReadinessReturns503WhenDependencyFails(t *testing.T) {
 	}
 	if report.Status != "not_ready" || report.MySQL != "unavailable" || report.Redis != "ok" {
 		t.Fatalf("unexpected readiness failure report: %+v", report)
+	}
+}
+
+func TestAuthRouterRegistersTreatmentEndpoint(t *testing.T) {
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authService := service.NewAuthService(repo, tokens, zap.NewNop())
+	authController := controller.NewAuthController(authService, zap.NewNop())
+	batchController := controller.NewBatchController(
+		service.NewBatchService(repository.NewGormBatchRepository(nil)),
+		zap.NewNop(),
+	)
+	r := NewAuthRouter(
+		authController,
+		batchController,
+		nil,
+		nil,
+		nil,
+		nil,
+		tokens,
+		repo,
+		routerTestLimiter{},
+		nil,
+		nil,
+		zap.NewNop(),
+		"",
+	)
+
+	for _, route := range r.Routes() {
+		if route.Method == http.MethodPost && route.Path == "/api/v1/batches/:batch_id/treatment" {
+			return
+		}
+	}
+	t.Fatal("treatment endpoint was not registered")
+}
+
+func TestAuthRouterRegistersProcessingReadEndpoints(t *testing.T) {
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authService := service.NewAuthService(repo, tokens, zap.NewNop())
+	authController := controller.NewAuthController(authService, zap.NewNop())
+	reads := controller.NewWorkflowReadController(nil, zap.NewNop())
+	r := NewAuthRouter(
+		authController,
+		nil,
+		nil,
+		nil,
+		nil,
+		nil,
+		tokens,
+		repo,
+		routerTestLimiter{},
+		nil,
+		nil,
+		zap.NewNop(),
+		"",
+		reads,
+	)
+
+	paths := map[string]bool{}
+	for _, route := range r.Routes() {
+		paths[route.Method+" "+route.Path] = true
+	}
+	if !paths[http.MethodGet+" /api/v1/processing/batches"] || !paths[http.MethodGet+" /api/v1/processing/batches/:batch_id"] {
+		t.Fatalf("processing read routes were not registered: %+v", paths)
+	}
+	if !paths[http.MethodGet+" /api/v1/audit/batches/:batch_id/timeline"] ||
+		!paths[http.MethodGet+" /api/v1/audit/batches/:batch_id/anomalies"] ||
+		!paths[http.MethodGet+" /api/v1/audit/impact"] {
+		t.Fatalf("auditor read routes were not registered: %+v", paths)
+	}
+}
+
+func TestAuthRouterRegistersEvidenceEndpoints(t *testing.T) {
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authService := service.NewAuthService(repo, tokens, zap.NewNop())
+	authController := controller.NewAuthController(authService, zap.NewNop())
+	evidenceController := controller.NewEvidenceController(nil, zap.NewNop())
+	r := NewAuthRouter(
+		authController,
+		nil,
+		evidenceController,
+		nil,
+		nil,
+		nil,
+		tokens,
+		repo,
+		routerTestLimiter{},
+		nil,
+		nil,
+		zap.NewNop(),
+		"",
+	)
+
+	paths := map[string]bool{}
+	for _, route := range r.Routes() {
+		paths[route.Method+" "+route.Path] = true
+	}
+	if !paths[http.MethodPost+" /api/v1/batches/:batch_id/evidence"] || !paths[http.MethodGet+" /api/v1/batches/:batch_id/evidence/:evidence_id"] {
+		t.Fatalf("evidence routes were not registered: %+v", paths)
+	}
+}
+
+func TestAuthRouterRegistersAnalyticsEndpoint(t *testing.T) {
+	repo := routerTestRepository{}
+	tokens := token.NewService("router-test", "access-secret", "refresh-secret", "refresh-hash-secret", time.Minute, time.Hour)
+	authService := service.NewAuthService(repo, tokens, zap.NewNop())
+	authController := controller.NewAuthController(authService, zap.NewNop())
+	analyticsController := controller.NewAnalyticsController(nil, zap.NewNop())
+	r := NewAuthRouter(
+		authController, nil, nil, nil, nil, analyticsController, tokens, repo,
+		routerTestLimiter{}, nil, nil, zap.NewNop(), "analytics-secret",
+	)
+
+	wanted := map[string]bool{
+		"POST /api/v1/batches/:batch_id/analytics-results": false,
+		"GET /api/v1/batches/:batch_id/analytics-input":    false,
+	}
+	for _, route := range r.Routes() {
+		key := route.Method + " " + route.Path
+		if _, ok := wanted[key]; ok {
+			wanted[key] = true
+		}
+	}
+	for route, found := range wanted {
+		if !found {
+			t.Errorf("analytics route missing: %s", route)
+		}
 	}
 }
 
