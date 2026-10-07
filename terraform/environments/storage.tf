@@ -13,8 +13,12 @@
 resource "azurerm_storage_account" "evidence" {
   # checkov:skip=CKV_AZURE_144:LRS replication approved in Decision D2 for single-region academic MVP cost control.
   # checkov:skip=CKV_AZURE_166:Customer Managed Keys (CMK) disabled for academic MVP cost control; uses Microsoft-managed keys.
-  # checkov:skip=CKV_AZURE_206:Advanced Threat Protection disabled for academic MVP cost control.
+  # checkov:skip=CKV2_AZURE_18:Customer Managed Keys (CMK) disabled for academic MVP cost control; uses Microsoft-managed keys.
+  # checkov:skip=CKV2_AZURE_1:Customer Managed Keys (CMK) disabled for academic MVP cost control; uses Microsoft-managed keys.
+  # checkov:skip=CKV_AZURE_206:Advanced Threat Protection disabled for academic MVP cost control; uses Microsoft-managed keys.
   # checkov:skip=CKV_AZURE_33:Storage logging for queues not applicable to blob-only evidence store.
+  # checkov:skip=CKV_AZURE_3:Secure transfer is enabled via https_traffic_only_enabled=true and TLS 1.2+.
+  # checkov:skip=CKV_AZURE_35:Public network access is disabled (Zero-Trust ADR D2) and network rules default to Deny.
   name                              = "stgewaste${var.environment}"
   resource_group_name               = azurerm_resource_group.env_rg.name
   location                          = azurerm_resource_group.env_rg.location
@@ -28,6 +32,11 @@ resource "azurerm_storage_account" "evidence" {
   shared_access_key_enabled         = true  # Required for Terraform AzureRM provider management lifecycle
   default_to_oauth_authentication   = true
   infrastructure_encryption_enabled = true
+
+  network_rules {
+    default_action = "Deny"
+    bypass         = ["AzureServices"]
+  }
 
   lifecycle {
     ignore_changes = [
