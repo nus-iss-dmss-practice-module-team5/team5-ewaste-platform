@@ -194,12 +194,16 @@ jobs:
           AUTH_ACCESS: ${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}
           AUTH_REFRESH: ${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}
           AUTH_HASH: ${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}
-          ANALYTICS_TOKEN: ${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN }}
+          ANALYTICS_TOKEN: ${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN || secrets.ANALYTICS_SERVICE_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_RUNNER_PAT: ${{ secrets.GH_RUNNER_PAT }}
         run: |
           if [ "${#TF_VAR_matcher_signing_secret}" -lt 32 ]; then
             echo "::error::MATCHER_SIGNING_SECRET must contain at least 32 characters for this environment."
+            exit 1
+          fi
+          if [ "${#ANALYTICS_TOKEN}" -lt 32 ]; then
+            echo "::error::Set EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN (or legacy ANALYTICS_SERVICE_TOKEN) with at least 32 characters."
             exit 1
           fi
           cd terraform/environments

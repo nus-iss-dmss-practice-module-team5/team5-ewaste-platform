@@ -55,15 +55,25 @@ class FacadeClient:
         self.timeout, self.max_bytes = timeout, max_response_bytes
         self.opener = urllib.request.build_opener(NoRedirect(), urllib.request.HTTPSHandler(context=ssl.create_default_context()))
 
-    def request(self, method, path, correlation, body=None, key=None):
+    def request(self, method, path, correlation, body=None, key=None, *, expected_version=None,
+                preserve_correlation=False):
         try:
             token = self.token_provider() if self.token_provider else self.token_file.read_text().strip()
             if not token or any(ord(c) < 33 or ord(c) > 126 for c in token):
                 raise FacadeError(401, "UNAUTHENTICATED")
-            headers = {"Authorization": "Bearer " + token, "X-Correlation-ID": transport_trace(correlation),
+            trace = transport_trace(correlation)
+            if preserve_correlation:
+                require(isinstance(correlation, str) and 1 <= len(correlation) <= 128
+                        and correlation == correlation.strip()
+                        and all(ord(c) >= 32 and ord(c) != 127 for c in correlation))
+                # urllib writes header values as Latin-1; Go receives the original UTF-8 bytes.
+                trace = correlation.encode("utf-8").decode("latin-1")
+            headers = {"Authorization": "Bearer " + token, "X-Correlation-ID": trace,
                        "Accept": "application/json", "Content-Type": "application/json"}
             if key:
                 headers["Idempotency-Key"] = key
+            if expected_version is not None:
+                headers["If-Match-Version"] = str(expected_version)
             request = urllib.request.Request(self.base_url + path, data=canonical(body) if body is not None else None,
                                              method=method, headers=headers)
             try:

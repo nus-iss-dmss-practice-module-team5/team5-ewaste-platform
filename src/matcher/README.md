@@ -1,5 +1,9 @@
 # Matcher, API façade and persistence
 
+Sprint 3 anomaly/impact processing now runs alongside matching in this image. See
+[the analytics worker and evidence runbook](../../docs/analytics-worker.md) for the
+`d3-v1` rules, independent consumer group, service authentication and recovery tests.
+
 This slice implements the approved C2/Task 5 path:
 
 ```text
