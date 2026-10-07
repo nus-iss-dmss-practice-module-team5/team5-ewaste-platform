@@ -11,6 +11,9 @@ const (
 	BatchStatusApproved         BatchStatus = "APPROVED"
 	BatchStatusAssigned         BatchStatus = "ASSIGNED"
 	BatchStatusCollected        BatchStatus = "COLLECTED"
+	BatchStatusVerified         BatchStatus = "VERIFIED"
+	BatchStatusRecycled         BatchStatus = "RECYCLED"
+	BatchStatusCompleted        BatchStatus = "COMPLETED"
 	BatchStatusFailedCollection BatchStatus = "FAILED_COLLECTION"
 )
 

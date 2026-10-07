@@ -118,7 +118,13 @@ jobs:
       - name: Validate Matcher Workload Configuration
         env:
           MATCHER_SIGNING_SECRET: ${{ secrets.MATCHER_SIGNING_SECRET }}
-        run: test "${#MATCHER_SIGNING_SECRET}" -ge 32
+          ANALYTICS_SERVICE_TOKEN: ${{ secrets.ANALYTICS_SERVICE_TOKEN }}
+        run: |
+          test "${#MATCHER_SIGNING_SECRET}" -ge 32
+          if [ "${#ANALYTICS_SERVICE_TOKEN}" -lt 32 ]; then
+            echo "::error::Set the environment secret ANALYTICS_SERVICE_TOKEN (at least 32 characters)."
+            exit 1
+          fi
 
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
@@ -375,6 +381,7 @@ jobs:
         id: analytics_deploy
         env:
           MATCHER_SIGNING_SECRET: ${{ secrets.MATCHER_SIGNING_SECRET }}
+          ANALYTICS_SERVICE_TOKEN: ${{ secrets.ANALYTICS_SERVICE_TOKEN }}
         run: |
           export TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           export RG="${{ needs.resolve-environment.outputs.resource_group }}"

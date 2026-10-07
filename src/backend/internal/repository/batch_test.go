@@ -51,3 +51,18 @@ func TestBatchTableNameMatchesDesign(t *testing.T) {
 		t.Fatalf("expected ewaste_batches, got %s", got)
 	}
 }
+
+func TestValidateReceiptScopeAcceptsCompletedAssignmentAfterHandoff(t *testing.T) {
+	db, mock := newBatchRepositoryTestDB(t)
+	tx := &gormBatchTransaction{db: db}
+	mock.ExpectQuery("SELECT count\\(\\*\\).*assignment_status IN \\(\\?, \\?\\)").
+		WithArgs("batch-1", "claim-1", "assignment-1", uint64(3), "ORG-1", model.ClaimStatusAccepted, "ORG-1", model.AssignmentStatusAccepted, model.AssignmentStatusCompleted).
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+
+	if err := tx.ValidateReceiptScope(context.Background(), "batch-1", "claim-1", "assignment-1", 3, "ORG-1"); err != nil {
+		t.Fatalf("completed assignment should remain eligible for receipt/treatment: %v", err)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("receipt scope query did not preserve lifecycle checks: %v", err)
+	}
+}

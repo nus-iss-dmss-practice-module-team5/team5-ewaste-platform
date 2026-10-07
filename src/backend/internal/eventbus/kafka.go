@@ -56,6 +56,9 @@ var canonicalTopicByEventType = map[string]string{
 	"CollectorAssigned":   "batch.collector.assigned",
 	"CollectionCompleted": "batch.collection.completed",
 	"CollectionFailed":    "batch.collection.failed",
+	"ReceiptVerified":     "ewaste.batch.events",
+	"RecyclingCompleted":  "ewaste.batch.events",
+	"RequestCompleted":    "ewaste.batch.events",
 }
 
 func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
@@ -107,7 +110,7 @@ func NewKafkaPublisher(cfg config.KafkaConfig) (*KafkaPublisher, error) {
 		host := strings.TrimSuffix(strings.ToLower(kafkaServerName(broker)), ".")
 		if strings.HasSuffix(host, ".servicebus.windows.net") &&
 			(!cfg.TLSEnabled || saslUsername != "$ConnectionString" || saslPassword == "") {
-			return nil, errors.New("Event Hubs requires TLS and connection-string SASL credentials")
+			return nil, errors.New("event hubs requires TLS and connection-string SASL credentials")
 		}
 	}
 	if saslUsername != "" || saslPassword != "" {
@@ -154,9 +157,9 @@ func kafkaServerName(address string) string {
 	return strings.Trim(address, "[]")
 }
 
-// validateEvent checks routing identity before the network call. The payload
-// is sent exactly as persisted; it is never reconstructed from live tables.
-func validateEvent(event model.EventOutbox) error {
+// ValidateEvent checks the schema and routing identity before publication.
+// The payload is sent as persisted, never reconstructed from live tables.
+func ValidateEvent(event model.EventOutbox) error {
 	body, err := matchingcontract.Decode(event.PayloadJSON)
 	if err != nil || matchingcontract.Validate(event.EventType, body) != nil {
 		return &InvalidEventError{cause: errors.New("persisted event violates approved schema")}
@@ -213,6 +216,10 @@ func validateEvent(event model.EventOutbox) error {
 		}
 	}
 
+	if isProcessingEvent(event.EventType) {
+		return validateProcessingEnvelope(event)
+	}
+
 	var envelope struct {
 		EventID           string          `json:"event_id"`
 		EventType         string          `json:"event_type"`
@@ -251,6 +258,56 @@ func validateEvent(event model.EventOutbox) error {
 	return nil
 }
 
+func isProcessingEvent(eventType string) bool {
+	switch eventType {
+	case model.ReceiptVerifiedEventType, model.RecyclingCompletedEventType, model.RequestCompletedEventType:
+		return true
+	default:
+		return false
+	}
+}
+
+func validateProcessingEnvelope(event model.EventOutbox) error {
+	var envelope struct {
+		EventID           string          `json:"event_id"`
+		EventType         string          `json:"event_type"`
+		SchemaVersion     uint32          `json:"schema_version"`
+		Producer          string          `json:"producer"`
+		AggregateType     string          `json:"aggregate_type"`
+		AggregateID       string          `json:"aggregate_id"`
+		AggregateVersion  uint32          `json:"aggregate_version"`
+		CommandID         string          `json:"command_id"`
+		BatchID           string          `json:"batch_id"`
+		ClaimEpoch        string          `json:"claim_epoch"`
+		SequenceInCommand uint32          `json:"sequence_in_command"`
+		OccurredAt        time.Time       `json:"occurred_at"`
+		CorrelationID     string          `json:"correlation_id"`
+		Data              json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(event.PayloadJSON, &envelope); err != nil {
+		return &InvalidEventError{cause: ErrKafkaPayloadMissing}
+	}
+	if len(envelope.Data) == 0 || string(envelope.Data) == "null" {
+		return &InvalidEventError{cause: errors.New("kafka event data is missing")}
+	}
+	if envelope.EventID != event.EventID ||
+		envelope.EventType != event.EventType ||
+		envelope.SchemaVersion != event.SchemaVersion ||
+		envelope.Producer == "" ||
+		envelope.AggregateType != "EWasteBatch" ||
+		envelope.AggregateID != event.BatchID ||
+		envelope.AggregateVersion != event.AggregateVersion ||
+		envelope.CommandID != event.CommandID ||
+		envelope.BatchID != event.BatchID ||
+		envelope.SequenceInCommand != event.SequenceInCommand ||
+		envelope.CorrelationID != event.CorrelationID ||
+		envelope.OccurredAt.UTC().UnixMicro() != event.OccurredAt.UTC().UnixMicro() ||
+		envelope.ClaimEpoch == "" {
+		return &InvalidEventError{cause: errors.New("kafka processing payload metadata does not match outbox metadata")}
+	}
+	return nil
+}
+
 func (p *KafkaPublisher) Publish(
 	ctx context.Context,
 	event model.EventOutbox,
@@ -258,7 +315,7 @@ func (p *KafkaPublisher) Publish(
 	if p == nil || p.writer == nil {
 		return ErrKafkaPublisherUnavailable
 	}
-	if err := validateEvent(event); err != nil {
+	if err := ValidateEvent(event); err != nil {
 		return err
 	}
 

@@ -12,6 +12,10 @@ const (
 	BatchAuditEventCollectionCompleted        = "CollectionCompleted"
 	BatchAuditEventCollectionFailed           = "CollectionFailed"
 	BatchAuditEventCollectionRecoveryApproved = "CollectionRecoveryApproved"
+	BatchAuditEventTreatmentRecorded          = "TreatmentRecorded"
+	BatchAuditEventEvidenceUploaded           = "EvidenceUploaded"
+	BatchAuditEventEvidenceDownloaded         = "EvidenceDownloaded"
+	BatchAuditEventAnalyticsCompleted         = "AnalyticsCompleted"
 )
 
 type BatchAuditEvent struct {

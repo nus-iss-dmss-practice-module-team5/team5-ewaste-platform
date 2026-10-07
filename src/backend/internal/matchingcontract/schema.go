@@ -12,7 +12,10 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
-type object = map[string]any
+// Object is the decoded JSON contract value.
+type Object = map[string]any
+
+type object = Object
 
 //go:embed schemas/*.json
 var schemaFiles embed.FS
@@ -40,14 +43,14 @@ func compileSchemas() map[string]*jsonschema.Schema {
 		}
 	}
 	result := map[string]*jsonschema.Schema{}
-	for _, name := range []string{"MatchingInput", "MatchingOutput", "RequestSubmitted", "MatchingCompleted", "ClaimConfirmed", "CollectorAssigned", "CollectionCompleted", "CollectionFailed"} {
+	for _, name := range []string{"MatchingInput", "MatchingOutput", "RequestSubmitted", "MatchingCompleted", "ClaimConfirmed", "CollectorAssigned", "CollectionCompleted", "CollectionFailed", "ReceiptVerified", "RecyclingCompleted", "RequestCompleted"} {
 		result[name] = c.MustCompile(name + ".v1.schema.json")
 	}
 	return result
 }
 
 // Decode rejects duplicate keys and trailing JSON, preserving integer precision.
-func Decode(raw []byte) (object, error) {
+func Decode(raw []byte) (Object, error) {
 	if !utf8.Valid(raw) {
 		return nil, errors.New("invalid contract")
 	}
@@ -86,7 +89,7 @@ func Decode(raw []byte) (object, error) {
 			_, err := d.Token()
 			return m, err
 		case json.Delim('['):
-			a := []any{}
+			a := make([]any, 0)
 			for d.More() {
 				v, err := read(depth + 1)
 				if err != nil {

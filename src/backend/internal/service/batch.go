@@ -24,6 +24,11 @@ const (
 	EditBatchCommand   = "EditBatchDraft"
 	SubmitBatchCommand = "SubmitBatch"
 
+	// ApprovedAnalyticsRuleVersion is the Sprint 3 D3 rule version used by
+	// local/test deployments. Production-like deployments should set the
+	// operator-approved version through configuration.
+	ApprovedAnalyticsRuleVersion = "d3-v1"
+
 	requestSubmittedTopic = "ewaste.batch.events"
 )
 
@@ -35,18 +40,28 @@ type BatchMutationResult struct {
 }
 
 type BatchService struct {
-	repository repository.BatchRepository
-	clock      func() time.Time
-	newID      func() string
-	retainFor  time.Duration
+	repository                   repository.BatchRepository
+	clock                        func() time.Time
+	newID                        func() string
+	retainFor                    time.Duration
+	approvedAnalyticsRuleVersion string
 }
 
 func NewBatchService(repo repository.BatchRepository) *BatchService {
+	return NewBatchServiceWithAnalyticsRuleVersion(repo, ApprovedAnalyticsRuleVersion)
+}
+
+func NewBatchServiceWithAnalyticsRuleVersion(repo repository.BatchRepository, ruleVersion string) *BatchService {
+	ruleVersion = strings.TrimSpace(ruleVersion)
+	if ruleVersion == "" {
+		ruleVersion = ApprovedAnalyticsRuleVersion
+	}
 	return &BatchService{
-		repository: repo,
-		clock:      func() time.Time { return time.Now().UTC() },
-		newID:      uuid.NewString,
-		retainFor:  24 * time.Hour,
+		repository:                   repo,
+		clock:                        func() time.Time { return time.Now().UTC() },
+		newID:                        uuid.NewString,
+		retainFor:                    24 * time.Hour,
+		approvedAnalyticsRuleVersion: ruleVersion,
 	}
 }
 
@@ -511,17 +526,25 @@ func newCommand(
 	now time.Time,
 	retainFor time.Duration,
 ) *model.CommandIdempotency {
+	var actorUserID *string
+	var principal *string
+	if servicePrincipal := metadata.ServicePrincipal(); servicePrincipal != "" {
+		principal = new(servicePrincipal)
+	} else {
+		actorUserID = new(metadata.Actor.UserID)
+	}
 	return &model.CommandIdempotency{
-		ID:             uuid.NewString(),
-		ActorUserID:    new(metadata.Actor.UserID),
-		ActorScope:     metadata.ActorScope,
-		CommandName:    metadata.CommandName,
-		IdempotencyKey: metadata.IdempotencyKey,
-		RequestHash:    metadata.RequestHash,
-		BatchID:        new(batchID),
-		State:          model.CommandStateInProgress,
-		CreatedAt:      now,
-		RetainUntil:    now.Add(retainFor),
+		ID:               uuid.NewString(),
+		ActorUserID:      actorUserID,
+		ServicePrincipal: principal,
+		ActorScope:       metadata.ActorScope,
+		CommandName:      metadata.CommandName,
+		IdempotencyKey:   metadata.IdempotencyKey,
+		RequestHash:      metadata.RequestHash,
+		BatchID:          new(batchID),
+		State:            model.CommandStateInProgress,
+		CreatedAt:        now,
+		RetainUntil:      now.Add(retainFor),
 	}
 }
 
@@ -557,13 +580,23 @@ func newAuditEvent(
 	occurredAt time.Time,
 ) *model.BatchAuditEvent {
 	detailsJSON, _ := json.Marshal(details)
+	var actorUserID *string
+	var actorOrganizationID *string
+	var principal *string
+	if servicePrincipal := metadata.ServicePrincipal(); servicePrincipal != "" {
+		principal = new(servicePrincipal)
+	} else {
+		actorUserID = new(metadata.Actor.UserID)
+		actorOrganizationID = new(metadata.Actor.OrganisationID)
+	}
 
 	return &model.BatchAuditEvent{
 		ID:                  uuid.NewString(),
 		BatchID:             batch.ID,
 		CommandID:           commandID,
-		ActorUserID:         new(metadata.Actor.UserID),
-		ActorOrganizationID: new(metadata.Actor.OrganisationID),
+		ActorUserID:         actorUserID,
+		ActorOrganizationID: actorOrganizationID,
+		ServicePrincipal:    principal,
 		EventType:           eventType,
 		FromStatus:          fromStatus,
 		ToStatus:            toStatus,
