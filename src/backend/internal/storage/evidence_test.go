@@ -31,6 +31,36 @@ func TestNewEvidenceStorageRejectsUnsupportedAdapter(t *testing.T) {
 	}
 }
 
+func TestLocalEvidenceStorageRoundTripAndNoOverwrite(t *testing.T) {
+	adapter, err := NewEvidenceStorage(config.StorageConfig{
+		AdapterType:        "local",
+		LocalBaseDir:       t.TempDir(),
+		MaxUploadSizeBytes: 1024,
+	})
+	if err != nil {
+		t.Fatalf("create local adapter: %v", err)
+	}
+
+	key := "batches/batch-001/evidence/evidence-001"
+	content := []byte("local evidence")
+	if err := adapter.Put(context.Background(), key, content, "application/pdf"); err != nil {
+		t.Fatalf("put local evidence: %v", err)
+	}
+	got, err := adapter.Get(context.Background(), key)
+	if err != nil || string(got) != string(content) {
+		t.Fatalf("get local evidence: content=%q err=%v", got, err)
+	}
+	if err := adapter.Put(context.Background(), key, []byte("overwrite"), "text/plain"); err == nil {
+		t.Fatal("expected local evidence adapter to reject overwrite")
+	}
+	if err := adapter.Delete(context.Background(), key); err != nil {
+		t.Fatalf("delete local evidence: %v", err)
+	}
+	if _, err := adapter.Get(context.Background(), key); !errors.Is(err, ErrEvidenceObjectNotFound) {
+		t.Fatalf("expected missing local evidence error, got %v", err)
+	}
+}
+
 func TestNewAzureBlobEvidenceStorageRequiresManagedIdentityAndEndpoint(t *testing.T) {
 	base := config.StorageConfig{
 		AdapterType:           "azure_blob",

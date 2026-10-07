@@ -115,6 +115,7 @@ type StorageConfig struct {
 	AzureStorageEndpoint  string `mapstructure:"azure_storage_endpoint"`
 	AzureUseManagedID     bool   `mapstructure:"azure_use_managed_id"`
 	MaxUploadSizeBytes    int64  `mapstructure:"max_upload_size_bytes"`
+	LocalBaseDir          string `mapstructure:"local_base_dir"`
 }
 
 type RateLimitConfig struct {
@@ -193,6 +194,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("storage.azure_storage_endpoint", "")
 	v.SetDefault("storage.azure_use_managed_id", true)
 	v.SetDefault("storage.max_upload_size_bytes", int64(5*1024*1024))
+	v.SetDefault("storage.local_base_dir", "data/evidence")
 	v.SetDefault("rate_limit.requests", 10)
 	v.SetDefault("rate_limit.window", time.Minute)
 	v.SetDefault("logging.level", "info")
@@ -246,6 +248,7 @@ func bindEnvironment(v *viper.Viper) {
 		"storage.azure_storage_endpoint",
 		"storage.azure_use_managed_id",
 		"storage.max_upload_size_bytes",
+		"storage.local_base_dir",
 		"rate_limit.requests",
 		"rate_limit.window",
 		"logging.level",
@@ -274,8 +277,25 @@ func bindEnvironment(v *viper.Viper) {
 		envName := "EWASTE_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
 		if strings.HasPrefix(key, "storage.") {
 			// Storage names intentionally match the Azure deployment contract.
-			// Accept the application-prefixed alias as well for local consistency.
-			_ = v.BindEnv(key, strings.ToUpper(strings.ReplaceAll(key, ".", "_")), envName)
+			// Accept application-prefixed and legacy aliases as well.
+			envAliases := []string{envName}
+			switch key {
+			case "storage.adapter_type":
+				envAliases = append([]string{"STORAGE_ADAPTER_TYPE", "EWASTE_STORAGE_ADAPTER_TYPE"}, envAliases...)
+			case "storage.azure_storage_account":
+				envAliases = append([]string{"AZURE_STORAGE_ACCOUNT", "EWASTE_AZURE_STORAGE_ACCOUNT", "EWASTE_STORAGE_AZURE_ACCOUNT_NAME"}, envAliases...)
+			case "storage.azure_storage_container":
+				envAliases = append([]string{"AZURE_STORAGE_CONTAINER", "EWASTE_AZURE_STORAGE_CONTAINER", "EWASTE_STORAGE_AZURE_CONTAINER_NAME"}, envAliases...)
+			case "storage.azure_storage_endpoint":
+				envAliases = append([]string{"AZURE_STORAGE_ENDPOINT", "EWASTE_AZURE_STORAGE_ENDPOINT", "EWASTE_STORAGE_AZURE_ENDPOINT"}, envAliases...)
+			case "storage.azure_use_managed_id":
+				envAliases = append([]string{"AZURE_USE_MANAGED_ID", "EWASTE_AZURE_USE_MANAGED_ID"}, envAliases...)
+			case "storage.max_upload_size_bytes":
+				envAliases = append([]string{"MAX_UPLOAD_SIZE_BYTES", "EWASTE_MAX_UPLOAD_SIZE_BYTES"}, envAliases...)
+			case "storage.local_base_dir":
+				envAliases = append([]string{"STORAGE_LOCAL_BASE_DIR", "EWASTE_STORAGE_LOCAL_BASE_DIR"}, envAliases...)
+			}
+			_ = v.BindEnv(append([]string{key}, envAliases...)...)
 			continue
 		}
 		if key == "database.password" {

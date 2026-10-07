@@ -50,13 +50,15 @@ auth:
   refresh_ttl: "24h"
 
 storage:
-  # Use azure_blob in Azure Container Apps. The disabled default fails closed locally.
+  # Use local for development/unit tests or azure_blob in Azure Container Apps.
+  # The disabled default fails closed until an adapter is explicitly selected.
   adapter_type: "disabled"
   azure_storage_account: ""
   azure_storage_container: "evidence-private"
   azure_storage_endpoint: ""
   azure_use_managed_id: true
   max_upload_size_bytes: 5242880
+  local_base_dir: "data/evidence"
 
 rate_limit:
   requests: 10

@@ -105,3 +105,40 @@ func TestLoadReadsApprovedAnalyticsRuleVersionFromEnvironment(t *testing.T) {
 		t.Fatalf("expected configured analytics rule version, got %q", cfg.Analytics.ApprovedRuleVersion)
 	}
 }
+
+func TestLoadReadsEvidenceStorageEnvironmentContract(t *testing.T) {
+	t.Setenv("STORAGE_ADAPTER_TYPE", "azure_blob")
+	t.Setenv("AZURE_STORAGE_ACCOUNT", "stgewastedev")
+	t.Setenv("AZURE_STORAGE_CONTAINER", "evidence-private")
+	t.Setenv("AZURE_STORAGE_ENDPOINT", "https://stgewastedev.blob.core.windows.net/")
+	t.Setenv("AZURE_USE_MANAGED_ID", "true")
+	t.Setenv("MAX_UPLOAD_SIZE_BYTES", "5242880")
+	t.Setenv("EWASTE_STORAGE_LOCAL_BASE_DIR", "data/test-evidence")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("load configuration: %v", err)
+	}
+	if cfg.Storage.AdapterType != "azure_blob" || cfg.Storage.AzureStorageAccount != "stgewastedev" ||
+		cfg.Storage.AzureStorageContainer != "evidence-private" ||
+		cfg.Storage.AzureStorageEndpoint != "https://stgewastedev.blob.core.windows.net/" ||
+		!cfg.Storage.AzureUseManagedID || cfg.Storage.MaxUploadSizeBytes != 5242880 ||
+		cfg.Storage.LocalBaseDir != "data/test-evidence" {
+		t.Fatalf("unexpected evidence storage configuration: %+v", cfg.Storage)
+	}
+}
+
+func TestLoadReadsLegacyEvidenceStorageAliases(t *testing.T) {
+	t.Setenv("EWASTE_STORAGE_AZURE_ACCOUNT_NAME", "legacyaccount")
+	t.Setenv("EWASTE_STORAGE_AZURE_CONTAINER_NAME", "legacy-container")
+	t.Setenv("EWASTE_STORAGE_AZURE_ENDPOINT", "https://legacyaccount.blob.core.windows.net/")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("load configuration: %v", err)
+	}
+	if cfg.Storage.AzureStorageAccount != "legacyaccount" || cfg.Storage.AzureStorageContainer != "legacy-container" ||
+		cfg.Storage.AzureStorageEndpoint != "https://legacyaccount.blob.core.windows.net/" {
+		t.Fatalf("legacy evidence storage aliases were not loaded: %+v", cfg.Storage)
+	}
+}
