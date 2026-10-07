@@ -86,7 +86,7 @@ auth:
 	if cfg.Kafka.SASLPassword == "" {
 		t.Fatal("expected Kafka connection string from KAFKA_CONNECTION_STRING")
 	}
-	if cfg.Storage.Type != "azure" || cfg.Storage.AzureAccountName != "stgewastedev" || cfg.Storage.AzureContainerName != "evidence-private" || cfg.Storage.AzureEndpoint != "https://stgewastedev.blob.core.windows.net/" {
+	if cfg.Storage.AdapterType != "azure" || cfg.Storage.AzureStorageAccount != "stgewastedev" || cfg.Storage.AzureStorageContainer != "evidence-private" || cfg.Storage.AzureStorageEndpoint != "https://stgewastedev.blob.core.windows.net/" {
 		t.Fatalf("expected storage environment values, got %+v", cfg.Storage)
 	}
 }
@@ -99,8 +99,8 @@ func TestApplyTestModeUsesLocalDependencies(t *testing.T) {
 	if cfg.Database.Host != "localhost" || cfg.Database.Port != 3307 || cfg.Redis.Address != "localhost:6379" {
 		t.Fatalf("expected localhost dependency defaults: %+v", cfg)
 	}
-	if cfg.Storage.Type != "local" {
-		t.Fatalf("expected local storage default in test mode, got %q", cfg.Storage.Type)
+	if cfg.Storage.AdapterType != "local" {
+		t.Fatalf("expected local storage default in test mode, got %q", cfg.Storage.AdapterType)
 	}
 }
 
@@ -116,17 +116,17 @@ func TestLoadStorageAdapterEnvironmentBindings(t *testing.T) {
 		t.Fatalf("load config: %v", err)
 	}
 
-	if cfg.Storage.Type != "azure_blob" {
-		t.Errorf("expected Storage.Type 'azure_blob', got %q", cfg.Storage.Type)
+	if cfg.Storage.AdapterType != "azure_blob" {
+		t.Errorf("expected Storage.AdapterType 'azure_blob', got %q", cfg.Storage.AdapterType)
 	}
-	if cfg.Storage.AzureAccountName != "stgewasteprod" {
-		t.Errorf("expected Storage.AzureAccountName 'stgewasteprod', got %q", cfg.Storage.AzureAccountName)
+	if cfg.Storage.AzureStorageAccount != "stgewasteprod" {
+		t.Errorf("expected Storage.AzureStorageAccount 'stgewasteprod', got %q", cfg.Storage.AzureStorageAccount)
 	}
-	if cfg.Storage.AzureContainerName != "evidence-private" {
-		t.Errorf("expected Storage.AzureContainerName 'evidence-private', got %q", cfg.Storage.AzureContainerName)
+	if cfg.Storage.AzureStorageContainer != "evidence-private" {
+		t.Errorf("expected Storage.AzureStorageContainer 'evidence-private', got %q", cfg.Storage.AzureStorageContainer)
 	}
-	if cfg.Storage.AzureEndpoint != "https://stgewasteprod.blob.core.windows.net/" {
-		t.Errorf("expected auto-derived endpoint 'https://stgewasteprod.blob.core.windows.net/', got %q", cfg.Storage.AzureEndpoint)
+	if cfg.Storage.AzureStorageEndpoint != "https://stgewasteprod.blob.core.windows.net/" {
+		t.Errorf("expected auto-derived endpoint 'https://stgewasteprod.blob.core.windows.net/', got %q", cfg.Storage.AzureStorageEndpoint)
 	}
 	if !cfg.Storage.AzureUseManagedID {
 		t.Errorf("expected AzureUseManagedID to be true, got false")
@@ -171,6 +171,7 @@ func TestLoadReadsEvidenceStorageEnvironmentContract(t *testing.T) {
 }
 
 func TestLoadReadsLegacyEvidenceStorageAliases(t *testing.T) {
+	t.Setenv("EWASTE_STORAGE_TYPE", "azure")
 	t.Setenv("EWASTE_STORAGE_AZURE_ACCOUNT_NAME", "legacyaccount")
 	t.Setenv("EWASTE_STORAGE_AZURE_CONTAINER_NAME", "legacy-container")
 	t.Setenv("EWASTE_STORAGE_AZURE_ENDPOINT", "https://legacyaccount.blob.core.windows.net/")
@@ -179,8 +180,47 @@ func TestLoadReadsLegacyEvidenceStorageAliases(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load configuration: %v", err)
 	}
-	if cfg.Storage.AzureStorageAccount != "legacyaccount" || cfg.Storage.AzureStorageContainer != "legacy-container" ||
+	if cfg.Storage.AdapterType != "azure" || cfg.Storage.AzureStorageAccount != "legacyaccount" || cfg.Storage.AzureStorageContainer != "legacy-container" ||
 		cfg.Storage.AzureStorageEndpoint != "https://legacyaccount.blob.core.windows.net/" {
 		t.Fatalf("legacy evidence storage aliases were not loaded: %+v", cfg.Storage)
+	}
+}
+
+func TestLoadDeploymentStorageSettingsOverrideLegacyAliases(t *testing.T) {
+	t.Setenv("EWASTE_STORAGE_TYPE", "local")
+	t.Setenv("EWASTE_STORAGE_AZURE_ACCOUNT_NAME", "legacyaccount")
+	t.Setenv("EWASTE_STORAGE_AZURE_CONTAINER_NAME", "legacy-container")
+	t.Setenv("EWASTE_STORAGE_AZURE_ENDPOINT", "https://legacyaccount.blob.core.windows.net/")
+	t.Setenv("STORAGE_ADAPTER_TYPE", "azure_blob")
+	t.Setenv("AZURE_STORAGE_ACCOUNT", "deployedaccount")
+	t.Setenv("AZURE_STORAGE_CONTAINER", "evidence-private")
+	t.Setenv("AZURE_STORAGE_ENDPOINT", "https://deployedaccount.blob.core.windows.net/")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("load configuration: %v", err)
+	}
+	if err := cfg.ApplyMode(ModeTest); err != nil {
+		t.Fatalf("apply test mode: %v", err)
+	}
+	if cfg.Storage.AdapterType != "azure_blob" || cfg.Storage.AzureStorageAccount != "deployedaccount" ||
+		cfg.Storage.AzureStorageContainer != "evidence-private" ||
+		cfg.Storage.AzureStorageEndpoint != "https://deployedaccount.blob.core.windows.net/" {
+		t.Fatalf("deployment settings must override legacy aliases and mode defaults: %+v", cfg.Storage)
+	}
+}
+
+func TestApplyModePreservesDisabledStorageDefault(t *testing.T) {
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("load configuration: %v", err)
+	}
+	for _, mode := range []string{ModeTest, ModeDevelopment, ModeProduction} {
+		if err := cfg.ApplyMode(mode); err != nil {
+			t.Fatalf("apply %s mode: %v", mode, err)
+		}
+		if cfg.Storage.AdapterType != "disabled" {
+			t.Fatalf("%s mode must preserve the disabled storage default, got %q", mode, cfg.Storage.AdapterType)
+		}
 	}
 }
