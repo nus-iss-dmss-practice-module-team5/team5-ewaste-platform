@@ -46,6 +46,10 @@ auth:
 	t.Setenv("EWASTE_KAFKA_SASL_MECHANISM", "PLAIN")
 	t.Setenv("EWASTE_KAFKA_SASL_USERNAME", "$ConnectionString")
 	t.Setenv("KAFKA_CONNECTION_STRING", "Endpoint=sb://evh-ewaste-dev.servicebus.windows.net/;SharedAccessKeyName=auth-ewaste-workload;SharedAccessKey=redacted")
+	t.Setenv("EWASTE_STORAGE_TYPE", "azure")
+	t.Setenv("EWASTE_STORAGE_AZURE_ACCOUNT_NAME", "stgewastedev")
+	t.Setenv("EWASTE_STORAGE_AZURE_CONTAINER_NAME", "evidence-private")
+	t.Setenv("EWASTE_STORAGE_AZURE_ENDPOINT", "https://stgewastedev.blob.core.windows.net/")
 
 	cfg, err := Load(configPath)
 	if err != nil {
@@ -75,6 +79,9 @@ auth:
 	if cfg.Kafka.SASLPassword == "" {
 		t.Fatal("expected Kafka connection string from KAFKA_CONNECTION_STRING")
 	}
+	if cfg.Storage.Type != "azure" || cfg.Storage.AzureAccountName != "stgewastedev" || cfg.Storage.AzureContainerName != "evidence-private" || cfg.Storage.AzureEndpoint != "https://stgewastedev.blob.core.windows.net/" {
+		t.Fatalf("expected storage environment values, got %+v", cfg.Storage)
+	}
 }
 
 func TestApplyTestModeUsesLocalDependencies(t *testing.T) {
@@ -84,5 +91,40 @@ func TestApplyTestModeUsesLocalDependencies(t *testing.T) {
 	}
 	if cfg.Database.Host != "localhost" || cfg.Database.Port != 3307 || cfg.Redis.Address != "localhost:6379" {
 		t.Fatalf("expected localhost dependency defaults: %+v", cfg)
+	}
+	if cfg.Storage.Type != "local" {
+		t.Fatalf("expected local storage default in test mode, got %q", cfg.Storage.Type)
+	}
+}
+
+func TestLoadStorageAdapterEnvironmentBindings(t *testing.T) {
+	t.Setenv("STORAGE_ADAPTER_TYPE", "azure_blob")
+	t.Setenv("AZURE_STORAGE_ACCOUNT", "stgewasteprod")
+	t.Setenv("AZURE_STORAGE_CONTAINER", "evidence-private")
+	t.Setenv("AZURE_USE_MANAGED_ID", "true")
+	t.Setenv("MAX_UPLOAD_SIZE_BYTES", "5242880")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+
+	if cfg.Storage.Type != "azure_blob" {
+		t.Errorf("expected Storage.Type 'azure_blob', got %q", cfg.Storage.Type)
+	}
+	if cfg.Storage.AzureAccountName != "stgewasteprod" {
+		t.Errorf("expected Storage.AzureAccountName 'stgewasteprod', got %q", cfg.Storage.AzureAccountName)
+	}
+	if cfg.Storage.AzureContainerName != "evidence-private" {
+		t.Errorf("expected Storage.AzureContainerName 'evidence-private', got %q", cfg.Storage.AzureContainerName)
+	}
+	if cfg.Storage.AzureEndpoint != "https://stgewasteprod.blob.core.windows.net/" {
+		t.Errorf("expected auto-derived endpoint 'https://stgewasteprod.blob.core.windows.net/', got %q", cfg.Storage.AzureEndpoint)
+	}
+	if !cfg.Storage.AzureUseManagedID {
+		t.Errorf("expected AzureUseManagedID to be true, got false")
+	}
+	if cfg.Storage.MaxUploadSizeBytes != 5242880 {
+		t.Errorf("expected MaxUploadSizeBytes 5242880, got %d", cfg.Storage.MaxUploadSizeBytes)
 	}
 }
