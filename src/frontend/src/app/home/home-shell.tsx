@@ -7,6 +7,7 @@ import { ClaimAction } from "./claim-action";
 import { CollectorWork } from "./collector-work";
 import { DonorBatchForm, DonorBatchList } from "./donor-batches";
 import { OpportunityView } from "./opportunities";
+import { ProcessingWork } from "./processing";
 
 export function HomeShell() {
   const { session, justRenewed, logout } = useSession();
@@ -20,7 +21,10 @@ export function HomeShell() {
   const { user } = session;
   const nav = ROLE_NAV[user.role];
   const current = activeNav ?? nav[0]?.id;
-  const title = ROLE_HOME_TITLE[user.role];
+  const currentItem = nav.find((item) => item.id === current);
+  // The role title describes the landing tab. Other tabs use their own label.
+  const title =
+    current === nav[0]?.id ? ROLE_HOME_TITLE[user.role] : currentItem?.label;
   const workflow =
     user.role === "DONOR" && current === "requests" ? (
       <DonorBatchList />
@@ -30,6 +34,8 @@ export function HomeShell() {
       <OpportunityView />
     ) : user.role === "RECYCLER" && current === "claim" ? (
       <ClaimAction />
+    ) : user.role === "RECYCLER" && current === "processing" ? (
+      <ProcessingWork />
     ) : user.role === "COLLECTOR" && current === "assignments" ? (
       <CollectorWork />
     ) : user.role === "COLLECTOR" && current === "history" ? (
@@ -42,18 +48,21 @@ export function HomeShell() {
   }
 
   return (
-    <div className="flex h-full min-h-0 w-full flex-1 overflow-hidden bg-slate-50">
-      <aside className="flex w-56 flex-col bg-teal-900 text-white">
-        <div className="border-b border-teal-800 px-4 py-4 text-sm font-semibold">
+    <div className="flex h-full min-h-0 w-full flex-1 flex-col overflow-hidden bg-slate-50 md:flex-row">
+      <aside className="flex shrink-0 flex-col bg-teal-900 text-white md:w-56">
+        <div className="hidden border-b border-teal-800 px-4 py-4 text-sm font-semibold md:block">
           {ROLE_LABEL[user.role]}
         </div>
-        <nav className="flex flex-col gap-1 p-3" aria-label="Role navigation">
+        <nav
+          className="flex gap-1 overflow-x-auto p-2 md:flex-col md:p-3"
+          aria-label="Role navigation"
+        >
           {nav.map((item) => (
             <button
               key={item.id}
               type="button"
               onClick={() => setActiveNav(item.id)}
-              className={`rounded-md px-3 py-2 text-left text-sm ${
+              className={`shrink-0 rounded-md px-3 py-2 text-left text-sm whitespace-nowrap ${
                 current === item.id ? "bg-teal-700" : "hover:bg-teal-800"
               }`}
             >
@@ -63,8 +72,8 @@ export function HomeShell() {
         </nav>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <header className="flex items-center justify-end gap-4 border-b border-slate-200 bg-white px-6 py-3">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 border-b border-slate-200 bg-white px-4 py-3 md:px-6">
           <span
             className="rounded-full bg-teal-50 px-3 py-1 text-sm font-medium text-teal-900"
             aria-label={`Role ${ROLE_LABEL[user.role]}`}
@@ -83,7 +92,7 @@ export function HomeShell() {
           </button>
         </header>
 
-        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-8 py-6">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 py-4 md:px-8 md:py-6">
           <h1 className="mb-4 text-2xl font-bold text-slate-900">{title}</h1>
           {justRenewed ? (
             <p
@@ -103,7 +112,7 @@ export function HomeShell() {
             </p>
           )}
           <p className="mt-3 text-sm text-slate-500">
-            Current section: {nav.find((item) => item.id === current)?.label}
+            Current section: {currentItem?.label}
           </p>
         </main>
       </div>

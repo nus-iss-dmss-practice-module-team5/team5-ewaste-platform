@@ -4,15 +4,21 @@ import { api } from "@/lib/auth/api-client";
 import {
   claimOpportunity,
   createBatchDraft,
+  downloadEvidence,
   draftBody,
   getOpportunity,
+  getProcessingBatch,
   listBatches,
   listOpportunities,
+  listProcessingBatches,
   rejectAssignment,
   recordHandoff,
+  recordTreatment,
   reportFailedPickup,
   selectAssignment,
   submitBatch,
+  uploadEvidence,
+  verifyReceipt,
 } from "./api";
 
 vi.mock("@/lib/auth/api-client", () => ({
@@ -439,5 +445,272 @@ describe("workflow api", () => {
       is_data_bearing: false,
     });
     expect(draftBody({})).toEqual({});
+  });
+
+  it("lists facility batches from the processing route", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: [
+          {
+            batch_id: "batch-1",
+            status: "COLLECTED",
+            version: 6,
+            evidence_status: "ABSENT",
+          },
+        ],
+        page: 1,
+        page_size: 20,
+        total_count: 1,
+        correlation_id: "corr-1",
+      },
+    });
+
+    const page = await listProcessingBatches("token", { status: "COLLECTED" });
+
+    expect(get).toHaveBeenCalledWith("/api/v1/processing/batches", {
+      headers: { Authorization: "Bearer token" },
+      params: { page: 1, page_size: 20, status: "COLLECTED" },
+    });
+    expect(page.data).toEqual([
+      {
+        batchId: "batch-1",
+        status: "COLLECTED",
+        version: 6,
+        evidenceStatus: "ABSENT",
+      },
+    ]);
+  });
+
+  it("reads the declaration from the declared_ fields of a detail", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: {
+          batch_id: "batch-1",
+          status: "COLLECTED",
+          version: 6,
+          declared_category: "ICT_EQUIPMENT",
+          declared_quantity: 12,
+          estimated_weight_kg: "4.50",
+          actual_category: null,
+          actual_item_count: null,
+          actual_weight_kg: null,
+          evidence_status: "ABSENT",
+          anomaly_codes: [],
+        },
+        correlation_id: "corr-1",
+      },
+    });
+
+    await expect(getProcessingBatch("token", "batch-1")).resolves.toEqual({
+      batchId: "batch-1",
+      status: "COLLECTED",
+      version: 6,
+      category: "ICT_EQUIPMENT",
+      quantity: 12,
+      estimatedWeightKg: "4.50",
+      evidenceStatus: "ABSENT",
+    });
+  });
+
+  it("uploads evidence as a multipart form without a version header", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          evidence_id: "evidence-1",
+          batch_id: "batch-1",
+          lifecycle_stage: "TREATMENT",
+          mime_type: "application/pdf",
+          file_size_bytes: 3,
+          sha256_hash: "a".repeat(64),
+          validation_status: "VALIDATED",
+        },
+        correlation_id: "corr-1",
+      },
+    });
+    const file = new File(["pdf"], "proof.pdf", { type: "application/pdf" });
+
+    await expect(
+      uploadEvidence("token", "batch-1", file, "TREATMENT", "idem-1"),
+    ).resolves.toEqual({
+      evidenceId: "evidence-1",
+      sha256Hash: "a".repeat(64),
+      validationStatus: "VALIDATED",
+    });
+    const [url, body, config] = post.mock.calls[0] ?? [];
+    expect(url).toBe("/api/v1/batches/batch-1/evidence");
+    expect(body).toBeInstanceOf(FormData);
+    expect((body as FormData).get("file")).toBe(file);
+    expect((body as FormData).get("lifecycle_stage")).toBe("TREATMENT");
+    expect(config).toEqual({
+      headers: {
+        Authorization: "Bearer token",
+        "Idempotency-Key": "idem-1",
+        "Content-Type": "multipart/form-data",
+      },
+    });
+  });
+
+  it("downloads evidence as a file", async () => {
+    const file = new Blob(["pdf"], { type: "application/pdf" });
+    get.mockResolvedValue({ data: file });
+
+    await expect(
+      downloadEvidence("token", "batch-1", "evidence-1"),
+    ).resolves.toBe(file);
+    expect(get).toHaveBeenCalledWith(
+      "/api/v1/batches/batch-1/evidence/evidence-1",
+      { headers: { Authorization: "Bearer token" }, responseType: "blob" },
+    );
+  });
+
+  it("sends the evidence id with a treatment", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: { batch_id: "batch-1", status: "RECYCLED", version: 8 },
+        correlation_id: "corr-1",
+      },
+    });
+
+    await recordTreatment(
+      "token",
+      "batch-1",
+      7,
+      { evidenceId: "evidence-1" },
+      "idem-1",
+    );
+
+    expect(post.mock.calls[0]?.[1]).toEqual({ evidence_id: "evidence-1" });
+  });
+
+  it("reads an absent treatment outcome as nulls, not zeros", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: {
+          batch_id: "batch-1",
+          status: "RECYCLED",
+          version: 8,
+          actual_category: "BATTERIES",
+          actual_item_count: 4,
+          actual_weight_kg: "11.99",
+          reused_kg: null,
+          recycled_kg: null,
+          disposed_kg: null,
+          unknown_kg: "11.99",
+          data_quality: "MISSING",
+        },
+        correlation_id: "corr-1",
+      },
+    });
+
+    await expect(getProcessingBatch("token", "batch-1")).resolves.toEqual({
+      batchId: "batch-1",
+      status: "RECYCLED",
+      version: 8,
+      receipt: {
+        actualCategory: "BATTERIES",
+        actualItemCount: 4,
+        actualWeightKg: "11.99",
+      },
+      treatment: {
+        reusedKg: null,
+        recycledKg: null,
+        disposedKg: null,
+        unknownKg: "11.99",
+        dataQuality: "MISSING",
+      },
+    });
+    expect(get).toHaveBeenCalledWith("/api/v1/processing/batches/batch-1", {
+      headers: { Authorization: "Bearer token" },
+    });
+  });
+
+  it("verifies a receipt with the batch version and a string weight", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: { batch_id: "batch-1", status: "VERIFIED", version: 7 },
+        correlation_id: "corr-1",
+        event_id: "evt-1",
+        event_state: "PENDING",
+      },
+    });
+
+    await expect(
+      verifyReceipt(
+        "token",
+        "batch-1",
+        6,
+        {
+          actualCategory: "ICT_EQUIPMENT",
+          actualItemCount: 10,
+          actualWeightKg: "4.20",
+        },
+        "idem-1",
+      ),
+    ).resolves.toEqual({ batchId: "batch-1", status: "VERIFIED", version: 7 });
+    expect(post).toHaveBeenCalledWith(
+      "/api/v1/batches/batch-1/receipt",
+      {
+        actual_category: "ICT_EQUIPMENT",
+        actual_item_count: 10,
+        actual_weight_kg: "4.20",
+      },
+      {
+        headers: {
+          Authorization: "Bearer token",
+          "Idempotency-Key": "idem-1",
+          "If-Match-Version": "6",
+        },
+      },
+    );
+  });
+
+  it("sends treatment amounts together or not at all", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: { batch_id: "batch-1", status: "RECYCLED", version: 8 },
+        correlation_id: "corr-1",
+      },
+    });
+
+    await recordTreatment(
+      "token",
+      "batch-1",
+      7,
+      { amounts: { reusedKg: "2.00", recycledKg: "0.00", disposedKg: "1.00" } },
+      "idem-1",
+    );
+    await recordTreatment("token", "batch-1", 7, {}, "idem-2");
+
+    expect(post.mock.calls[0]?.[0]).toBe("/api/v1/batches/batch-1/treatment");
+    expect(post.mock.calls[0]?.[1]).toEqual({
+      reused_kg: "2.00",
+      recycled_kg: "0.00",
+      disposed_kg: "1.00",
+    });
+    expect(post.mock.calls[1]?.[1]).toEqual({});
+  });
+
+  it("maps a rejected receipt to a validation error", async () => {
+    post.mockRejectedValue(
+      axiosError(422, {
+        code: "VALIDATION_ERROR",
+        message: "actual_weight_kg is out of range.",
+        correlation_id: "corr-422",
+      }),
+    );
+
+    await expect(
+      verifyReceipt(
+        "token",
+        "batch-1",
+        6,
+        {
+          actualCategory: "ICT_EQUIPMENT",
+          actualItemCount: 10,
+          actualWeightKg: "0.09",
+        },
+        "idem-1",
+      ),
+    ).rejects.toMatchObject({ kind: "validation", status: 422 });
   });
 });

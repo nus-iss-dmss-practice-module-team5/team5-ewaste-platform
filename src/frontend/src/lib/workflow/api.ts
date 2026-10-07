@@ -1,5 +1,5 @@
 import { api } from "@/lib/auth/api-client";
-import { toWorkflowError } from "./errors";
+import { contractError, toWorkflowError } from "./errors";
 import {
   USE_LOCAL_BATCH_MOCK,
   mockCreateBatchDraft,
@@ -25,14 +25,27 @@ import {
   mockListOpportunities,
 } from "./local-opportunity-mock";
 import {
+  USE_LOCAL_PROCESSING_MOCK,
+  mockDownloadEvidence,
+  mockGetProcessingBatch,
+  mockListProcessingBatches,
+  mockRecordTreatment,
+  mockUploadEvidence,
+  mockVerifyReceipt,
+} from "./local-processing-mock";
+import {
   parseAssignment,
   parseAssignmentPage,
   parseBatch,
   parseBatchPage,
   parseClaimResult,
   parseData,
+  parseEvidence,
   parseOpportunity,
   parseOpportunityPage,
+  parseProcessingBatch,
+  parseProcessingSummaryPage,
+  parseProcessingResult,
 } from "./parse";
 import type {
   Assignment,
@@ -46,7 +59,15 @@ import type {
   HandoffCommand,
   Opportunity,
   Page,
+  Evidence,
+  EvidenceStage,
+  ProcessingBatch,
+  ProcessingResult,
+  ProcessingStatus,
+  ProcessingSummary,
+  ReceiptCommand,
   SelectAssignmentCommand,
+  TreatmentCommand,
 } from "./types";
 
 export function newIdempotencyKey(): string {
@@ -422,5 +443,147 @@ export async function reportFailedPickup(
       commandHeaders(accessToken, idempotencyKey, version),
     ),
     (data) => parseData(data, parseAssignment, "Assignment"),
+  );
+}
+
+export async function listProcessingBatches(
+  accessToken: string,
+  query: {
+    status?: ProcessingStatus;
+    page?: number;
+    pageSize?: number;
+  } = {},
+): Promise<Page<ProcessingSummary>> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockListProcessingBatches(query.status);
+  }
+  return call(
+    api.get("/api/v1/processing/batches", {
+      ...authHeaders(accessToken),
+      params: {
+        page: query.page ?? 1,
+        page_size: query.pageSize ?? 20,
+        ...(query.status ? { status: query.status } : {}),
+      },
+    }),
+    parseProcessingSummaryPage,
+  );
+}
+
+export async function getProcessingBatch(
+  accessToken: string,
+  batchId: string,
+): Promise<ProcessingBatch> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockGetProcessingBatch(batchId);
+  }
+  return call(
+    api.get(`/api/v1/processing/batches/${batchId}`, authHeaders(accessToken)),
+    (data) => parseData(data, parseProcessingBatch, "Processing batch"),
+  );
+}
+
+export async function verifyReceipt(
+  accessToken: string,
+  batchId: string,
+  version: number,
+  command: ReceiptCommand,
+  idempotencyKey: string,
+): Promise<ProcessingResult> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockVerifyReceipt(batchId, version, command);
+  }
+  return call(
+    api.post(
+      `/api/v1/batches/${batchId}/receipt`,
+      {
+        actual_category: command.actualCategory,
+        actual_item_count: command.actualItemCount,
+        actual_weight_kg: command.actualWeightKg,
+      },
+      commandHeaders(accessToken, idempotencyKey, version),
+    ),
+    (data) => parseData(data, parseProcessingResult, "Receipt"),
+  );
+}
+
+export async function recordTreatment(
+  accessToken: string,
+  batchId: string,
+  version: number,
+  command: TreatmentCommand,
+  idempotencyKey: string,
+): Promise<ProcessingResult> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockRecordTreatment(batchId, version, command);
+  }
+  // The amounts are sent together or left out together. A missing amount is
+  // never sent as zero.
+  const body: {
+    reused_kg?: string;
+    recycled_kg?: string;
+    disposed_kg?: string;
+    evidence_id?: string;
+  } = {};
+  if (command.amounts) {
+    body.reused_kg = command.amounts.reusedKg;
+    body.recycled_kg = command.amounts.recycledKg;
+    body.disposed_kg = command.amounts.disposedKg;
+  }
+  if (command.evidenceId) {
+    body.evidence_id = command.evidenceId;
+  }
+  return call(
+    api.post(
+      `/api/v1/batches/${batchId}/treatment`,
+      body,
+      commandHeaders(accessToken, idempotencyKey, version),
+    ),
+    (data) => parseData(data, parseProcessingResult, "Treatment"),
+  );
+}
+
+export async function uploadEvidence(
+  accessToken: string,
+  batchId: string,
+  file: File,
+  lifecycleStage: EvidenceStage,
+  idempotencyKey: string,
+): Promise<Evidence> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockUploadEvidence(batchId, file);
+  }
+  const form = new FormData();
+  form.append("file", file);
+  form.append("lifecycle_stage", lifecycleStage);
+  // The client defaults to JSON, which would serialise the form as an object.
+  const config = commandHeaders(accessToken, idempotencyKey);
+  return call(
+    api.post(`/api/v1/batches/${batchId}/evidence`, form, {
+      headers: { ...config.headers, "Content-Type": "multipart/form-data" },
+    }),
+    (data) => parseData(data, parseEvidence, "Evidence"),
+  );
+}
+
+export async function downloadEvidence(
+  accessToken: string,
+  batchId: string,
+  evidenceId: string,
+): Promise<Blob> {
+  if (USE_LOCAL_PROCESSING_MOCK) {
+    return mockDownloadEvidence(batchId, evidenceId);
+  }
+  return call(
+    api.get(`/api/v1/batches/${batchId}/evidence/${evidenceId}`, {
+      ...authHeaders(accessToken),
+      responseType: "blob",
+    }),
+    (data) => {
+      if (!(data instanceof Blob)) {
+        throw contractError("Evidence download is not a file.");
+      }
+      return data;
+    },
   );
 }
