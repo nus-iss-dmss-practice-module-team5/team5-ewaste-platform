@@ -59,17 +59,6 @@ func (s *BatchService) AcknowledgeAnalytics(
 			return replayErr
 		}
 		if replay != nil {
-			completedEvent, eventErr := tx.FindRequestCompletedEvent(ctx, batchID, replay.Data.AnalyticsResultID)
-			if eventErr != nil {
-				return eventErr
-			}
-			if completedEvent == nil || strings.TrimSpace(completedEvent.EventID) == "" {
-				return repository.ErrEventOutboxNotFound
-			}
-			if replay.EventID != "" && replay.EventID != completedEvent.EventID {
-				return ErrBatchIdempotencyConflict
-			}
-			replay.EventID = completedEvent.EventID
 			result = *replay
 			result.EventState = "REPLAYED"
 			return nil
@@ -111,12 +100,12 @@ func (s *BatchService) AcknowledgeAnalytics(
 			if eventErr != nil {
 				return eventErr
 			}
-			if completedEvent == nil || strings.TrimSpace(completedEvent.EventID) == "" {
-				return repository.ErrEventOutboxNotFound
-			}
 			result = dto.CompletionMutationResult{
 				Data:          dto.CompletionView{BatchID: batch.ID, Status: string(batch.Status), Version: int64(batch.Version), AnalyticsResultID: existing.ResultID, DataQuality: string(existing.DataQuality), Metrics: request.Metrics, AnomalyCodes: append([]string{}, request.AnomalyCodes...)},
-				CorrelationID: metadata.CorrelationID, EventID: completedEvent.EventID, EventState: "REPLAYED",
+				CorrelationID: metadata.CorrelationID, EventState: "REPLAYED",
+			}
+			if completedEvent != nil {
+				result.EventID = completedEvent.EventID
 			}
 			return nil
 		} else if errors.Is(lookupErr, repository.ErrAnalyticsSourceConflict) {
