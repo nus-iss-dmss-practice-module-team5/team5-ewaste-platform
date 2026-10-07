@@ -99,7 +99,8 @@ func (s *BatchService) RecordTreatment(
 			evidenceStatus = "PRESENT"
 		}
 
-		now := s.clock().UTC()
+		// Keep the payload and DATETIME(6) row at identical precision.
+		now := s.clock().UTC().Truncate(time.Microsecond)
 		command := newCommand(metadata, batch.ID, now, s.retainFor)
 		if err := tx.CreateCommand(ctx, command); err != nil {
 			return err
@@ -155,7 +156,7 @@ func (s *BatchService) RecordTreatment(
 		}
 
 		eventID := s.newID()
-		payload, err := buildRecyclingCompletedPayload(
+		payload, err := s.buildRecyclingCompletedPayload(
 			eventID,
 			command.ID,
 			batch,
@@ -349,7 +350,7 @@ func loadTreatmentReplay(
 	return &result, nil
 }
 
-func buildRecyclingCompletedPayload(
+func (s *BatchService) buildRecyclingCompletedPayload(
 	eventID string,
 	commandID string,
 	before *model.Batch,
@@ -381,6 +382,7 @@ func buildRecyclingCompletedPayload(
 		"correlation_id":      correlationID,
 		"data": map[string]any{
 			"treatment_id":       treatment.TreatmentID,
+			"rule_version":       s.approvedAnalyticsRuleVersion,
 			"receipt_id":         receipt.ReceiptID,
 			"receipt_version":    normalizedReceiptVersion(receipt),
 			"treatment_version":  treatment.Version,

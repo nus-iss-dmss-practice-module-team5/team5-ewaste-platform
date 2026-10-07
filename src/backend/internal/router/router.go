@@ -106,6 +106,7 @@ func NewAuthRouter(
 	analyticsBatches := r.Group("/api/v1/batches")
 	analyticsBatches.Use(middleware.RequireAnalyticsService(analyticsServiceToken))
 	if analyticsController != nil {
+		analyticsBatches.GET("/:batch_id/analytics-input", analyticsController.Prepare)
 		analyticsBatches.POST("/:batch_id/analytics-results", analyticsController.Acknowledge)
 	}
 

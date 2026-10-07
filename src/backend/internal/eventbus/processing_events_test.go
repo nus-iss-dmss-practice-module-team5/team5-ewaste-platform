@@ -1,7 +1,9 @@
 package eventbus
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
 	"testing"
 	"time"
 
@@ -18,10 +20,46 @@ func TestValidateEventAcceptsProcessingEventContracts(t *testing.T) {
 				EventType: eventType, Topic: "ewaste.batch.events", SchemaVersion: 1, AggregateVersion: 8, SequenceInCommand: 1,
 				PartitionKey: "22222222-2222-4222-8222-222222222222", PayloadJSON: payload, CorrelationID: "processing-contract-test", OccurredAt: now,
 			}
-			if err := validateEvent(event); err != nil {
+			if err := ValidateEvent(event); err != nil {
 				t.Fatalf("valid processing event rejected: %v", err)
 			}
+			var body map[string]any
+			if err := json.Unmarshal(payload, &body); err != nil {
+				t.Fatal(err)
+			}
+			data := body["data"].(map[string]any)
+			if eventType == model.RequestCompletedEventType {
+				data["anomaly_codes"] = "MISSING_OUTCOME"
+			} else {
+				data["actual_item_count"] = "10"
+			}
+			event.PayloadJSON, _ = json.Marshal(body)
+			if err := ValidateEvent(event); err == nil {
+				t.Fatal("wrong data type passed publisher validation")
+			}
 		})
+	}
+}
+
+func TestProcessingSchemasMatchPublishedAPIContracts(t *testing.T) {
+	for event, apiFile := range map[string]string{
+		"ReceiptVerified":    "receipt-verified",
+		"RecyclingCompleted": "recycling-completed",
+		"RequestCompleted":   "request-completed",
+	} {
+		published, err := os.ReadFile("../../api/events/" + apiFile + ".v1.schema.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, directory := range []string{"../matchingcontract/schemas/", "../../../../contracts/matching/kafka/"} {
+			actual, err := os.ReadFile(directory + event + ".v1.schema.json")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(published, actual) {
+				t.Fatalf("%s contract drift in %s", event, directory)
+			}
+		}
 	}
 }
 
@@ -33,7 +71,7 @@ func TestValidateEventRejectsProcessingSequenceMismatch(t *testing.T) {
 		EventType: model.RequestCompletedEventType, Topic: "ewaste.batch.events", SchemaVersion: 1, AggregateVersion: 8, SequenceInCommand: 2,
 		PartitionKey: "22222222-2222-4222-8222-222222222222", PayloadJSON: payload, CorrelationID: "processing-contract-test", OccurredAt: now,
 	}
-	if err := validateEvent(event); err == nil {
+	if err := ValidateEvent(event); err == nil {
 		t.Fatal("expected sequence mismatch to be rejected")
 	}
 }
@@ -47,7 +85,7 @@ func processingEventPayload(t *testing.T, eventType string, now time.Time) []byt
 			data[key] = value
 		}
 	case model.RecyclingCompletedEventType:
-		for key, value := range map[string]any{"treatment_id": "55555555-5555-4555-8555-555555555555", "receipt_id": "44444444-4444-4444-8444-444444444444", "receipt_version": 1, "treatment_version": 1, "facility_org_id": "PROC-001", "actor_user_id": "user-1", "declared_category": "ICT_EQUIPMENT", "declared_quantity": 10, "declared_weight_kg": "10.50", "actual_category": "ICT_EQUIPMENT", "actual_item_count": 10, "actual_weight_kg": "10.50", "reused_kg": nil, "recycled_kg": nil, "disposed_kg": nil, "unknown_kg": "10.50", "diverted_kg": nil, "data_quality": "MISSING", "evidence_id": nil, "evidence_status": "ABSENT", "claim_epoch": "1"} {
+		for key, value := range map[string]any{"treatment_id": "55555555-5555-4555-8555-555555555555", "receipt_id": "44444444-4444-4444-8444-444444444444", "receipt_version": 1, "treatment_version": 1, "rule_version": "d3-v1", "facility_org_id": "PROC-001", "actor_user_id": "user-1", "declared_category": "ICT_EQUIPMENT", "declared_quantity": 10, "declared_weight_kg": "10.50", "actual_category": "ICT_EQUIPMENT", "actual_item_count": 10, "actual_weight_kg": "10.50", "reused_kg": nil, "recycled_kg": nil, "disposed_kg": nil, "unknown_kg": "10.50", "diverted_kg": nil, "data_quality": "MISSING", "evidence_id": nil, "evidence_status": "ABSENT", "claim_epoch": "1"} {
 			data[key] = value
 		}
 	case model.RequestCompletedEventType:

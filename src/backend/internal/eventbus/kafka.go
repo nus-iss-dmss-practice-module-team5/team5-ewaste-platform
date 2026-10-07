@@ -157,9 +157,9 @@ func kafkaServerName(address string) string {
 	return strings.Trim(address, "[]")
 }
 
-// validateEvent checks routing identity before the network call. The payload
-// is sent exactly as persisted; it is never reconstructed from live tables.
-func validateEvent(event model.EventOutbox) error {
+// ValidateEvent checks the schema and routing identity before publication.
+// The payload is sent as persisted, never reconstructed from live tables.
+func ValidateEvent(event model.EventOutbox) error {
 	body, err := matchingcontract.Decode(event.PayloadJSON)
 	if err != nil || matchingcontract.Validate(event.EventType, body) != nil {
 		return &InvalidEventError{cause: errors.New("persisted event violates approved schema")}
@@ -315,7 +315,7 @@ func (p *KafkaPublisher) Publish(
 	if p == nil || p.writer == nil {
 		return ErrKafkaPublisherUnavailable
 	}
-	if err := validateEvent(event); err != nil {
+	if err := ValidateEvent(event); err != nil {
 		return err
 	}
 

@@ -65,7 +65,7 @@ func (s *BatchService) AcknowledgeAnalytics(
 		}
 
 		if existing, lookupErr := tx.FindAnalyticsResultBySourceRun(ctx, request.SourceEventID, request.AnalyticsRunID); lookupErr == nil {
-			if existing.BatchID != batchID || existing.SourceEventVersion != request.SourceEventVersion {
+			if existing.BatchID != batchID || existing.SourceEventVersion != request.SourceEventVersion || metadata.ExpectedVersion != int64(existing.SourceEventVersion) {
 				return ErrBatchIdempotencyConflict
 			}
 			metricsJSON, marshalErr := json.Marshal(request.Metrics)
@@ -84,7 +84,7 @@ func (s *BatchService) AcknowledgeAnalytics(
 				storedCodes = append(storedCodes, string(anomaly.Code))
 			}
 			sort.Strings(storedCodes)
-			requestedCodes := append([]string(nil), request.AnomalyCodes...)
+			requestedCodes := append([]string{}, request.AnomalyCodes...)
 			sort.Strings(requestedCodes)
 			if !equalStrings(storedCodes, requestedCodes) {
 				return ErrBatchIdempotencyConflict
@@ -97,11 +97,11 @@ func (s *BatchService) AcknowledgeAnalytics(
 				return ErrBatchInvalidState
 			}
 			completedEvent, eventErr := tx.FindRequestCompletedEvent(ctx, batchID, existing.ResultID)
-			if eventErr != nil && !errors.Is(eventErr, repository.ErrEventOutboxNotFound) {
+			if eventErr != nil {
 				return eventErr
 			}
 			result = dto.CompletionMutationResult{
-				Data:          dto.CompletionView{BatchID: batch.ID, Status: string(batch.Status), Version: int64(batch.Version), AnalyticsResultID: existing.ResultID, DataQuality: string(existing.DataQuality), Metrics: request.Metrics, AnomalyCodes: append([]string(nil), request.AnomalyCodes...)},
+				Data:          dto.CompletionView{BatchID: batch.ID, Status: string(batch.Status), Version: int64(batch.Version), AnalyticsResultID: existing.ResultID, DataQuality: string(existing.DataQuality), Metrics: request.Metrics, AnomalyCodes: append([]string{}, request.AnomalyCodes...)},
 				CorrelationID: metadata.CorrelationID, EventState: "REPLAYED",
 			}
 			if completedEvent != nil {
@@ -124,6 +124,9 @@ func (s *BatchService) AcknowledgeAnalytics(
 		envelope, err := decodeEventPayload(sourceEvent.PayloadJSON)
 		if err != nil {
 			return NewBatchValidationError(map[string]string{"source_event_id": "source event payload is invalid"})
+		}
+		if sourceEvent.AggregateVersion != request.SourceEventVersion || stringValue(envelope["event_id"]) != sourceEvent.EventID || stringValue(envelope["correlation_id"]) != sourceEvent.CorrelationID {
+			return NewBatchValidationError(map[string]string{"source_event_id": "source identity does not match its outbox row"})
 		}
 		if err := validateSourceEvent(envelope, batchID, request); err != nil {
 			return err
@@ -164,7 +167,8 @@ func (s *BatchService) AcknowledgeAnalytics(
 			return err
 		}
 
-		now := s.clock().UTC()
+		// Keep the payload and DATETIME(6) row at identical precision.
+		now := s.clock().UTC().Truncate(time.Microsecond)
 		command := newCommand(metadata, batch.ID, now, s.retainFor)
 		if err := tx.CreateCommand(ctx, command); err != nil {
 			return err
@@ -281,7 +285,7 @@ func (s *BatchService) AcknowledgeAnalytics(
 			Data: dto.CompletionView{
 				BatchID: completed.ID, Status: string(completed.Status), Version: int64(completed.Version),
 				AnalyticsResultID: analyticsResult.ResultID, DataQuality: request.DataQuality,
-				Metrics: request.Metrics, AnomalyCodes: append([]string(nil), request.AnomalyCodes...),
+				Metrics: request.Metrics, AnomalyCodes: append([]string{}, request.AnomalyCodes...),
 			},
 			CorrelationID: metadata.CorrelationID, EventID: eventID, EventState: string(model.OutboxPublishStatePending),
 		}
@@ -356,14 +360,18 @@ func (s *BatchService) validateAnalyticsRequest(request dto.AnalyticsAcknowledge
 	}
 	if strings.TrimSpace(request.RuleVersion) == "" {
 		fields["rule_version"] = "is required"
-	} else if request.RuleVersion != s.approvedAnalyticsRuleVersion {
-		fields["rule_version"] = "does not match the approved analytics rule version"
+	} else if len(request.RuleVersion) > 64 {
+		fields["rule_version"] = "must not exceed 64 characters"
 	}
 	if request.DataQuality != string(model.AnalyticsDataQualityComplete) && request.DataQuality != string(model.AnalyticsDataQualityPartial) && request.DataQuality != string(model.AnalyticsDataQualityMissing) {
 		fields["data_quality"] = "must be COMPLETE, PARTIAL or MISSING"
 	}
 	if err := validateAnalyticsMetrics(request.Metrics); err != nil {
 		fields["metrics"] = err.Error()
+	}
+	// Empty flags are [], never null, in the published completion contract.
+	if request.AnomalyCodes == nil {
+		fields["anomaly_codes"] = "must be an array; use [] for no flags"
 	}
 	seen := map[string]bool{}
 	for _, raw := range request.AnomalyCodes {
@@ -575,6 +583,11 @@ func decodeEventPayload(raw []byte) (map[string]any, error) {
 }
 
 func validateSourceEvent(payload map[string]any, batchID string, request dto.AnalyticsAcknowledgement) error {
+	data, ok := payload["data"].(map[string]any)
+	// Use the policy chosen at treatment time, including retries after config changes.
+	if !ok || strings.TrimSpace(stringValue(data["rule_version"])) == "" || stringValue(data["rule_version"]) != request.RuleVersion {
+		return NewBatchValidationError(map[string]string{"rule_version": "does not match the frozen source policy"})
+	}
 	if stringValue(payload["event_type"]) != model.RecyclingCompletedEventType || stringValue(payload["batch_id"]) != batchID || numberValue(payload["aggregate_version"]) != uint64(request.SourceEventVersion) {
 		return NewBatchValidationError(map[string]string{"source_event_id": "does not identify the expected RecyclingCompleted version"})
 	}
@@ -599,10 +612,14 @@ func analyticsCanonicalInput(payload map[string]any) (map[string]any, error) {
 	if !ok {
 		return nil, NewBatchValidationError(map[string]string{"source_event_id": "source event data is invalid"})
 	}
-	keys := []string{"actor_user_id", "actual_category", "actual_item_count", "actual_weight_kg", "aggregate_version", "batch_id", "claim_epoch", "data_quality", "declared_category", "declared_quantity", "declared_weight_kg", "disposed_kg", "diverted_kg", "evidence_id", "evidence_status", "facility_org_id", "receipt_id", "receipt_version", "recycled_kg", "reused_kg", "treatment_id", "treatment_version", "unknown_kg"}
+	keys := []string{"actor_user_id", "actual_category", "actual_item_count", "actual_weight_kg", "aggregate_version", "batch_id", "claim_epoch", "data_quality", "declared_category", "declared_quantity", "declared_weight_kg", "disposed_kg", "diverted_kg", "evidence_id", "evidence_status", "facility_org_id", "receipt_id", "receipt_version", "recycled_kg", "reused_kg", "treatment_id", "treatment_version", "unknown_kg", "rule_version", "source_event_id", "correlation_id"}
 	canonical := make(map[string]any, len(keys))
 	for _, key := range keys {
-		if key == "aggregate_version" {
+		if key == "source_event_id" {
+			canonical[key] = payload["event_id"]
+			continue
+		}
+		if key == "aggregate_version" || key == "correlation_id" {
 			canonical[key] = payload[key]
 			continue
 		}

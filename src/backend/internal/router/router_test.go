@@ -265,12 +265,21 @@ func TestAuthRouterRegistersAnalyticsEndpoint(t *testing.T) {
 		routerTestLimiter{}, nil, nil, zap.NewNop(), "analytics-secret",
 	)
 
+	wanted := map[string]bool{
+		"POST /api/v1/batches/:batch_id/analytics-results": false,
+		"GET /api/v1/batches/:batch_id/analytics-input":    false,
+	}
 	for _, route := range r.Routes() {
-		if route.Method == http.MethodPost && route.Path == "/api/v1/batches/:batch_id/analytics-results" {
-			return
+		key := route.Method + " " + route.Path
+		if _, ok := wanted[key]; ok {
+			wanted[key] = true
 		}
 	}
-	t.Fatal("analytics endpoint was not registered")
+	for route, found := range wanted {
+		if !found {
+			t.Errorf("analytics route missing: %s", route)
+		}
+	}
 }
 
 func TestDocsExposeOpenAPISpecAndSwaggerUI(t *testing.T) {

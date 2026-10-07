@@ -790,12 +790,34 @@ paths:
         '401': {$ref: '#/components/responses/InvalidSession'}
         '403': {$ref: '#/components/responses/Forbidden'}
         '404': {$ref: '#/components/responses/NotFound'}
+  /api/v1/batches/{batch_id}/analytics-input:
+    get:
+      tags: [Analytics]
+      summary: Prepare frozen inputs for a committed treatment event
+      operationId: prepareAnalyticsInput
+      description: Requires the analytics service bearer token. Returns the immutable source snapshot without creating rows; repeatable after completion. Hash the unchanged UTF-8 bytes of input_canonical_json before parsing it for evaluation.
+      parameters:
+        - $ref: '#/components/parameters/BatchId'
+        - $ref: '#/components/parameters/AnalyticsAuthorization'
+        - $ref: '#/components/parameters/CorrelationId'
+        - name: source_event_id
+          in: query
+          required: true
+          schema: {type: string, format: uuid}
+      responses:
+        '200': {description: Frozen inputs and source identity, content: {application/json: {schema: {$ref: '#/components/schemas/AnalyticsPreparation'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
   /api/v1/batches/{batch_id}/analytics-results:
     post:
       tags: [Analytics]
       summary: Acknowledge a durable deterministic analytics result
       operationId: acknowledgeAnalyticsResult
-      description: Only the authenticated analytics service identity may call this operation. Authorization must carry the configured analytics service bearer token; user access tokens are not accepted.
+      description: Only the authenticated analytics service identity may call this operation. Authorization must carry the configured analytics service bearer token; user access tokens are not accepted. If-Match-Version must equal the prepared source_event_version, including replay after completion.
       parameters:
         - $ref: '#/components/parameters/BatchId'
         - $ref: '#/components/parameters/AnalyticsAuthorization'
@@ -1071,6 +1093,20 @@ components:
             sha256_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
             validation_status: {type: string, enum: [VALIDATED], description: Evidence is accepted only after synchronous D2 ingestion validation. Invalid uploads return 422 and do not create metadata.}
         correlation_id: {type: string}
+    AnalyticsPreparation:
+      type: object
+      additionalProperties: false
+      required: [batch_id, source_event_id, source_event_version, rule_version, correlation_id, input_hash, input_canonical_json]
+      properties:
+        batch_id: {type: string, format: uuid}
+        source_event_id: {type: string, format: uuid}
+        source_event_version: {type: integer, minimum: 1}
+        rule_version: {type: string, minLength: 1, maxLength: 64}
+        correlation_id: {type: string, minLength: 1, maxLength: 128}
+        input_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
+        input_canonical_json:
+          type: string
+          description: Exact JSON input bytes encoded as a string, including source/batch IDs, source version, receipt/treatment IDs and versions, measurements, outcomes, correlation and frozen rule version. SHA-256 the UTF-8 value without re-serializing it.
     AnalyticsAcknowledgement:
       type: object
       required: [source_event_id, source_event_version, analytics_run_id, input_hash, rule_version, data_quality, metrics, anomaly_codes]
@@ -1084,7 +1120,7 @@ components:
           type: string
           minLength: 1
           maxLength: 64
-          description: Must equal the operator-configured approved analytics rule version (EWASTE_ANALYTICS_APPROVED_RULE_VERSION).
+          description: Must equal the rule version frozen in the source event and returned by preparation. EWASTE_ANALYTICS_APPROVED_RULE_VERSION selects the policy for newly recorded treatments only.
         data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
         metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
         anomaly_codes:

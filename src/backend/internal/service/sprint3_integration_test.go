@@ -158,10 +158,12 @@ func pythonAnalyticsAcknowledgement(payload map[string]any, sourceEventID string
 
 	// This independently reconstructs the canonical object specified by the
 	// Sprint 3 Python boundary. It intentionally does not call Go's hash helper.
-	canonicalKeys := []string{"actor_user_id", "actual_category", "actual_item_count", "actual_weight_kg", "aggregate_version", "batch_id", "claim_epoch", "data_quality", "declared_category", "declared_quantity", "declared_weight_kg", "disposed_kg", "diverted_kg", "evidence_id", "evidence_status", "facility_org_id", "receipt_id", "receipt_version", "recycled_kg", "reused_kg", "treatment_id", "treatment_version", "unknown_kg"}
+	canonicalKeys := []string{"actor_user_id", "actual_category", "actual_item_count", "actual_weight_kg", "aggregate_version", "batch_id", "claim_epoch", "data_quality", "declared_category", "declared_quantity", "declared_weight_kg", "disposed_kg", "diverted_kg", "evidence_id", "evidence_status", "facility_org_id", "receipt_id", "receipt_version", "recycled_kg", "reused_kg", "treatment_id", "treatment_version", "unknown_kg", "rule_version", "source_event_id", "correlation_id"}
 	canonical := make(map[string]any, len(canonicalKeys))
 	for _, key := range canonicalKeys {
-		if key == "aggregate_version" {
+		if key == "source_event_id" {
+			canonical[key] = payload["event_id"]
+		} else if key == "aggregate_version" || key == "correlation_id" {
 			canonical[key] = payload[key]
 		} else {
 			canonical[key] = data[key]
@@ -187,7 +189,7 @@ func pythonAnalyticsAcknowledgement(payload map[string]any, sourceEventID string
 		SourceEventVersion: uint32(numberValue(payload["aggregate_version"])),
 		AnalyticsRunID:     "python-run-001",
 		InputHash:          inputHash,
-		RuleVersion:        "d3-v1",
+		RuleVersion:        stringValue(data["rule_version"]),
 		DataQuality:        dataQuality,
 		Metrics: dto.AnalyticsMetrics{
 			DeclaredWeightKg: stringPointer(stringValue(data["declared_weight_kg"])),

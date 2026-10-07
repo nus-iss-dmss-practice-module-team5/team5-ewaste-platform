@@ -24,11 +24,34 @@ type AnalyticsController struct {
 }
 
 type analyticsWorkflow interface {
+	PrepareAnalytics(context.Context, string, string, string) (dto.AnalyticsPreparation, error)
 	AcknowledgeAnalytics(context.Context, string, dto.AnalyticsAcknowledgement, service.BatchCommandMetadata) (dto.CompletionMutationResult, error)
 }
 
 func NewAnalyticsController(analyticsService analyticsWorkflow, logger *zap.Logger) *AnalyticsController {
 	return &AnalyticsController{service: analyticsService, logger: logger}
+}
+
+// Prepare returns a stable snapshot for a specific committed treatment event.
+func (h *AnalyticsController) Prepare(c *gin.Context) {
+	principal, ok := middleware.ServicePrincipalFromContext(c)
+	if !ok {
+		response.Error(c, apierror.InvalidSession, middleware.GetCorrelationID(c))
+		return
+	}
+	c.Header("X-Analytics-Contract", "processing-v1")
+	c.Header("Cache-Control", "no-store")
+	sourceEventID := strings.TrimSpace(c.Query("source_event_id"))
+	if sourceEventID == "" {
+		response.Error(c, apierror.InvalidRequest, middleware.GetCorrelationID(c))
+		return
+	}
+	result, err := h.service.PrepareAnalytics(c.Request.Context(), c.Param("batch_id"), sourceEventID, principal)
+	if err != nil {
+		response.Error(c, mapAnalyticsError(err), middleware.GetCorrelationID(c))
+		return
+	}
+	response.JSON(c, http.StatusOK, result)
 }
 
 func (h *AnalyticsController) Acknowledge(c *gin.Context) {

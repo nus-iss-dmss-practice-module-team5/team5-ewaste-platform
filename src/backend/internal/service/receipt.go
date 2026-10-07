@@ -81,7 +81,8 @@ func (s *BatchService) VerifyReceipt(
 			return mapReceiptRepositoryError(err)
 		}
 
-		now := s.clock().UTC()
+		// Keep the payload and DATETIME(6) row at identical precision.
+		now := s.clock().UTC().Truncate(time.Microsecond)
 		command := newCommand(metadata, batch.ID, now, s.retainFor)
 		if err := tx.CreateCommand(ctx, command); err != nil {
 			return err

@@ -39,6 +39,7 @@
       "additionalProperties": false,
       "required": [
         "treatment_id",
+        "rule_version",
         "receipt_id",
         "receipt_version",
         "treatment_version",
@@ -63,6 +64,7 @@
       ],
       "properties": {
         "treatment_id": {"type": "string", "minLength": 1},
+        "rule_version": {"type": "string", "minLength": 1, "maxLength": 64},
         "receipt_id": {"type": "string", "minLength": 1},
         "receipt_version": {"type": "integer", "minimum": 1},
         "treatment_version": {"type": "integer", "minimum": 1},
