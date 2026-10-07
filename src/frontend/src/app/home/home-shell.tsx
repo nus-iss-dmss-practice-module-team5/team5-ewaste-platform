@@ -5,7 +5,9 @@ import { useSession } from "@/lib/auth/session-context";
 import { useState } from "react";
 import { ClaimAction } from "./claim-action";
 import { CollectorWork } from "./collector-work";
+import { CustodyView } from "./custody";
 import { DonorBatchForm, DonorBatchList } from "./donor-batches";
+import { ImpactView } from "./impact";
 import { OpportunityView } from "./opportunities";
 import { ProcessingWork } from "./processing";
 
@@ -13,6 +15,8 @@ export function HomeShell() {
   const { session, justRenewed, logout } = useSession();
   const [activeNav, setActiveNav] = useState<string | null>(null);
   const [loggingOut, setLoggingOut] = useState(false);
+  // The batch an Auditor opened from the Impact list.
+  const [custodyBatchId, setCustodyBatchId] = useState<string>();
 
   if (!session) {
     return null;
@@ -40,6 +44,15 @@ export function HomeShell() {
       <CollectorWork />
     ) : user.role === "COLLECTOR" && current === "history" ? (
       <CollectorWork history />
+    ) : user.role === "AUDITOR" && current === "custody" ? (
+      <CustodyView initialBatchId={custodyBatchId} />
+    ) : user.role === "AUDITOR" && current === "impact" ? (
+      <ImpactView
+        onOpenCustody={(batchId) => {
+          setCustodyBatchId(batchId);
+          setActiveNav("custody");
+        }}
+      />
     ) : null;
 
   async function onLogout() {
