@@ -16,12 +16,12 @@ type auditReadRepositoryStub struct {
 	impact    []*model.ImpactReadResult
 }
 
-func (s *auditReadRepositoryStub) FindAuditTimeline(context.Context, string, repository.WorkflowReadScope) ([]*model.BatchAuditEvent, error) {
-	return s.timeline, nil
+func (s *auditReadRepositoryStub) FindAuditTimeline(context.Context, string, repository.WorkflowReadScope, repository.WorkflowReadPage) ([]*model.BatchAuditEvent, int64, error) {
+	return s.timeline, int64(len(s.timeline)), nil
 }
 
-func (s *auditReadRepositoryStub) FindAuditAnomalies(context.Context, string, repository.WorkflowReadScope) ([]*model.BatchAnomaly, error) {
-	return s.anomalies, nil
+func (s *auditReadRepositoryStub) FindAuditAnomalies(context.Context, string, repository.WorkflowReadScope, repository.WorkflowReadPage) ([]*model.BatchAnomaly, int64, error) {
+	return s.anomalies, int64(len(s.anomalies)), nil
 }
 
 func (s *auditReadRepositoryStub) ListImpactResults(context.Context, repository.WorkflowReadScope) ([]*model.ImpactReadResult, error) {
@@ -47,12 +47,12 @@ func TestAuditorReadServiceExposesTimelineAnomaliesAndImpact(t *testing.T) {
 		}},
 	})
 
-	timeline, err := service.Timeline(context.Background(), "batch-1", actor)
-	if err != nil || len(timeline) != 1 || timeline[0].ToStatus != string(model.BatchStatusCompleted) {
+	timeline, err := service.Timeline(context.Background(), "batch-1", actor, WorkflowReadPage{Page: 1, PageSize: 100})
+	if err != nil || timeline.TotalCount != 1 || len(timeline.Data) != 1 || timeline.Data[0].ToStatus != string(model.BatchStatusCompleted) {
 		t.Fatalf("unexpected timeline: %v %+v", err, timeline)
 	}
-	anomalies, err := service.Anomalies(context.Background(), "batch-1", actor)
-	if err != nil || len(anomalies) != 1 || anomalies[0].Code != string(model.AnomalyMissingOutcome) {
+	anomalies, err := service.Anomalies(context.Background(), "batch-1", actor, WorkflowReadPage{Page: 1, PageSize: 100})
+	if err != nil || anomalies.TotalCount != 1 || len(anomalies.Data) != 1 || anomalies.Data[0].Code != string(model.AnomalyMissingOutcome) {
 		t.Fatalf("unexpected anomalies: %v %+v", err, anomalies)
 	}
 	impact, err := service.Impact(context.Background(), actor)
@@ -63,7 +63,7 @@ func TestAuditorReadServiceExposesTimelineAnomaliesAndImpact(t *testing.T) {
 
 func TestAuditorReadServiceRejectsNonAuditor(t *testing.T) {
 	service := NewAuditorReadService(&auditReadRepositoryStub{})
-	if _, err := service.Timeline(context.Background(), "batch-1", WorkflowReadActor{UserID: "user-1", RoleCode: "RECYCLER"}); !errors.Is(err, ErrWorkflowReadForbidden) {
+	if _, err := service.Timeline(context.Background(), "batch-1", WorkflowReadActor{UserID: "user-1", RoleCode: "RECYCLER"}, WorkflowReadPage{Page: 1, PageSize: 100}); !errors.Is(err, ErrWorkflowReadForbidden) {
 		t.Fatalf("timeline error = %v, want forbidden", err)
 	}
 	if _, err := service.Impact(context.Background(), WorkflowReadActor{UserID: "user-1", RoleCode: "SYSTEM_ADMIN"}); !errors.Is(err, ErrWorkflowReadForbidden) {

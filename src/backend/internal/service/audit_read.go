@@ -15,36 +15,56 @@ type AuditorReadService struct {
 	repository repository.AuditorReadRepository
 }
 
+type AuditTimelineListResult struct {
+	Data       []dto.AuditTimelineView
+	Page       int
+	PageSize   int
+	TotalCount int64
+}
+
+type AuditAnomalyListResult struct {
+	Data       []dto.AnomalyView
+	Page       int
+	PageSize   int
+	TotalCount int64
+}
+
 func NewAuditorReadService(repo repository.AuditorReadRepository) *AuditorReadService {
 	return &AuditorReadService{repository: repo}
 }
 
-func (s *AuditorReadService) Timeline(ctx context.Context, batchID string, actor WorkflowReadActor) ([]dto.AuditTimelineView, error) {
+func (s *AuditorReadService) Timeline(ctx context.Context, batchID string, actor WorkflowReadActor, page WorkflowReadPage) (AuditTimelineListResult, error) {
 	if strings.TrimSpace(batchID) == "" || !isRole(actor.RoleCode, "AUDITOR") {
-		return nil, ErrWorkflowReadForbidden
+		return AuditTimelineListResult{}, ErrWorkflowReadForbidden
 	}
-	events, err := s.repository.FindAuditTimeline(ctx, batchID, toRepositoryScope(actor))
+	if err := validatePage(page); err != nil {
+		return AuditTimelineListResult{}, err
+	}
+	events, total, err := s.repository.FindAuditTimeline(ctx, batchID, toRepositoryScope(actor), toRepositoryPage(page))
 	if err != nil {
-		return nil, mapWorkflowReadRepositoryError(err)
+		return AuditTimelineListResult{}, mapWorkflowReadRepositoryError(err)
 	}
-	result := make([]dto.AuditTimelineView, 0, len(events))
+	result := AuditTimelineListResult{Data: make([]dto.AuditTimelineView, 0, len(events)), Page: page.Page, PageSize: page.PageSize, TotalCount: total}
 	for _, event := range events {
-		result = append(result, auditEventToDTO(event))
+		result.Data = append(result.Data, auditEventToDTO(event))
 	}
 	return result, nil
 }
 
-func (s *AuditorReadService) Anomalies(ctx context.Context, batchID string, actor WorkflowReadActor) ([]dto.AnomalyView, error) {
+func (s *AuditorReadService) Anomalies(ctx context.Context, batchID string, actor WorkflowReadActor, page WorkflowReadPage) (AuditAnomalyListResult, error) {
 	if strings.TrimSpace(batchID) == "" || !isRole(actor.RoleCode, "AUDITOR") {
-		return nil, ErrWorkflowReadForbidden
+		return AuditAnomalyListResult{}, ErrWorkflowReadForbidden
 	}
-	anomalies, err := s.repository.FindAuditAnomalies(ctx, batchID, toRepositoryScope(actor))
+	if err := validatePage(page); err != nil {
+		return AuditAnomalyListResult{}, err
+	}
+	anomalies, total, err := s.repository.FindAuditAnomalies(ctx, batchID, toRepositoryScope(actor), toRepositoryPage(page))
 	if err != nil {
-		return nil, mapWorkflowReadRepositoryError(err)
+		return AuditAnomalyListResult{}, mapWorkflowReadRepositoryError(err)
 	}
-	result := make([]dto.AnomalyView, 0, len(anomalies))
+	result := AuditAnomalyListResult{Data: make([]dto.AnomalyView, 0, len(anomalies)), Page: page.Page, PageSize: page.PageSize, TotalCount: total}
 	for _, anomaly := range anomalies {
-		result = append(result, anomalyToDTO(anomaly))
+		result.Data = append(result.Data, anomalyToDTO(anomaly))
 	}
 	return result, nil
 }

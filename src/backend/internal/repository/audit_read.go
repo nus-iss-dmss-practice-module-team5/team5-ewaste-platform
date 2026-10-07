@@ -15,8 +15,8 @@ import (
 // AuditorReadRepository contains read-only projections for the D4 Auditor
 // boundary. It deliberately has no mutation methods.
 type AuditorReadRepository interface {
-	FindAuditTimeline(context.Context, string, WorkflowReadScope) ([]*model.BatchAuditEvent, error)
-	FindAuditAnomalies(context.Context, string, WorkflowReadScope) ([]*model.BatchAnomaly, error)
+	FindAuditTimeline(context.Context, string, WorkflowReadScope, WorkflowReadPage) ([]*model.BatchAuditEvent, int64, error)
+	FindAuditAnomalies(context.Context, string, WorkflowReadScope, WorkflowReadPage) ([]*model.BatchAnomaly, int64, error)
 	ListImpactResults(context.Context, WorkflowReadScope) ([]*model.ImpactReadResult, error)
 }
 
@@ -32,42 +32,56 @@ func (r *GormAuditorReadRepository) FindAuditTimeline(
 	ctx context.Context,
 	batchID string,
 	scope WorkflowReadScope,
-) ([]*model.BatchAuditEvent, error) {
+	page WorkflowReadPage,
+) ([]*model.BatchAuditEvent, int64, error) {
 	if err := r.validateAuditor(ctx, scope); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := r.requireBatch(ctx, batchID); err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	query := r.db.WithContext(ctx).Model(&model.BatchAuditEvent{}).Where("batch_id = ?", batchID)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
 	var events []*model.BatchAuditEvent
-	if err := r.db.WithContext(ctx).
-		Where("batch_id = ?", batchID).
+	if err := query.
 		Order("occurred_at ASC, batch_version ASC, sequence_in_command ASC, id ASC").
+		Offset((page.Page - 1) * page.PageSize).
+		Limit(page.PageSize).
 		Find(&events).Error; err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return events, nil
+	return events, total, nil
 }
 
 func (r *GormAuditorReadRepository) FindAuditAnomalies(
 	ctx context.Context,
 	batchID string,
 	scope WorkflowReadScope,
-) ([]*model.BatchAnomaly, error) {
+	page WorkflowReadPage,
+) ([]*model.BatchAnomaly, int64, error) {
 	if err := r.validateAuditor(ctx, scope); err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if err := r.requireBatch(ctx, batchID); err != nil {
-		return nil, err
+		return nil, 0, err
+	}
+	query := r.db.WithContext(ctx).Model(&model.BatchAnomaly{}).Where("batch_id = ?", batchID)
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
 	}
 	var anomalies []*model.BatchAnomaly
-	if err := r.db.WithContext(ctx).
-		Where("batch_id = ?", batchID).
+	if err := query.
 		Order("detected_at ASC, anomaly_id ASC").
+		Offset((page.Page - 1) * page.PageSize).
+		Limit(page.PageSize).
 		Find(&anomalies).Error; err != nil {
-		return nil, err
+		return nil, 0, err
 	}
-	return anomalies, nil
+	return anomalies, total, nil
 }
 
 func (r *GormAuditorReadRepository) ListImpactResults(
@@ -102,7 +116,7 @@ func (r *GormAuditorReadRepository) ListImpactResults(
 		Select("ar.metric_id AS result_id, ar.batch_id, ar.source_event_id, ar.source_batch_version, ar.receipt_id, ar.receipt_version, ar.treatment_id, ar.treatment_version, ar.rule_version, ar.input_hash, ar.data_quality, ar.input_snapshot_json, ar.calculated_at").
 		Joins("INNER JOIN ewaste_batches AS b ON b.id = ar.batch_id").
 		Where("b.status = ?", model.BatchStatusCompleted).
-		Order("ar.acknowledged_at DESC, ar.result_id DESC").
+		Order("ar.calculated_at DESC, ar.metric_id DESC").
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}

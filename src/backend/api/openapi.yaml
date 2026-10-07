@@ -824,6 +824,15 @@ paths:
         - $ref: '#/components/parameters/BatchId'
         - $ref: '#/components/parameters/Authorization'
         - $ref: '#/components/parameters/CorrelationId'
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: page_size
+          in: query
+          required: false
+          description: Maximum number of timeline rows to return. Defaults to 100 for an audit batch history.
+          schema: {type: integer, minimum: 1, maximum: 100, default: 100}
       responses:
         '200': {description: Audit timeline, content: {application/json: {schema: {$ref: '#/components/schemas/TimelineResponse'}}}}
         '401': {$ref: '#/components/responses/InvalidSession'}
@@ -838,6 +847,15 @@ paths:
         - $ref: '#/components/parameters/BatchId'
         - $ref: '#/components/parameters/Authorization'
         - $ref: '#/components/parameters/CorrelationId'
+        - name: page
+          in: query
+          required: false
+          schema: {type: integer, minimum: 1, default: 1}
+        - name: page_size
+          in: query
+          required: false
+          description: Maximum number of anomaly rows to return. Defaults to 100 for an audit batch.
+          schema: {type: integer, minimum: 1, maximum: 100, default: 100}
       responses:
         '200': {description: Stored anomaly flags, content: {application/json: {schema: {$ref: '#/components/schemas/AnomalyListResponse'}}}}
         '401': {$ref: '#/components/responses/InvalidSession'}
@@ -1152,15 +1170,21 @@ components:
         correlation_id: {type: string}
     TimelineResponse:
       type: object
-      required: [data, correlation_id]
+      required: [data, page, page_size, total_count, correlation_id]
       properties:
         data: {type: array, items: {$ref: '#/components/schemas/AuditTimelineEntry'}}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1, maximum: 100}
+        total_count: {type: integer, minimum: 0}
         correlation_id: {type: string}
     AnomalyListResponse:
       type: object
-      required: [data, correlation_id]
+      required: [data, page, page_size, total_count, correlation_id]
       properties:
         data: {type: array, items: {$ref: '#/components/schemas/Anomaly'}}
+        page: {type: integer, minimum: 1}
+        page_size: {type: integer, minimum: 1, maximum: 100}
+        total_count: {type: integer, minimum: 0}
         correlation_id: {type: string}
     ImpactResponse:
       type: object

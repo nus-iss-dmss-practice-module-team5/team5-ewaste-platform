@@ -18,9 +18,10 @@ import (
 )
 
 const (
-	defaultReadPage     = 1
-	defaultReadPageSize = 20
-	maxReadPageSize     = 100
+	defaultReadPage      = 1
+	defaultReadPageSize  = 20
+	maxReadPageSize      = 100
+	defaultAuditPageSize = 100
 )
 
 type WorkflowReadController struct {
@@ -118,13 +119,19 @@ func (h *WorkflowReadController) GetAuditTimeline(c *gin.Context) {
 		h.writeError(c, apierror.InvalidSession)
 		return
 	}
-	data, err := h.auditor.Timeline(c.Request.Context(), strings.TrimSpace(c.Param("batch_id")), readActor(claims))
+	page, err := readPageWithDefault(c, defaultAuditPageSize)
+	if err != nil {
+		h.writeError(c, apierror.InvalidRequest)
+		return
+	}
+	result, err := h.auditor.Timeline(c.Request.Context(), strings.TrimSpace(c.Param("batch_id")), readActor(claims), page)
 	if err != nil {
 		h.writeError(c, mapWorkflowReadError(err))
 		return
 	}
-	response.JSON(c, http.StatusOK, response.Resource[[]dto.AuditTimelineView]{
-		Data: data, CorrelationID: middleware.GetCorrelationID(c),
+	response.JSON(c, http.StatusOK, response.Page[dto.AuditTimelineView]{
+		Data: result.Data, Page: result.Page, PageSize: result.PageSize, TotalCount: result.TotalCount,
+		CorrelationID: middleware.GetCorrelationID(c),
 	})
 }
 
@@ -134,13 +141,19 @@ func (h *WorkflowReadController) GetAuditAnomalies(c *gin.Context) {
 		h.writeError(c, apierror.InvalidSession)
 		return
 	}
-	data, err := h.auditor.Anomalies(c.Request.Context(), strings.TrimSpace(c.Param("batch_id")), readActor(claims))
+	page, err := readPageWithDefault(c, defaultAuditPageSize)
+	if err != nil {
+		h.writeError(c, apierror.InvalidRequest)
+		return
+	}
+	result, err := h.auditor.Anomalies(c.Request.Context(), strings.TrimSpace(c.Param("batch_id")), readActor(claims), page)
 	if err != nil {
 		h.writeError(c, mapWorkflowReadError(err))
 		return
 	}
-	response.JSON(c, http.StatusOK, response.Resource[[]dto.AnomalyView]{
-		Data: data, CorrelationID: middleware.GetCorrelationID(c),
+	response.JSON(c, http.StatusOK, response.Page[dto.AnomalyView]{
+		Data: result.Data, Page: result.Page, PageSize: result.PageSize, TotalCount: result.TotalCount,
+		CorrelationID: middleware.GetCorrelationID(c),
 	})
 }
 
@@ -233,8 +246,12 @@ func (h *WorkflowReadController) GetAssignment(c *gin.Context) {
 }
 
 func readPage(c *gin.Context) (service.WorkflowReadPage, error) {
+	return readPageWithDefault(c, defaultReadPageSize)
+}
+
+func readPageWithDefault(c *gin.Context, defaultPageSize int) (service.WorkflowReadPage, error) {
 	page := defaultReadPage
-	pageSize := defaultReadPageSize
+	pageSize := defaultPageSize
 	var err error
 	if raw := strings.TrimSpace(c.Query("page")); raw != "" {
 		page, err = strconv.Atoi(raw)
