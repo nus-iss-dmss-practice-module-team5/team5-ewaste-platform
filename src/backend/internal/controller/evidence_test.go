@@ -142,6 +142,12 @@ func TestEvidenceControllerDownloadWritesValidatedContentHeaders(t *testing.T) {
 	if recorder.Header().Get("Content-Type") != "application/pdf" || recorder.Header().Get("Content-Length") != "16" {
 		t.Fatalf("unexpected download headers: %v", recorder.Header())
 	}
+	if recorder.Header().Get("X-Content-Type-Options") != "nosniff" || recorder.Header().Get("Cache-Control") != "private, no-store" {
+		t.Fatalf("download must not be sniffed or cached: %v", recorder.Header())
+	}
+	if !strings.HasPrefix(recorder.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("download must be served as an attachment: %q", recorder.Header().Get("Content-Disposition"))
+	}
 	if !strings.Contains(recorder.Header().Get("Content-Disposition"), "receipt.pdf") {
 		t.Fatalf("missing filename in content disposition: %q", recorder.Header().Get("Content-Disposition"))
 	}
@@ -157,6 +163,7 @@ func TestEvidenceControllerMapsWorkflowErrors(t *testing.T) {
 		{name: "not found", err: service.ErrBatchEvidenceNotFound, code: http.StatusNotFound},
 		{name: "validation", err: service.ErrBatchValidation, code: http.StatusUnprocessableEntity},
 		{name: "storage", err: service.ErrEvidenceStorage, code: http.StatusServiceUnavailable},
+		{name: "integrity", err: service.ErrEvidenceIntegrity, code: http.StatusServiceUnavailable},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {

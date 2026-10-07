@@ -123,6 +123,8 @@ func (h *EvidenceController) Download(c *gin.Context) {
 	c.Header("Content-Type", result.MIMEType)
 	c.Header("Content-Disposition", contentDisposition)
 	c.Header("Content-Length", strconv.Itoa(result.SizeBytes))
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Cache-Control", "private, no-store")
 	c.Data(http.StatusOK, result.MIMEType, result.Content)
 }
 
@@ -145,7 +147,7 @@ func mapEvidenceError(err error) apierror.Code {
 		return apierror.IdempotencyConflict
 	case errors.Is(err, service.ErrBatchInvalidState):
 		return apierror.Conflict
-	case errors.Is(err, service.ErrEvidenceStorage):
+	case errors.Is(err, service.ErrEvidenceStorage), errors.Is(err, service.ErrEvidenceIntegrity):
 		return apierror.ServiceUnavailable
 	default:
 		return apierror.ServiceUnavailable

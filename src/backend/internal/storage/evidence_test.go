@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+
 	"workflow-api/internal/config"
 )
 
@@ -98,6 +100,12 @@ func TestValidateObjectKey(t *testing.T) {
 		{name: "empty", key: "", ok: false},
 		{name: "absolute", key: "/batches/batch/evidence", ok: false},
 		{name: "path traversal", key: "batches/../secret", ok: false},
+		{name: "traversal inside generated shape", key: "batches/batch-001/evidence/..", ok: false},
+		{name: "user file name", key: "batches/batch-001/evidence/receipt.pdf", ok: false},
+		{name: "extra segment", key: "batches/batch-001/evidence/evidence-001/extra", ok: false},
+		{name: "other prefix", key: "verification/batch-001/evidence/evidence-001", ok: false},
+		{name: "backslash", key: `batches\batch-001\evidence\evidence-001`, ok: false},
+		{name: "surrounding space", key: " batches/batch-001/evidence/evidence-001", ok: false},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			err := validateObjectKey(testCase.key)
@@ -109,10 +117,46 @@ func TestValidateObjectKey(t *testing.T) {
 }
 
 func TestMapAzureStorageErrorMapsMissingBlob(t *testing.T) {
-	if !errors.Is(mapAzureStorageError(errors.New("BlobNotFound")), ErrEvidenceObjectNotFound) {
+	missing := &azcore.ResponseError{ErrorCode: "BlobNotFound", StatusCode: 404}
+	if !errors.Is(mapAzureStorageError(missing), ErrEvidenceObjectNotFound) {
 		t.Fatal("expected BlobNotFound to map to ErrEvidenceObjectNotFound")
 	}
 	if mapAzureStorageError(nil) != nil {
 		t.Fatal("expected nil storage error to remain nil")
+	}
+}
+
+func TestMapAzureStorageErrorFailsClosedForOtherFailures(t *testing.T) {
+	for _, cause := range []error{
+		&azcore.ResponseError{ErrorCode: "AuthorizationFailure", StatusCode: 403},
+		&azcore.ResponseError{ErrorCode: "BlobAlreadyExists", StatusCode: 409},
+		context.DeadlineExceeded,
+	} {
+		err := mapAzureStorageError(cause)
+		if !errors.Is(err, ErrEvidenceStorageUnavailable) || errors.Is(err, ErrEvidenceObjectNotFound) {
+			t.Fatalf("mapAzureStorageError(%v) = %v, want %v", cause, err, ErrEvidenceStorageUnavailable)
+		}
+	}
+}
+
+func TestLocalEvidenceStorageRejectsOversizeAndForeignKeys(t *testing.T) {
+	adapter, err := NewEvidenceStorage(config.StorageConfig{AdapterType: "local", LocalBaseDir: t.TempDir(), MaxUploadSizeBytes: 8})
+	if err != nil {
+		t.Fatalf("create local adapter: %v", err)
+	}
+	ctx := context.Background()
+	key := "batches/batch-001/evidence/evidence-001"
+
+	if err := adapter.Put(ctx, key, []byte("123456789"), "application/pdf"); err == nil {
+		t.Fatal("expected Put over the size limit to fail")
+	}
+	if _, err := adapter.Get(ctx, key); !errors.Is(err, ErrEvidenceObjectNotFound) {
+		t.Fatalf("rejected Put left an object behind: %v", err)
+	}
+	if err := adapter.Put(ctx, "batches/batch-001/evidence/../../escape", []byte("x"), "application/pdf"); err == nil {
+		t.Fatal("expected Put with a non-generated key to fail")
+	}
+	if _, err := adapter.Get(ctx, "../outside"); err == nil || errors.Is(err, ErrEvidenceObjectNotFound) {
+		t.Fatalf("expected Get with a non-generated key to be rejected, got %v", err)
 	}
 }
