@@ -1146,7 +1146,7 @@ components:
         count_delta: {type: integer, nullable: true}
     CompletionMutationResponse:
       type: object
-      required: [data, correlation_id]
+      required: [data, correlation_id, event_id, event_state]
       properties:
         data:
           type: object
@@ -1158,7 +1158,10 @@ components:
             analytics_result_id: {type: string, format: uuid}
             data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
             metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
-            anomaly_codes: {type: array, items: {type: string}}
+            anomaly_codes:
+              type: array
+              uniqueItems: true
+              items: {type: string, enum: [CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT]}
         correlation_id: {type: string}
         event_id: {type: string, format: uuid}
         event_state: {type: string, enum: [PENDING, REPLAYED]}

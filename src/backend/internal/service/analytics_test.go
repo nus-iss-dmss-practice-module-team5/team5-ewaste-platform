@@ -8,6 +8,7 @@ import (
 
 	"workflow-api/internal/dto"
 	"workflow-api/internal/model"
+	"workflow-api/internal/repository"
 )
 
 func TestBatchServiceAcknowledgeAnalyticsCompletesRecycledBatchAtomically(t *testing.T) {
@@ -79,6 +80,24 @@ func TestBatchServiceAcknowledgeAnalyticsReplaysBySourceRunWithoutDuplicateEffec
 	}
 	if len(repo.state.commands) != 2 || len(repo.state.analytics) != 1 || len(repo.state.audits) != 2 || len(repo.state.outbox) != 2 {
 		t.Fatalf("source/run replay created duplicate durable effects")
+	}
+}
+
+func TestBatchServiceAcknowledgeAnalyticsRejectsReplayWithoutCompletionOutbox(t *testing.T) {
+	service, repo := analyticsFixture(t)
+	request, metadata := analyticsRequest(repo, "analytics-run-missing-event", "analytics-command-first", 7)
+	if _, err := service.AcknowledgeAnalytics(context.Background(), "batch-receipt-001", request, metadata); err != nil {
+		t.Fatalf("first acknowledgement returned error: %v", err)
+	}
+
+	repo.omitCompletedEvent = true
+	if _, err := service.AcknowledgeAnalytics(context.Background(), "batch-receipt-001", request, metadata); !errors.Is(err, repository.ErrEventOutboxNotFound) {
+		t.Fatalf("expected missing completion outbox error for command replay, got %v", err)
+	}
+
+	metadata.IdempotencyKey = "analytics-command-replay-without-event"
+	if _, err := service.AcknowledgeAnalytics(context.Background(), "batch-receipt-001", request, metadata); !errors.Is(err, repository.ErrEventOutboxNotFound) {
+		t.Fatalf("expected missing completion outbox error, got %v", err)
 	}
 }
 

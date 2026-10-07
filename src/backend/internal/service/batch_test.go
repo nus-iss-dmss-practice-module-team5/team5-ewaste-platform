@@ -13,10 +13,11 @@ import (
 )
 
 type fakeBatchRepository struct {
-	state        *fakeBatchState
-	transactionN int
-	failOutbox   bool
-	failAudit    bool
+	state              *fakeBatchState
+	transactionN       int
+	failOutbox         bool
+	failAudit          bool
+	omitCompletedEvent bool
 }
 
 type fakeBatchState struct {
@@ -32,9 +33,10 @@ type fakeBatchState struct {
 }
 
 type fakeBatchTransaction struct {
-	state      *fakeBatchState
-	failOutbox bool
-	failAudit  bool
+	state              *fakeBatchState
+	failOutbox         bool
+	failAudit          bool
+	omitCompletedEvent bool
 }
 
 func newFakeBatchRepository() *fakeBatchRepository {
@@ -61,7 +63,7 @@ func (r *fakeBatchRepository) Transaction(
 	}
 
 	snapshot := cloneFakeBatchState(r.state)
-	err := fn(&fakeBatchTransaction{state: r.state, failOutbox: r.failOutbox, failAudit: r.failAudit})
+	err := fn(&fakeBatchTransaction{state: r.state, failOutbox: r.failOutbox, failAudit: r.failAudit, omitCompletedEvent: r.omitCompletedEvent})
 	if err != nil {
 		r.state = snapshot
 	}
@@ -285,6 +287,9 @@ func (t *fakeBatchTransaction) FindBatchAnomalies(_ context.Context, resultID st
 }
 
 func (t *fakeBatchTransaction) FindRequestCompletedEvent(_ context.Context, batchID string, resultID string) (*model.EventOutbox, error) {
+	if t.omitCompletedEvent {
+		return nil, nil
+	}
 	for _, event := range t.state.outbox {
 		if event.BatchID != batchID || event.EventType != model.RequestCompletedEventType {
 			continue

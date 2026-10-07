@@ -90,6 +90,6 @@ type CompletionView struct {
 type CompletionMutationResult struct {
 	Data          CompletionView `json:"data"`
 	CorrelationID string         `json:"correlation_id"`
-	EventID       string         `json:"event_id,omitempty"`
-	EventState    string         `json:"event_state,omitempty"`
+	EventID       string         `json:"event_id"`
+	EventState    string         `json:"event_state"`
 }
