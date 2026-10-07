@@ -97,6 +97,17 @@ variable "matcher_signing_secret" {
   }
 }
 
+variable "analytics_service_token" {
+  type        = string
+  sensitive   = true
+  description = "Dedicated analytics bearer credential; must match CD's ANALYTICS_SERVICE_TOKEN."
+
+  validation {
+    condition     = length(var.analytics_service_token) >= 32
+    error_message = "analytics_service_token must contain at least 32 characters."
+  }
+}
+
 variable "github_repository" {
   type        = string
   default     = "nus-iss-dmss-practice-module-team5/team5-ewaste-platform"

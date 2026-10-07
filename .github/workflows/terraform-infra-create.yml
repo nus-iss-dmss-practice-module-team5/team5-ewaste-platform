@@ -185,6 +185,7 @@ jobs:
       - name: Apply Target Environment Infrastructure
         env:
           TF_VAR_matcher_signing_secret: ${{ secrets.MATCHER_SIGNING_SECRET }}
+          TF_VAR_analytics_service_token: ${{ secrets.ANALYTICS_SERVICE_TOKEN }}
           TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
           TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
           TF_STATE_SA_ACCESS_KEY: ${{ secrets.TF_STATE_SA_ACCESS_KEY }}
@@ -199,6 +200,10 @@ jobs:
         run: |
           if [ "${#TF_VAR_matcher_signing_secret}" -lt 32 ]; then
             echo "::error::MATCHER_SIGNING_SECRET must contain at least 32 characters for this environment."
+            exit 1
+          fi
+          if [ "${#TF_VAR_analytics_service_token}" -lt 32 ]; then
+            echo "::error::ANALYTICS_SERVICE_TOKEN must contain at least 32 characters for this environment."
             exit 1
           fi
           cd terraform/environments

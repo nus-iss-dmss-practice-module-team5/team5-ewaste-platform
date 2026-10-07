@@ -23,11 +23,30 @@ variables {
   auth_refresh_secret       = "local-test-refresh-secret-at-least-32-characters"
   auth_refresh_hash_secret  = "local-test-refresh-hash-at-least-32-characters"
   matcher_signing_secret    = "local-test-matcher-secret-at-least-32-characters"
+  analytics_service_token   = "local-test-analytics-token-at-least-32-characters"
   enable_self_hosted_runner = false
 }
 
 run "matcher_configuration_survives_iac" {
   command = plan
+
+  assert {
+    condition = alltrue([
+      for app in [azurerm_container_app.api, azurerm_container_app.analytics] :
+      one([for s in app.secret : s.value if s.name == "analytics-service-token"]) == var.analytics_service_token
+    ])
+    error_message = "API and worker must retain the same dedicated analytics credential on IaC reapply."
+  }
+
+  assert {
+    condition = (
+      one([for e in azurerm_container_app.analytics.template[0].container[0].env : e.value if e.name == "ANALYTICS_ENABLED"]) == "true" &&
+      one([for e in azurerm_container_app.analytics.template[0].container[0].env : e.value if e.name == "ANALYTICS_GROUP_ID"]) == "analytics-processing-v1" &&
+      one([for e in azurerm_container_app.analytics.template[0].container[0].env : e.secret_name if e.name == "ANALYTICS_SERVICE_TOKEN"]) == "analytics-service-token" &&
+      one([for e in azurerm_container_app.api.template[0].container[0].env : e.secret_name if e.name == "EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN"]) == "analytics-service-token"
+    )
+    error_message = "Processing must use separate offsets and secret references in both applications."
+  }
 
   assert {
     condition = alltrue([

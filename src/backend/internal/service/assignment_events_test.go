@@ -22,7 +22,7 @@ func TestAssignmentProducersMatchApprovedContracts(t *testing.T) {
 			repo.batch.CurrentClaimID = new(repo.claim.ID)
 			scopeID := "d4000000-0000-4000-8000-000000000001"
 			repo.scope.ID = scopeID
-			assignedAt := time.Date(2026, time.January, 1, 10, 0, 0, 123456000, time.UTC)
+			assignedAt := time.Date(2026, time.January, 1, 10, 0, 0, 123456789, time.UTC)
 			service := NewAssignmentWorkflowService(repo)
 			service.clock = func() time.Time { return assignedAt }
 			nextID := 0
@@ -118,6 +118,9 @@ func validateC4ProducerEvent(t *testing.T, event *model.EventOutbox, eventType, 
 	t.Helper()
 	if event.EventType != eventType || event.Topic != topic || event.PartitionKey != event.BatchID {
 		t.Fatalf("incorrect event routing: %+v", event)
+	}
+	if event.OccurredAt.Nanosecond()%1000 != 0 {
+		t.Fatal("outbox timestamp must be microsecond-aligned before MySQL can round it")
 	}
 	value, err := matchingcontract.Decode(event.PayloadJSON)
 	if err != nil {
