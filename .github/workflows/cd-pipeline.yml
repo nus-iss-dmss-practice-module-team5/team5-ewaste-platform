@@ -52,7 +52,7 @@ jobs:
   resolve-environment:
     name: Resolve Target Environment
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'workflow_run') }}
     outputs:
       environment: ${{ steps.env_resolver.outputs.environment }}
       is_production: ${{ steps.env_resolver.outputs.is_production }}
@@ -145,7 +145,7 @@ jobs:
             exit 1
           fi
 
-          echo "Upstream pipeline dependency checks passed. Proceeding with environment resolution."
+          echo "All upstream dependency checks passed successfully!"
 
       - name: Determine Target Environment from Git Context
         id: env_resolver
