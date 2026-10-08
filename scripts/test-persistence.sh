@@ -126,7 +126,10 @@ run_sql_race() {
     cat "$EVIDENCE_DIR/$name-winner.txt" >&2
     echo "FAIL: $name did not acquire its row lock." >&2; return 1
   fi
-  ( trap - EXIT INT TERM; mysql_query "$db" < "$WORK_DIR/races/$name-loser.sql" ) > "$EVIDENCE_DIR/$name-loser.txt" 2>&1 &
+  # The loser's error is kept apart from its result rows. Docker relays the two
+  # streams separately, so in one file a row can land inside the error line.
+  ( trap - EXIT INT TERM; mysql_query "$db" < "$WORK_DIR/races/$name-loser.sql" ) \
+    > "$EVIDENCE_DIR/$name-loser.txt" 2> "$EVIDENCE_DIR/$name-loser-error.txt" &
   loser_pid=$!
   for ((attempt=0; attempt<100; attempt++)); do
     observed="$(mysql_query "$db" --skip-column-names -e 'SELECT COUNT(*)>0 FROM performance_schema.data_lock_waits')"
@@ -136,8 +139,8 @@ run_sql_race() {
   wait "$winner_pid" || winner_status=$?
   wait "$loser_pid" || loser_status=$?
   if [[ "$observed" != 1 || "$winner_status" != 0 || "$loser_status" == 0 ]] ||
-      ! grep -Eq "ERROR 1062 .*($duplicate_key)" "$EVIDENCE_DIR/$name-loser.txt"; then
-    cat "$EVIDENCE_DIR/$name-winner.txt" "$EVIDENCE_DIR/$name-loser.txt" >&2
+      ! grep -Eq "ERROR 1062 .*($duplicate_key)" "$EVIDENCE_DIR/$name-loser-error.txt"; then
+    cat "$EVIDENCE_DIR/$name-winner.txt" "$EVIDENCE_DIR/$name-loser.txt" "$EVIDENCE_DIR/$name-loser-error.txt" >&2
     echo "FAIL: $name did not produce one committed winner and one duplicate-key rollback after a real lock wait." >&2
     return 1
   fi
@@ -269,7 +272,10 @@ services:
     volumes:
       - data:/var/lib/mysql
     healthcheck:
-      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysql -uroot -e "SELECT 1" >/dev/null 2>&1']
+      # Checked over TCP. On first start the image runs a temporary server
+      # that listens on the socket only and is then shut down; a socket check
+      # can pass against it just before it goes away.
+      test: [CMD-SHELL, 'MYSQL_PWD="$$MYSQL_ROOT_PASSWORD" mysql -h127.0.0.1 -uroot -e "SELECT 1" >/dev/null 2>&1']
       interval: 2s
       timeout: 5s
       retries: 60
