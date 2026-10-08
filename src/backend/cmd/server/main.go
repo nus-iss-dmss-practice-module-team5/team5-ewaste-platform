@@ -235,3 +235,5 @@ func run() error {
 
 	return nil
 }
+
+// Test trigger: verify independent CD pipeline trigger
