@@ -6,6 +6,9 @@ import {
   createBatchDraft,
   downloadEvidence,
   draftBody,
+  getBatchAnomalies,
+  getBatchTimeline,
+  getImpact,
   getOpportunity,
   getProcessingBatch,
   listBatches,
@@ -712,5 +715,330 @@ describe("workflow api", () => {
         "idem-1",
       ),
     ).rejects.toMatchObject({ kind: "validation", status: 422 });
+  });
+
+  function timelineEvent(auditId: string, eventType: string) {
+    return {
+      audit_id: auditId,
+      batch_id: "batch-1",
+      command_id: "command-1",
+      actor_user_id: null,
+      actor_organisation_id: null,
+      service_principal: null,
+      event_type: eventType,
+      from_status: "DRAFT",
+      to_status: "SUBMITTED",
+      batch_version: 2,
+      sequence_in_command: 1,
+      occurred_at: "2026-10-01T02:00:00Z",
+      correlation_id: "corr-event",
+      details: {},
+    };
+  }
+
+  it("reads a timeline event with its source and details", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: [
+          {
+            ...timelineEvent("audit-1", "RequestSubmitted"),
+            actor_user_id: "USR-DONOR-1",
+            actor_organisation_id: "ORG-DONOR-1",
+          },
+          {
+            ...timelineEvent("audit-2", "AnalyticsCompleted"),
+            service_principal: "analytics-worker",
+            details: { rule_version: "analytics-impact-v1" },
+          },
+        ],
+        page: 1,
+        page_size: 100,
+        total_count: 2,
+        correlation_id: "corr-1",
+      },
+    });
+
+    await expect(getBatchTimeline("token", "batch-1")).resolves.toEqual([
+      {
+        auditId: "audit-1",
+        batchId: "batch-1",
+        eventType: "RequestSubmitted",
+        fromStatus: "DRAFT",
+        toStatus: "SUBMITTED",
+        batchVersion: 2,
+        occurredAt: "2026-10-01T02:00:00Z",
+        correlationId: "corr-event",
+        actorUserId: "USR-DONOR-1",
+        actorOrganisationId: "ORG-DONOR-1",
+        details: {},
+      },
+      {
+        auditId: "audit-2",
+        batchId: "batch-1",
+        eventType: "AnalyticsCompleted",
+        fromStatus: "DRAFT",
+        toStatus: "SUBMITTED",
+        batchVersion: 2,
+        occurredAt: "2026-10-01T02:00:00Z",
+        correlationId: "corr-event",
+        servicePrincipal: "analytics-worker",
+        details: { rule_version: "analytics-impact-v1" },
+      },
+    ]);
+    expect(get).toHaveBeenCalledTimes(1);
+    expect(get).toHaveBeenCalledWith("/api/v1/audit/batches/batch-1/timeline", {
+      headers: { Authorization: "Bearer token" },
+      params: { page: 1, page_size: 100 },
+    });
+  });
+
+  it("reads every page of a long timeline", async () => {
+    get
+      .mockResolvedValueOnce({
+        data: {
+          data: [timelineEvent("audit-1", "DraftSaved")],
+          page: 1,
+          page_size: 100,
+          total_count: 2,
+          correlation_id: "corr-1",
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: [timelineEvent("audit-2", "RequestSubmitted")],
+          page: 2,
+          page_size: 100,
+          total_count: 2,
+          correlation_id: "corr-2",
+        },
+      });
+
+    const timeline = await getBatchTimeline("token", "batch-1");
+
+    expect(timeline.map((entry) => entry.auditId)).toEqual([
+      "audit-1",
+      "audit-2",
+    ]);
+    expect(get.mock.calls.map((call) => call[1]?.params)).toEqual([
+      { page: 1, page_size: 100 },
+      { page: 2, page_size: 100 },
+    ]);
+  });
+
+  it("stops paging when a page comes back empty", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: [],
+        page: 1,
+        page_size: 100,
+        total_count: 3,
+        correlation_id: "corr-1",
+      },
+    });
+
+    await expect(getBatchTimeline("token", "batch-1")).resolves.toEqual([]);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  it("encodes a typed batch id before it goes in the audit path", async () => {
+    get.mockRejectedValue(
+      axiosError(404, {
+        code: "NOT_FOUND",
+        message: "not found",
+        correlation_id: "corr-404",
+      }),
+    );
+
+    await expect(
+      getBatchAnomalies("token", "../impact?x=1"),
+    ).rejects.toMatchObject({ kind: "not_found" });
+    expect(get.mock.calls[0]?.[0]).toBe(
+      "/api/v1/audit/batches/..%2Fimpact%3Fx%3D1/anomalies",
+    );
+  });
+
+  it("reads anomalies and leaves out values that were not stored", async () => {
+    get.mockResolvedValue({
+      data: {
+        data: [
+          {
+            anomaly_id: "anomaly-1",
+            batch_id: "batch-1",
+            result_id: "result-1",
+            code: "WEIGHT_MISMATCH",
+            declared_value: "4.50",
+            actual_value: "4.20",
+            delta_kg: "-0.30",
+            detected_at: "2026-10-05T03:00:00Z",
+          },
+          {
+            anomaly_id: "anomaly-2",
+            batch_id: "batch-1",
+            result_id: "result-1",
+            code: "MISSING_OUTCOME",
+            declared_value: null,
+            actual_value: null,
+            delta_kg: null,
+            detected_at: "2026-10-05T03:00:00Z",
+          },
+        ],
+        page: 1,
+        page_size: 100,
+        total_count: 2,
+        correlation_id: "corr-1",
+      },
+    });
+
+    await expect(getBatchAnomalies("token", "batch-1")).resolves.toEqual([
+      {
+        anomalyId: "anomaly-1",
+        batchId: "batch-1",
+        resultId: "result-1",
+        code: "WEIGHT_MISMATCH",
+        declaredValue: "4.50",
+        actualValue: "4.20",
+        deltaKg: "-0.30",
+        detectedAt: "2026-10-05T03:00:00Z",
+      },
+      {
+        anomalyId: "anomaly-2",
+        batchId: "batch-1",
+        resultId: "result-1",
+        code: "MISSING_OUTCOME",
+        detectedAt: "2026-10-05T03:00:00Z",
+      },
+    ]);
+  });
+
+  const impactBody = {
+    data: {
+      filter: {
+        completed_from: "2026-10-01",
+        completed_to: null,
+        category: "BATTERIES",
+        processing_org_id: null,
+      },
+      totals: {
+        completed_batch_count: 2,
+        complete_batch_count: 1,
+        partial_batch_count: 0,
+        missing_outcome_batch_count: 1,
+        received_kg: "1234567.50",
+        reused_kg: "2.00",
+        recycled_kg: "8.00",
+        disposed_kg: "0.00",
+        diverted_kg: "10.00",
+        unknown_kg: null,
+        rule_versions: ["analytics-impact-v1"],
+      },
+      items: [
+        {
+          result_id: "result-1",
+          batch_id: "batch-1",
+          source_event_id: "event-1",
+          source_event_version: 8,
+          receipt_id: "receipt-1",
+          receipt_version: 1,
+          treatment_id: "treatment-1",
+          treatment_version: 1,
+          rule_version: "analytics-impact-v1",
+          input_hash: "a".repeat(64),
+          data_quality: "MISSING",
+          metrics: {
+            declared_weight_kg: "12.00",
+            actual_weight_kg: "11.99",
+            reused_kg: null,
+            recycled_kg: null,
+            disposed_kg: null,
+            unknown_kg: "11.99",
+            diverted_kg: null,
+            declared_quantity: 4,
+            actual_item_count: 4,
+            category_match: true,
+            weight_delta_kg: "-0.01",
+            count_delta: 0,
+          },
+          anomaly_codes: ["MISSING_OUTCOME"],
+          acknowledged_at: "2026-10-05T03:00:00Z",
+        },
+      ],
+      total_count: 1,
+    },
+    correlation_id: "corr-1",
+  };
+
+  it("sends only the impact filters that are set", async () => {
+    get.mockResolvedValue({ data: impactBody });
+
+    await getImpact("token");
+    await getImpact("token", {
+      completedFrom: "2026-10-01",
+      completedTo: "2026-10-07",
+      category: "BATTERIES",
+      processingOrgId: "PROC-001",
+    });
+
+    expect(get.mock.calls[0]).toEqual([
+      "/api/v1/audit/impact",
+      { headers: { Authorization: "Bearer token" }, params: {} },
+    ]);
+    expect(get.mock.calls[1]?.[1]?.params).toEqual({
+      completed_from: "2026-10-01",
+      completed_to: "2026-10-07",
+      category: "BATTERIES",
+      processing_org_id: "PROC-001",
+    });
+  });
+
+  it("keeps an unrecorded impact weight as null, not zero", async () => {
+    get.mockResolvedValue({ data: impactBody });
+
+    await expect(getImpact("token")).resolves.toEqual({
+      filter: { completedFrom: "2026-10-01", category: "BATTERIES" },
+      totals: {
+        completedBatchCount: 2,
+        completeBatchCount: 1,
+        partialBatchCount: 0,
+        missingOutcomeBatchCount: 1,
+        receivedKg: "1234567.50",
+        reusedKg: "2.00",
+        recycledKg: "8.00",
+        disposedKg: "0.00",
+        divertedKg: "10.00",
+        unknownKg: null,
+        ruleVersions: ["analytics-impact-v1"],
+      },
+      items: [
+        {
+          resultId: "result-1",
+          batchId: "batch-1",
+          ruleVersion: "analytics-impact-v1",
+          dataQuality: "MISSING",
+          acknowledgedAt: "2026-10-05T03:00:00Z",
+          anomalyCodes: ["MISSING_OUTCOME"],
+          receivedKg: "11.99",
+          reusedKg: null,
+          recycledKg: null,
+          disposedKg: null,
+          unknownKg: "11.99",
+        },
+      ],
+    });
+  });
+
+  it("rejects an impact report whose totals are not weights", async () => {
+    get.mockResolvedValue({
+      data: {
+        ...impactBody,
+        data: {
+          ...impactBody.data,
+          totals: { ...impactBody.data.totals, received_kg: "lots" },
+        },
+      },
+    });
+
+    await expect(getImpact("token")).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+    });
   });
 });

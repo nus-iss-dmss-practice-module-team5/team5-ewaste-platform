@@ -22,7 +22,7 @@ import {
   type ProcessingSummary,
 } from "@/lib/workflow/types";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import { Banner, LoadingLine, bannerForError } from "./workflow-ui";
+import { Banner, LoadingLine, bannerForError, saveFile } from "./workflow-ui";
 
 type Notice = { testId: string; text: string };
 
@@ -244,17 +244,10 @@ export function ProcessingWork() {
     }
     const { batchId } = detail;
     await finish(async () => {
-      const file = await downloadEvidence(
-        session.tokens.accessToken,
-        batchId,
-        evidenceId,
+      saveFile(
+        await downloadEvidence(session.tokens.accessToken, batchId, evidenceId),
+        fileName,
       );
-      const url = URL.createObjectURL(file);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = fileName;
-      link.click();
-      URL.revokeObjectURL(url);
     });
   }
 

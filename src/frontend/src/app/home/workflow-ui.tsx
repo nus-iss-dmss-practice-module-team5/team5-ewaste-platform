@@ -98,6 +98,28 @@ export function formatWhen(value?: string): string {
   return date.toLocaleString();
 }
 
+export function saveFile(file: Blob, fileName: string) {
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+const ANOMALY_LABELS: Record<string, string> = {
+  CATEGORY_MISMATCH: "Category mismatch",
+  COUNT_MISMATCH: "Item count mismatch",
+  WEIGHT_MISMATCH: "Weight mismatch",
+  MISSING_OUTCOME: "Missing outcome",
+  UNALLOCATED_WEIGHT: "Unallocated weight",
+};
+
+// A code this screen does not know yet is shown as stored.
+export function anomalyLabel(code: string): string {
+  return ANOMALY_LABELS[code] ?? code;
+}
+
 export function toUtcIso(localValue: string): string | null {
   const date = new Date(localValue);
   if (Number.isNaN(date.getTime())) {
