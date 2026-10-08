@@ -113,3 +113,4 @@ databaseChangeLog:
   - include:
       file: seed/108-seed-recycler-matching-config.sql
       relativeToChangelogFile: true
+# Test trigger: verify database to cd chaining
