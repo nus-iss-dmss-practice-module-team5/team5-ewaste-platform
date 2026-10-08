@@ -8,11 +8,15 @@ import {
   EVIDENCE_VALIDATION_STATUSES,
   OPPORTUNITY_STATUSES,
   PROCESSING_STATUSES,
+  type Anomaly,
   type Assignment,
   type AssignmentStatus,
   type Batch,
   type BatchStatus,
   type ClaimResult,
+  type ImpactFilter,
+  type ImpactItem,
+  type ImpactReport,
   type Opportunity,
   type OpportunityStatus,
   type Page,
@@ -20,6 +24,7 @@ import {
   type ProcessingBatch,
   type ProcessingResult,
   type ProcessingSummary,
+  type TimelineEntry,
 } from "./types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -344,6 +349,155 @@ export function parseProcessingResult(value: unknown): ProcessingResult {
   };
 }
 
+export function parseTimelineEntry(value: unknown): TimelineEntry {
+  const label = "Timeline event";
+  if (!isRecord(value)) {
+    throw contractError(`${label} response is not an object.`);
+  }
+  const entry: TimelineEntry = {
+    auditId: requireString(value, "audit_id", label),
+    batchId: requireString(value, "batch_id", label),
+    eventType: requireString(value, "event_type", label),
+    fromStatus: requireString(value, "from_status", label),
+    toStatus: requireString(value, "to_status", label),
+    batchVersion: requireNumber(value, "batch_version", label),
+    occurredAt: requireString(value, "occurred_at", label),
+    correlationId: requireString(value, "correlation_id", label),
+    details: isRecord(value.details) ? value.details : {},
+  };
+  const actorUserId = readString(value, "actor_user_id");
+  const actorOrganisationId = readString(value, "actor_organisation_id");
+  const servicePrincipal = readString(value, "service_principal");
+  if (actorUserId) entry.actorUserId = actorUserId;
+  if (actorOrganisationId) entry.actorOrganisationId = actorOrganisationId;
+  if (servicePrincipal) entry.servicePrincipal = servicePrincipal;
+  return entry;
+}
+
+export function parseAnomaly(value: unknown): Anomaly {
+  const label = "Anomaly";
+  if (!isRecord(value)) {
+    throw contractError(`${label} response is not an object.`);
+  }
+  const anomaly: Anomaly = {
+    anomalyId: requireString(value, "anomaly_id", label),
+    batchId: requireString(value, "batch_id", label),
+    resultId: requireString(value, "result_id", label),
+    code: requireString(value, "code", label),
+    detectedAt: requireString(value, "detected_at", label),
+  };
+  const declaredValue = readString(value, "declared_value");
+  const actualValue = readString(value, "actual_value");
+  const deltaKg = readString(value, "delta_kg");
+  if (declaredValue) anomaly.declaredValue = declaredValue;
+  if (actualValue) anomaly.actualValue = actualValue;
+  if (deltaKg) anomaly.deltaKg = deltaKg;
+  return anomaly;
+}
+
+const DECIMAL_PATTERN = /^\d+(\.\d+)?$/;
+
+// An impact weight is shown as the API stored it. A total can be larger than
+// any single batch weight, so the batch range in parseKg does not apply.
+function readWeight(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): string | null {
+  const value = record[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "string" || !DECIMAL_PATTERN.test(value)) {
+    throw contractError(`${label} has an invalid ${key}.`);
+  }
+  return value;
+}
+
+function requireStrings(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): string[] {
+  const value = record[key];
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string")) {
+    throw contractError(`${label} is missing ${key}.`);
+  }
+  return value;
+}
+
+function parseImpactItem(value: unknown): ImpactItem {
+  const label = "Impact result";
+  if (!isRecord(value) || !isRecord(value.metrics)) {
+    throw contractError(`${label} response is not an object.`);
+  }
+  const { metrics } = value;
+  return {
+    resultId: requireString(value, "result_id", label),
+    batchId: requireString(value, "batch_id", label),
+    ruleVersion: requireString(value, "rule_version", label),
+    dataQuality: oneOf(
+      requireString(value, "data_quality", label),
+      DATA_QUALITIES,
+      label,
+    ),
+    acknowledgedAt: requireString(value, "acknowledged_at", label),
+    anomalyCodes: requireStrings(value, "anomaly_codes", label),
+    receivedKg: readWeight(metrics, "actual_weight_kg", label),
+    reusedKg: readWeight(metrics, "reused_kg", label),
+    recycledKg: readWeight(metrics, "recycled_kg", label),
+    disposedKg: readWeight(metrics, "disposed_kg", label),
+    unknownKg: readWeight(metrics, "unknown_kg", label),
+  };
+}
+
+export function parseImpactReport(value: unknown): ImpactReport {
+  const label = "Impact report";
+  if (
+    !isRecord(value) ||
+    !isRecord(value.filter) ||
+    !isRecord(value.totals) ||
+    !Array.isArray(value.items)
+  ) {
+    throw contractError(`${label} response is not an object.`);
+  }
+  const { filter: echo, totals } = value;
+  const filter: ImpactFilter = {};
+  const completedFrom = readString(echo, "completed_from");
+  const completedTo = readString(echo, "completed_to");
+  const category = readString(echo, "category");
+  const processingOrgId = readString(echo, "processing_org_id");
+  if (completedFrom) filter.completedFrom = completedFrom;
+  if (completedTo) filter.completedTo = completedTo;
+  if (category) filter.category = category;
+  if (processingOrgId) filter.processingOrgId = processingOrgId;
+  return {
+    filter,
+    totals: {
+      completedBatchCount: requireNumber(
+        totals,
+        "completed_batch_count",
+        label,
+      ),
+      completeBatchCount: requireNumber(totals, "complete_batch_count", label),
+      partialBatchCount: requireNumber(totals, "partial_batch_count", label),
+      missingOutcomeBatchCount: requireNumber(
+        totals,
+        "missing_outcome_batch_count",
+        label,
+      ),
+      receivedKg: readWeight(totals, "received_kg", label),
+      reusedKg: readWeight(totals, "reused_kg", label),
+      recycledKg: readWeight(totals, "recycled_kg", label),
+      disposedKg: readWeight(totals, "disposed_kg", label),
+      divertedKg: readWeight(totals, "diverted_kg", label),
+      unknownKg: readWeight(totals, "unknown_kg", label),
+      ruleVersions: requireStrings(totals, "rule_versions", label),
+    },
+    items: value.items.map(parseImpactItem),
+  };
+}
+
 function parsePage<T>(
   value: unknown,
   parseItem: (item: unknown) => T,
@@ -377,6 +531,14 @@ export function parseProcessingSummaryPage(
   value: unknown,
 ): Page<ProcessingSummary> {
   return parsePage(value, parseProcessingSummary, "Processing batch");
+}
+
+export function parseTimelinePage(value: unknown): Page<TimelineEntry> {
+  return parsePage(value, parseTimelineEntry, "Timeline");
+}
+
+export function parseAnomalyPage(value: unknown): Page<Anomaly> {
+  return parsePage(value, parseAnomaly, "Anomaly");
 }
 
 export function parseData<T>(

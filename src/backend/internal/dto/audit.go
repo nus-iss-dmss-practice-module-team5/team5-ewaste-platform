@@ -47,7 +47,36 @@ type ImpactResultView struct {
 	AcknowledgedAt     time.Time        `json:"acknowledged_at"`
 }
 
+// ImpactFilterView echoes the filter a report was built with, so the scope of
+// the totals is visible beside them.
+type ImpactFilterView struct {
+	CompletedFrom   *string `json:"completed_from"`
+	CompletedTo     *string `json:"completed_to"`
+	Category        *string `json:"category"`
+	ProcessingOrgID *string `json:"processing_org_id"`
+}
+
+// ImpactTotalsView sums the completed batches in scope. Weights are
+// two-decimal kilogram strings. A weight is null when no batch in scope has
+// it recorded; batches with no recorded outcome are counted in
+// missing_outcome_batch_count instead of adding zeros.
+type ImpactTotalsView struct {
+	CompletedBatchCount      int64    `json:"completed_batch_count"`
+	CompleteBatchCount       int64    `json:"complete_batch_count"`
+	PartialBatchCount        int64    `json:"partial_batch_count"`
+	MissingOutcomeBatchCount int64    `json:"missing_outcome_batch_count"`
+	ReceivedKg               *string  `json:"received_kg"`
+	ReusedKg                 *string  `json:"reused_kg"`
+	RecycledKg               *string  `json:"recycled_kg"`
+	DisposedKg               *string  `json:"disposed_kg"`
+	DivertedKg               *string  `json:"diverted_kg"`
+	UnknownKg                *string  `json:"unknown_kg"`
+	RuleVersions             []string `json:"rule_versions"`
+}
+
 type ImpactCollectionView struct {
+	Filter     ImpactFilterView   `json:"filter"`
+	Totals     ImpactTotalsView   `json:"totals"`
 	Items      []ImpactResultView `json:"items"`
 	TotalCount int64              `json:"total_count"`
 }

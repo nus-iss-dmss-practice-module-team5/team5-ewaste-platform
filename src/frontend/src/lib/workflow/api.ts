@@ -34,6 +34,7 @@ import {
   mockVerifyReceipt,
 } from "./local-processing-mock";
 import {
+  parseAnomalyPage,
   parseAssignment,
   parseAssignmentPage,
   parseBatch,
@@ -41,13 +42,16 @@ import {
   parseClaimResult,
   parseData,
   parseEvidence,
+  parseImpactReport,
   parseOpportunity,
   parseOpportunityPage,
   parseProcessingBatch,
   parseProcessingSummaryPage,
   parseProcessingResult,
+  parseTimelinePage,
 } from "./parse";
 import type {
+  Anomaly,
   Assignment,
   Batch,
   BatchDraftRequest,
@@ -57,6 +61,8 @@ import type {
   FailPickupCommand,
   FailureReason,
   HandoffCommand,
+  ImpactFilter,
+  ImpactReport,
   Opportunity,
   Page,
   Evidence,
@@ -67,6 +73,7 @@ import type {
   ProcessingSummary,
   ReceiptCommand,
   SelectAssignmentCommand,
+  TimelineEntry,
   TreatmentCommand,
 } from "./types";
 
@@ -585,5 +592,79 @@ export async function downloadEvidence(
       }
       return data;
     },
+  );
+}
+
+const AUDIT_PAGE_SIZE = 100;
+
+// The audit reads return at most 100 rows a page. A batch history is read to
+// the end so that later events are not silently left out.
+async function readAllPages<T>(
+  readPage: (page: number) => Promise<Page<T>>,
+): Promise<T[]> {
+  const rows: T[] = [];
+  for (let page = 1; ; page += 1) {
+    const result = await readPage(page);
+    rows.push(...result.data);
+    if (result.data.length === 0 || rows.length >= result.totalCount) {
+      return rows;
+    }
+  }
+}
+
+// The Auditor types the batch id, so it is encoded before it goes in a path.
+function auditBatchPath(batchId: string, resource: string): string {
+  return `/api/v1/audit/batches/${encodeURIComponent(batchId)}/${resource}`;
+}
+
+export async function getBatchTimeline(
+  accessToken: string,
+  batchId: string,
+): Promise<TimelineEntry[]> {
+  return readAllPages((page) =>
+    call(
+      api.get(auditBatchPath(batchId, "timeline"), {
+        ...authHeaders(accessToken),
+        params: { page, page_size: AUDIT_PAGE_SIZE },
+      }),
+      parseTimelinePage,
+    ),
+  );
+}
+
+export async function getBatchAnomalies(
+  accessToken: string,
+  batchId: string,
+): Promise<Anomaly[]> {
+  return readAllPages((page) =>
+    call(
+      api.get(auditBatchPath(batchId, "anomalies"), {
+        ...authHeaders(accessToken),
+        params: { page, page_size: AUDIT_PAGE_SIZE },
+      }),
+      parseAnomalyPage,
+    ),
+  );
+}
+
+export async function getImpact(
+  accessToken: string,
+  filter: ImpactFilter = {},
+): Promise<ImpactReport> {
+  return call(
+    api.get("/api/v1/audit/impact", {
+      ...authHeaders(accessToken),
+      params: {
+        ...(filter.completedFrom
+          ? { completed_from: filter.completedFrom }
+          : {}),
+        ...(filter.completedTo ? { completed_to: filter.completedTo } : {}),
+        ...(filter.category ? { category: filter.category } : {}),
+        ...(filter.processingOrgId
+          ? { processing_org_id: filter.processingOrgId }
+          : {}),
+      },
+    }),
+    (data) => parseData(data, parseImpactReport, "Impact report"),
   );
 }

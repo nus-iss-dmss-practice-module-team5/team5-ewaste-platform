@@ -163,7 +163,10 @@ func (h *WorkflowReadController) GetAuditImpact(c *gin.Context) {
 		h.writeError(c, apierror.InvalidSession)
 		return
 	}
-	data, err := h.auditor.Impact(c.Request.Context(), readActor(claims))
+	data, err := h.auditor.Impact(c.Request.Context(), readActor(claims), service.ImpactQuery{
+		CompletedFrom: c.Query("completed_from"), CompletedTo: c.Query("completed_to"),
+		Category: c.Query("category"), ProcessingOrgID: c.Query("processing_org_id"),
+	})
 	if err != nil {
 		h.writeError(c, mapWorkflowReadError(err))
 		return

@@ -17,7 +17,17 @@ import (
 type AuditorReadRepository interface {
 	FindAuditTimeline(context.Context, string, WorkflowReadScope, WorkflowReadPage) ([]*model.BatchAuditEvent, int64, error)
 	FindAuditAnomalies(context.Context, string, WorkflowReadScope, WorkflowReadPage) ([]*model.BatchAnomaly, int64, error)
-	ListImpactResults(context.Context, WorkflowReadScope) ([]*model.ImpactReadResult, error)
+	ListImpactResults(context.Context, WorkflowReadScope, ImpactFilter) ([]*model.ImpactReadResult, error)
+	SummariseImpact(context.Context, WorkflowReadScope, ImpactFilter) (*model.ImpactTotals, error)
+}
+
+// ImpactFilter narrows impact reads. Zero values mean no restriction. The
+// completion window is CompletedFrom <= completed < CompletedBefore.
+type ImpactFilter struct {
+	CompletedFrom   *time.Time
+	CompletedBefore *time.Time
+	Category        string
+	ProcessingOrgID string
 }
 
 type GormAuditorReadRepository struct {
@@ -87,6 +97,7 @@ func (r *GormAuditorReadRepository) FindAuditAnomalies(
 func (r *GormAuditorReadRepository) ListImpactResults(
 	ctx context.Context,
 	scope WorkflowReadScope,
+	filter ImpactFilter,
 ) ([]*model.ImpactReadResult, error) {
 	if err := r.validateAuditor(ctx, scope); err != nil {
 		return nil, err
@@ -111,11 +122,8 @@ func (r *GormAuditorReadRepository) ListImpactResults(
 		AcknowledgedAt     time.Time `gorm:"column:calculated_at"`
 	}
 	var rows []row
-	if err := r.db.WithContext(ctx).
-		Table("batch_impact_metrics AS ar").
+	if err := r.impactQuery(ctx, filter).
 		Select("ar.metric_id AS result_id, ar.batch_id, ar.source_event_id, ar.source_batch_version, ar.receipt_id, ar.receipt_version, ar.treatment_id, ar.treatment_version, ar.rule_version, ar.input_hash, ar.data_quality, ar.input_snapshot_json, ar.calculated_at").
-		Joins("INNER JOIN ewaste_batches AS b ON b.id = ar.batch_id").
-		Where("b.status = ?", model.BatchStatusCompleted).
 		Order("ar.calculated_at DESC, ar.metric_id DESC").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -142,6 +150,94 @@ func (r *GormAuditorReadRepository) ListImpactResults(
 		})
 	}
 	return results, nil
+}
+
+// SummariseImpact totals the same batches ListImpactResults returns. The
+// impact table holds one row per batch, so a replayed result cannot count
+// twice; DISTINCT keeps that true if the constraint ever changes.
+func (r *GormAuditorReadRepository) SummariseImpact(
+	ctx context.Context,
+	scope WorkflowReadScope,
+	filter ImpactFilter,
+) (*model.ImpactTotals, error) {
+	if err := r.validateAuditor(ctx, scope); err != nil {
+		return nil, err
+	}
+
+	var row struct {
+		CompletedBatchCount int64   `gorm:"column:completed_batch_count"`
+		CompleteBatchCount  *int64  `gorm:"column:complete_batch_count"`
+		PartialBatchCount   *int64  `gorm:"column:partial_batch_count"`
+		MissingBatchCount   *int64  `gorm:"column:missing_batch_count"`
+		ReceivedKg          *string `gorm:"column:received_kg"`
+		ReusedKg            *string `gorm:"column:reused_kg"`
+		RecycledKg          *string `gorm:"column:recycled_kg"`
+		DisposedKg          *string `gorm:"column:disposed_kg"`
+		DivertedKg          *string `gorm:"column:diverted_kg"`
+		UnknownKg           *string `gorm:"column:unknown_kg"`
+	}
+	if err := r.impactQuery(ctx, filter).
+		Select(`COUNT(DISTINCT ar.batch_id) AS completed_batch_count,
+			SUM(ar.data_quality = 'COMPLETE') AS complete_batch_count,
+			SUM(ar.data_quality = 'PARTIAL') AS partial_batch_count,
+			SUM(ar.data_quality = 'MISSING') AS missing_batch_count,
+			SUM(ar.received_weight_kg) AS received_kg,
+			SUM(ar.reused_kg) AS reused_kg, SUM(ar.recycled_kg) AS recycled_kg,
+			SUM(ar.disposed_kg) AS disposed_kg, SUM(ar.diverted_kg) AS diverted_kg,
+			SUM(ar.unknown_kg) AS unknown_kg`).
+		Scan(&row).Error; err != nil {
+		return nil, err
+	}
+
+	ruleVersions := make([]string, 0)
+	if err := r.impactQuery(ctx, filter).
+		Distinct("ar.rule_version").
+		Order("ar.rule_version ASC").
+		Pluck("ar.rule_version", &ruleVersions).Error; err != nil {
+		return nil, err
+	}
+
+	return &model.ImpactTotals{
+		CompletedBatchCount: row.CompletedBatchCount,
+		CompleteBatchCount:  int64OrZero(row.CompleteBatchCount),
+		PartialBatchCount:   int64OrZero(row.PartialBatchCount),
+		MissingBatchCount:   int64OrZero(row.MissingBatchCount),
+		ReceivedKg:          row.ReceivedKg, ReusedKg: row.ReusedKg, RecycledKg: row.RecycledKg,
+		DisposedKg: row.DisposedKg, DivertedKg: row.DivertedKg, UnknownKg: row.UnknownKg,
+		RuleVersions: ruleVersions,
+	}, nil
+}
+
+// Only COMPLETED batches count. The completion transaction stores the result,
+// so calculated_at is the completion time. Category is what the facility
+// received, the same basis as the weights.
+func (r *GormAuditorReadRepository) impactQuery(ctx context.Context, filter ImpactFilter) *gorm.DB {
+	query := r.db.WithContext(ctx).
+		Table("batch_impact_metrics AS ar").
+		Joins("INNER JOIN ewaste_batches AS b ON b.id = ar.batch_id").
+		Where("b.status = ?", model.BatchStatusCompleted)
+	if filter.CompletedFrom != nil {
+		query = query.Where("ar.calculated_at >= ?", *filter.CompletedFrom)
+	}
+	if filter.CompletedBefore != nil {
+		query = query.Where("ar.calculated_at < ?", *filter.CompletedBefore)
+	}
+	if filter.Category != "" {
+		query = query.
+			Joins("INNER JOIN batch_receipts AS receipt ON receipt.receipt_id = ar.receipt_id AND receipt.batch_id = ar.batch_id").
+			Where("receipt.actual_category = ?", filter.Category)
+	}
+	if filter.ProcessingOrgID != "" {
+		query = query.Where("ar.facility_org_id = ?", filter.ProcessingOrgID)
+	}
+	return query
+}
+
+func int64OrZero(value *int64) int64 {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func (r *GormAuditorReadRepository) findAnomalyCodes(ctx context.Context, resultID, batchID string) ([]string, error) {

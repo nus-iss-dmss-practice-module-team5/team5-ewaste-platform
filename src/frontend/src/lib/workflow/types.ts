@@ -255,3 +255,75 @@ export type Evidence = {
   sha256Hash: string;
   validationStatus: EvidenceValidationStatus;
 };
+
+// One custody event. The details are whatever the command recorded, so the
+// keys differ by event type.
+export type TimelineEntry = {
+  auditId: string;
+  batchId: string;
+  eventType: string;
+  fromStatus: string;
+  toStatus: string;
+  batchVersion: number;
+  occurredAt: string;
+  correlationId: string;
+  actorUserId?: string;
+  actorOrganisationId?: string;
+  servicePrincipal?: string;
+  details: Record<string, unknown>;
+};
+
+export type Anomaly = {
+  anomalyId: string;
+  batchId: string;
+  resultId: string;
+  code: string;
+  declaredValue?: string;
+  actualValue?: string;
+  deltaKg?: string;
+  detectedAt: string;
+};
+
+// Dates are a YYYY-MM-DD day in UTC. Both ends are inclusive.
+export type ImpactFilter = {
+  completedFrom?: string;
+  completedTo?: string;
+  category?: string;
+  processingOrgId?: string;
+};
+
+// Sums over the completed batches in scope. A null weight means no batch in
+// scope has it recorded. It is not zero.
+export type ImpactTotals = {
+  completedBatchCount: number;
+  completeBatchCount: number;
+  partialBatchCount: number;
+  missingOutcomeBatchCount: number;
+  receivedKg: string | null;
+  reusedKg: string | null;
+  recycledKg: string | null;
+  disposedKg: string | null;
+  divertedKg: string | null;
+  unknownKg: string | null;
+  ruleVersions: string[];
+};
+
+export type ImpactItem = {
+  resultId: string;
+  batchId: string;
+  ruleVersion: string;
+  dataQuality: DataQuality;
+  acknowledgedAt: string;
+  anomalyCodes: string[];
+  receivedKg: string | null;
+  reusedKg: string | null;
+  recycledKg: string | null;
+  disposedKg: string | null;
+  unknownKg: string | null;
+};
+
+export type ImpactReport = {
+  filter: ImpactFilter;
+  totals: ImpactTotals;
+  items: ImpactItem[];
+};

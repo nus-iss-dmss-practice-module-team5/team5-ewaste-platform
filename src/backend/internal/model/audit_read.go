@@ -21,3 +21,20 @@ type ImpactReadResult struct {
 	AnomalyCodes       []string
 	AcknowledgedAt     time.Time
 }
+
+// ImpactTotals aggregates the completed batches that match an impact filter.
+// A sum is nil when no matching batch has that value recorded, so an absent
+// outcome is never reported as zero.
+type ImpactTotals struct {
+	CompletedBatchCount int64
+	CompleteBatchCount  int64
+	PartialBatchCount   int64
+	MissingBatchCount   int64
+	ReceivedKg          *string
+	ReusedKg            *string
+	RecycledKg          *string
+	DisposedKg          *string
+	DivertedKg          *string
+	UnknownKg           *string
+	RuleVersions        []string
+}
