@@ -5,11 +5,9 @@ on:
     workflows: ["Database - Liquibase Migration"]
     types:
       - completed
-    branches:
-      - dev
-      - main
+    branches: [dev, main, chained-deployment]
   push:
-    branches: [dev, main]
+    branches: [dev, main, chained-deployment]
     paths:
       - 'src/**'
       - '.github/workflows/cd-pipeline.yml'

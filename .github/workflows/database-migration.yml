@@ -5,11 +5,9 @@ on:
     workflows: ["IaC - Create Cloud Resources (Dev, Stg, Prod)"]
     types:
       - completed
-    branches:
-      - dev
-      - main
+    branches: [dev, main, chained-deployment]
   push:
-    branches: [dev, main]
+    branches: [dev, main, chained-deployment]
     paths:
       - 'database/**'
       - '.github/workflows/database-migration.yml'
