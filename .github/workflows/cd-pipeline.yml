@@ -1,8 +1,18 @@
 name: CD - Multi-Environment Deployment & Evidence Pipeline
 
 on:
+  workflow_run:
+    workflows: ["Database - Liquibase Migration"]
+    types:
+      - completed
+    branches:
+      - dev
+      - main
   push:
     branches: [dev, main]
+    paths:
+      - 'src/**'
+      - '.github/workflows/cd-pipeline.yml'
   pull_request:
     branches: [main]
     types: [opened, synchronize, reopened]
@@ -29,7 +39,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: cd-deployment-${{ github.event_name }}-${{ github.ref }}
+  group: cd-deployment-${{ github.event.workflow_run.head_branch || github.ref }}
   cancel-in-progress: false
 
 env:
@@ -44,12 +54,101 @@ jobs:
   resolve-environment:
     name: Resolve Target Environment
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
       environment: ${{ steps.env_resolver.outputs.environment }}
       is_production: ${{ steps.env_resolver.outputs.is_production }}
       deployment_desc: ${{ steps.env_resolver.outputs.deployment_desc }}
       resource_group: ${{ steps.env_resolver.outputs.resource_group }}
     steps:
+      - name: Download Target Environment from Database Workflow
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-environment
+          run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: .environment
+        continue-on-error: true
+
+      # ------------------------------------------------------------------------
+      # QUEUE GUARD: Wait for in-progress Terraform or Database pipelines
+      # ------------------------------------------------------------------------
+      - name: Wait for Active Upstream Pipelines (Terraform & Database)
+        if: github.event_name != 'workflow_run'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          echo "=========================================================="
+          echo " Checking for running upstream pipelines on $REF_NAME..."
+          echo "=========================================================="
+
+          MAX_WAIT=900
+          WAITED=0
+          INTERVAL=15
+
+          while [ $WAITED -lt $MAX_WAIT ]; do
+            ACTIVE_TF=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow "IaC - Create Cloud Resources (Dev, Stg, Prod)" \
+              --branch "$REF_NAME" \
+              --json databaseId,status \
+              --jq '.[] | select(.status == "in_progress" or .status == "queued") | .databaseId' 2>/dev/null || echo "")
+
+            ACTIVE_DB=$(gh run list \
+              --repo "$GITHUB_REPOSITORY" \
+              --workflow "Database - Liquibase Migration" \
+              --branch "$REF_NAME" \
+              --json databaseId,status \
+              --jq '.[] | select(.status == "in_progress" or .status == "queued") | .databaseId' 2>/dev/null || echo "")
+
+            if [ -z "$ACTIVE_TF" ] && [ -z "$ACTIVE_DB" ]; then
+              echo "No active Terraform or Database pipelines running."
+              break
+            fi
+
+            echo "Active upstream pipeline(s) detected:"
+            [ -n "$ACTIVE_TF" ] && echo " - Terraform Run(s): $ACTIVE_TF"
+            [ -n "$ACTIVE_DB" ] && echo " - Database Run(s): $ACTIVE_DB"
+            echo "Queuing up and waiting $INTERVAL seconds (elapsed: ${WAITED}s)..."
+            sleep $INTERVAL
+            WAITED=$((WAITED + INTERVAL))
+          done
+
+          if [ $WAITED -ge $MAX_WAIT ]; then
+            echo "::error::Timed out after $MAX_WAIT seconds waiting for upstream pipelines to complete."
+            exit 1
+          fi
+
+          LATEST_TF_STATUS=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow "IaC - Create Cloud Resources (Dev, Stg, Prod)" \
+            --branch "$REF_NAME" \
+            --limit 1 \
+            --json conclusion \
+            --jq '.[0].conclusion // "none"' 2>/dev/null || echo "none")
+
+          LATEST_DB_STATUS=$(gh run list \
+            --repo "$GITHUB_REPOSITORY" \
+            --workflow "Database - Liquibase Migration" \
+            --branch "$REF_NAME" \
+            --limit 1 \
+            --json conclusion \
+            --jq '.[0].conclusion // "none"' 2>/dev/null || echo "none")
+
+          if [ "$LATEST_TF_STATUS" == "failure" ] || [ "$LATEST_TF_STATUS" == "cancelled" ]; then
+            echo "::error::Upstream Terraform pipeline finished with status '$LATEST_TF_STATUS'. Halting CD deployment immediately to protect environment."
+            exit 1
+          fi
+
+          if [ "$LATEST_DB_STATUS" == "failure" ] || [ "$LATEST_DB_STATUS" == "cancelled" ]; then
+            echo "::error::Upstream Database migration finished with status '$LATEST_DB_STATUS'. Halting CD deployment immediately to prevent deploying against unready schema."
+            exit 1
+          fi
+
+          echo "Upstream pipeline dependency checks passed. Proceeding with environment resolution."
+
       - name: Determine Target Environment from Git Context
         id: env_resolver
         env:
@@ -57,22 +156,45 @@ jobs:
           TARGET_ENV_INPUT: ${{ inputs.target_env }}
           GITHUB_BASE_REF: ${{ github.base_ref }}
           GITHUB_REF: ${{ github.ref }}
+          TRIGGERING_BRANCH: ${{ github.event.workflow_run.head_branch }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]; then
-            TARGET="$TARGET_ENV_INPUT"
-            DESC="Manual workflow dispatch to Azure $(echo "$TARGET" | tr '[:lower:]' '[:upper:]')"
-          elif [ "$GITHUB_EVENT_NAME" == "pull_request" ] && [ "$GITHUB_BASE_REF" == "main" ]; then
-            TARGET="stg"
-            DESC="48-Hour Feature Freeze PR Staging Deployment (Azure STG for Evaluation)"
-          elif [ "$GITHUB_EVENT_NAME" == "push" ] && [ "$GITHUB_REF" == "refs/heads/main" ]; then
-            TARGET="prod"
-            DESC="Merged Production Release (Azure PROD - Signed & Locked Baseline)"
-          elif [ "$GITHUB_EVENT_NAME" == "push" ] && [ "$GITHUB_REF" == "refs/heads/dev" ]; then
-            TARGET="dev"
-            DESC="Active Development Continuous Integration Sandbox (Azure DEV)"
-          else
-            TARGET="dev"
-            DESC="Default Development Deployment (Azure DEV)"
+          TARGET=""
+          DESC=""
+          if [ -f ".environment/target_env" ]; then
+            TARGET=$(tr -d ' \r\n' < .environment/target_env)
+            DESC="Automated pipeline cascade from Database Migration (Azure $(echo "$TARGET" | tr '[:lower:]' '[:upper:]'))"
+            echo "Loaded target environment from artifact: '$TARGET'"
+          elif [ -f ".environment/deployment-environment/target_env" ]; then
+            TARGET=$(tr -d ' \r\n' < .environment/deployment-environment/target_env)
+            DESC="Automated pipeline cascade from Database Migration (Azure $(echo "$TARGET" | tr '[:lower:]' '[:upper:]'))"
+            echo "Loaded target environment from artifact: '$TARGET'"
+          fi
+
+          if [ -z "$TARGET" ]; then
+            if [ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]; then
+              TARGET="$TARGET_ENV_INPUT"
+              DESC="Manual workflow dispatch to Azure $(echo "$TARGET" | tr '[:lower:]' '[:upper:]')"
+            elif [ "$GITHUB_EVENT_NAME" == "workflow_run" ]; then
+              if [ "$TRIGGERING_BRANCH" == "main" ]; then
+                TARGET="prod"
+                DESC="Automated production cascade from Database Migration (Azure PROD)"
+              else
+                TARGET="dev"
+                DESC="Automated development cascade from Database Migration (Azure DEV)"
+              fi
+            elif [ "$GITHUB_EVENT_NAME" == "pull_request" ] && [ "$GITHUB_BASE_REF" == "main" ]; then
+              TARGET="stg"
+              DESC="48-Hour Feature Freeze PR Staging Deployment (Azure STG for Evaluation)"
+            elif [ "$GITHUB_EVENT_NAME" == "push" ] && [ "$GITHUB_REF" == "refs/heads/main" ]; then
+              TARGET="prod"
+              DESC="Merged Production Release (Azure PROD - Signed & Locked Baseline)"
+            elif [ "$GITHUB_EVENT_NAME" == "push" ] && [ "$GITHUB_REF" == "refs/heads/dev" ]; then
+              TARGET="dev"
+              DESC="Active Development Continuous Integration Sandbox (Azure DEV)"
+            else
+              TARGET="dev"
+              DESC="Default Development Deployment (Azure DEV)"
+            fi
           fi
 
           echo "environment=$TARGET" >> $GITHUB_OUTPUT
