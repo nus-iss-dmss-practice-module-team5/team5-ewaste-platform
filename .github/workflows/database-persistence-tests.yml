@@ -1,20 +1,7 @@
 name: Database Schema, Migration and Persistence Tests
 
 on:
-  pull_request:
-    branches: [dev, main]
-    paths:
-      - 'database/**'
-      - 'scripts/test-persistence.sh'
-      - '.github/workflows/database-persistence-tests.yml'
-      - 'src/backend/**'
-  push:
-    branches: [dev, main]
-    paths:
-      - 'database/**'
-      - 'scripts/test-persistence.sh'
-      - '.github/workflows/database-persistence-tests.yml'
-      - 'src/backend/**'
+  workflow_call:
   workflow_dispatch:
 
 permissions:

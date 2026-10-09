@@ -1,16 +1,21 @@
 name: "IaC - Create Cloud Resources (Dev, Stg, Prod)"
 
 on:
-  push:
-    branches: [dev, main]
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/terraform-infra-create.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'terraform/**'
-      - '.github/workflows/terraform-infra-create.yml'
+  workflow_call:
+    inputs:
+      target_env:
+        required: true
+        type: string
+      action:
+        description: 'apply, plan, or skip when the release reuses existing infrastructure'
+        required: false
+        type: string
+        default: 'apply'
+      coordinated_release:
+        description: 'Caller already holds the environment release lock'
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
     inputs:
       target_env:
@@ -37,7 +42,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: terraform-${{ github.event_name }}-${{ github.ref }}
+  # Standalone maintenance shares the release lock; called jobs must not lock their caller out.
+  group: ${{ inputs.coordinated_release && format('terraform-{0}', inputs.target_env) || format('release-{0}', inputs.target_env) }}
   cancel-in-progress: false
 
 jobs:
@@ -52,30 +58,22 @@ jobs:
       is_production: ${{ steps.env_resolver.outputs.is_production }}
       deployment_desc: ${{ steps.env_resolver.outputs.deployment_desc }}
     steps:
-      - name: Determine Target Environment from Git Context
+      - name: Validate Infrastructure Environment and Action
         id: env_resolver
         env:
-          GITHUB_EVENT_NAME: ${{ github.event_name }}
           TARGET_ENV_INPUT: ${{ inputs.target_env }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
-          GITHUB_REF: ${{ github.ref }}
+          TERRAFORM_ACTION: ${{ inputs.action }}
         run: |
-          if [ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]; then
-            TARGET="$TARGET_ENV_INPUT"
-            DESC="Manual workflow dispatch to Azure $(echo "$TARGET" | tr '[:lower:]' '[:upper:]')"
-          elif [ "$GITHUB_EVENT_NAME" == "pull_request" ] && [ "$GITHUB_BASE_REF" == "main" ]; then
-            TARGET="stg"
-            DESC="48-Hour Feature Freeze PR Staging Deployment (Azure STG for Evaluation)"
-          elif [ "$GITHUB_EVENT_NAME" == "push" ] && [ "$GITHUB_REF" == "refs/heads/main" ]; then
-            TARGET="prod"
-            DESC="Merged Production Release (Azure PROD - Signed & Locked Baseline)"
-          elif [ "$GITHUB_EVENT_NAME" == "push" ] && [ "$GITHUB_REF" == "refs/heads/dev" ]; then
-            TARGET="dev"
-            DESC="Active Development Continuous Integration Sandbox (Azure DEV)"
-          else
-            TARGET="dev"
-            DESC="Default Development Deployment (Azure DEV)"
-          fi
+          # Called workflows retain the caller's event; explicit inputs select the target.
+          case "$TARGET_ENV_INPUT" in
+            dev|stg|prod) TARGET="$TARGET_ENV_INPUT" ;;
+            *) echo "::error::Unsupported infrastructure environment"; exit 1 ;;
+          esac
+          case "$TERRAFORM_ACTION" in
+            apply|plan|skip) ;;
+            *) echo "::error::Unsupported Terraform action"; exit 1 ;;
+          esac
+          DESC="Terraform $TERRAFORM_ACTION for $TARGET"
 
           echo "environment=$TARGET" >> $GITHUB_OUTPUT
           echo "deployment_desc=$DESC" >> $GITHUB_OUTPUT
@@ -97,6 +95,8 @@ jobs:
   provision-infrastructure:
     name: Terraform (${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
+    # A skip still validates inputs, so the caller gets a successful prerequisite.
+    if: inputs.action != 'skip'
     runs-on: ubuntu-latest
     environment: ${{ needs.resolve-environment.outputs.environment }}
     outputs:
@@ -415,7 +415,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------------
-      # 1.4 EXPORT TARGET ENVIRONMENT ARTIFACT FOR DOWNSTREAM WORKFLOWS
+      # 1.4 RETAIN TARGET ENVIRONMENT AS RELEASE EVIDENCE
       # ------------------------------------------------------------------------
       - name: Save Deployment Target Environment
         run: |
@@ -425,6 +425,7 @@ jobs:
       - name: Upload Target Environment Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: deployment-environment
+          name: infrastructure-environment
           path: .environment/target_env
+          include-hidden-files: true
           retention-days: 1
