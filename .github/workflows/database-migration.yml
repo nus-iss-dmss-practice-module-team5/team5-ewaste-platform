@@ -1,16 +1,15 @@
 name: Database - Liquibase Migration
 
 on:
-  push:
-    branches: [dev, main]
-    paths:
-      - 'database/**'
-      - '.github/workflows/database-migration.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'database/**'
-      - '.github/workflows/database-migration.yml'
+  workflow_call:
+    inputs:
+      target_env:
+        required: true
+        type: string
+      command:
+        required: false
+        type: string
+        default: 'update'
   workflow_dispatch:
     inputs:
       target_env:
@@ -38,7 +37,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: liquibase-migration-${{ github.event_name }}-${{ github.ref }}
+  group: liquibase-migration-${{ inputs.target_env }}
   cancel-in-progress: false
 
 jobs:
@@ -52,24 +51,21 @@ jobs:
       environment: ${{ steps.env_resolver.outputs.environment }}
       is_production: ${{ steps.env_resolver.outputs.is_production }}
     steps:
-      - name: Determine Target Environment from Git Context
+      - name: Validate Migration Environment and Command
         id: env_resolver
         env:
-          EVENT_NAME: ${{ github.event_name }}
           TARGET_ENV_INPUT: ${{ inputs.target_env }}
-          GIT_REF: ${{ github.ref }}
+          COMMAND: ${{ inputs.command }}
         run: |
-          if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
-            TARGET="$TARGET_ENV_INPUT"
-          elif [ "$EVENT_NAME" == "workflow_call" ]; then
-            TARGET="$TARGET_ENV_INPUT"
-          elif [ "$EVENT_NAME" == "push" ] && [ "$GIT_REF" == "refs/heads/main" ]; then
-            TARGET="prod"
-          elif [ "$EVENT_NAME" == "push" ] && [ "$GIT_REF" == "refs/heads/dev" ]; then
-            TARGET="dev"
-          else
-            TARGET="dev"
-          fi
+          # A reusable workflow retains its caller's event name, so use inputs.
+          case "$TARGET_ENV_INPUT" in
+            dev|stg|prod) TARGET="$TARGET_ENV_INPUT" ;;
+            *) echo "::error::Unsupported migration environment"; exit 1 ;;
+          esac
+          case "$COMMAND" in
+            update|status|validate) ;;
+            *) echo "::error::Unsupported Liquibase command"; exit 1 ;;
+          esac
 
           echo "environment=$TARGET" >> $GITHUB_OUTPUT
           if [ "$TARGET" == "prod" ]; then

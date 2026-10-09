@@ -1,10 +1,10 @@
-name: CD - Multi-Environment Deployment & Evidence Pipeline
+name: CI/CD - Verification, Deployment & Evidence Pipeline
 
 on:
   push:
     branches: [dev, main]
   pull_request:
-    branches: [main]
+    branches: [dev, main]
     types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
@@ -24,12 +24,18 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
   id-token: write
   security-events: write
   actions: read
 
 concurrency:
-  group: cd-deployment-${{ github.event_name }}-${{ github.ref }}
+  # Serialise a complete release (including migration) per target environment.
+  # Dev PRs and fork PRs only run tests and get their own concurrency group.
+  group: >-
+    ${{ github.event_name == 'pull_request' && (github.base_ref == 'dev' || github.event.pull_request.head.repo.full_name != github.repository)
+        && format('ci-pr-{0}', github.event.pull_request.number)
+        || format('release-{0}', inputs.target_env || (github.event_name == 'pull_request' && 'stg' || (github.ref == 'refs/heads/main' && 'prod' || 'dev'))) }}
   cancel-in-progress: false
 
 env:
@@ -38,11 +44,45 @@ env:
   IMAGE_NAME_ANALYTICS: 'workflow-analytics'
 
 jobs:
+  # Reuse the same tests for PRs, pushes and manual releases at this commit.
+  quality-checks:
+    name: Quality and security
+    uses: ./.github/workflows/ci-gate.yml
+    secrets: inherit
+
+  matcher-tests:
+    name: Matching and analytics integration
+    uses: ./.github/workflows/matcher.yml
+
+  database-tests:
+    name: Database persistence
+    uses: ./.github/workflows/database-persistence-tests.yml
+
+  required-ci:
+    name: Required CI
+    needs: [quality-checks, matcher-tests, database-tests]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require every test workflow to succeed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+          TESTED_SHA: ${{ github.sha }}
+        run: |
+          echo "Tested commit: $TESTED_SHA" >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' "$RESULTS" | jq -r 'to_entries[] | "- \(.key): \(.value.result)"' | tee -a "$GITHUB_STEP_SUMMARY"
+          if ! printf '%s\n' "$RESULTS" | jq -e 'all(.[]; .result == "success")' >/dev/null; then
+            echo "::error::All required test workflows must succeed; failed, cancelled or skipped suites block release."
+            exit 1
+          fi
+
   # ============================================================================
   # STAGE 0: DYNAMIC ENVIRONMENT RESOLUTION (2-Branch Strategy Mapping)
   # ============================================================================
   resolve-environment:
     name: Resolve Target Environment
+    needs: [required-ci]
+    if: github.event_name != 'pull_request' || (github.base_ref == 'main' && github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     outputs:
       environment: ${{ steps.env_resolver.outputs.environment }}
@@ -97,9 +137,19 @@ jobs:
   # STAGE 1: MULTI-CONTAINER RELEASE (API, UI & ANALYTICS) & ACA DEPLOYMENT
   # Runs on VNet-injected self-hosted runner with direct Private Link to ACR
   # ============================================================================
+  migrate-database:
+    name: Prepare release database
+    needs: [required-ci, resolve-environment]
+    uses: ./.github/workflows/database-migration.yml
+    with:
+      target_env: ${{ needs.resolve-environment.outputs.environment }}
+      # Rollback reuses an older image; do not apply new schema changes for it.
+      command: ${{ inputs.rollback_tag != '' && 'validate' || 'update' }}
+    secrets: inherit
+
   deploy-application:
     name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})
-    needs: [resolve-environment]
+    needs: [required-ci, resolve-environment, migrate-database]
     runs-on: [self-hosted, azure-vnet, "${{ needs.resolve-environment.outputs.environment }}"]
     environment: ${{ needs.resolve-environment.outputs.environment }}
     outputs:
@@ -628,7 +678,7 @@ jobs:
           echo "  DEPLOYMENT & AUDIT SUITE COMPLETED SUCCESSFULLY"
           echo "  - Environment Target: ${{ needs.resolve-environment.outputs.environment }}"
           echo "  - Deployment Scope: ${{ needs.resolve-environment.outputs.deployment_desc }}"
-          echo "  - Database Status: Migrations are a prerequisite; authenticated matcher lookup verified"
+          echo "  - Database Status: Prerequisite Liquibase job succeeded; authenticated matcher lookup verified"
           echo "  - Container Release: Multi-Container Verified (API, UI, & Analytics)"
           echo "  - Event Streaming: Kafka/MySQL persistence tested in matcher CI; live checks respect environment ingress"
           echo "  - Runtime Health: ACA Ingress Probes Verified (:8080, :3000, :8000)"

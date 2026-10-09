@@ -54,28 +54,47 @@
 
 ### Workflow Matrix
 
+`cd-pipeline.yml` coordinates verification and release at the same commit:
+
+```text
+PR to dev/main, push to dev/main, or manual release
+                         |
+              +----------+----------+
+              |          |          |
+          ci-gate     matcher    database-persistence-tests
+              |          |          |
+              +----------+----------+
+                         |
+                    Required CI
+                         |
+        Eligible release: resolve environment
+                         |
+            database-migration (Liquibase)
+                         |
+          Build/push images and deploy to ACA
+                         |
+              Existing DAST and smoke jobs
 ```
-       [Developer Push / PR]
-                 │
-                 ▼
-      ┌─────────────────────┐
-      │     ci-gate.yml     │  (Pre-commit, Gitleaks, Unit Tests, Checkov)
-      └──────────┬──────────┘
-                 │ (Merge to dev)
-                 ▼
- ┌───────────────────────────┐
- │   terraform-infra-create.yml│  (Provisions/updates Azure resources)
- └───────────┬───────────────┘
-                 │
-                 ▼
- ┌───────────────────────────┐
- │    database-migration.yml   │  (Runs on Self-Hosted Runner inside VNet)
- └───────────┬───────────────┘
-                 │
-                 ▼
- ┌───────────────────────────┐
- │        cd-pipeline.yml      │  (ACR Build -> Deploy ACA API, UI & Worker)
- └───────────────────────────┘
+
+| Event                          | Verification     | Release after successful checks |
+| ------------------------------ | ---------------- | ------------------------------- |
+| PR into `dev`                  | All three suites | None                            |
+| Same-repository PR into `main` | All three suites | `stg`                           |
+| Fork PR into `dev` or `main`   | All three suites | None                            |
+| Push to `dev` / `main`         | All three suites | `dev` / `prod`                  |
+| Manual `cd-pipeline.yml` run   | All three suites | Selected environment            |
+
+The three test workflows are reusable and retain manual dispatch for diagnosis. They no longer start separate automatic runs. `Required CI` fails if any suite fails, is cancelled or is skipped; migration and deployment depend on its success. Releases are serialised per target environment without cancelling an active release.
+
+**Required GitHub setting:** After the first run exposes the check, update the ruleset or branch protection for both `dev` and `main`: require pull requests and the GitHub Actions check **`Required CI`** before merging. Replace obsolete required check names if they changed under the reusable workflows. Do not require deployment jobs for dev PRs, where deployment is deliberately skipped. YAML enforces release ordering; it does not configure branch protection.
+
+**Infrastructure prerequisite:** Terraform remains a separate provisioning workflow. Finish any required infrastructure changes before starting a release; the graph above does not wait for Terraform. Avoid manual migration maintenance during an active release.
+
+**Retained evidence:** Go coverage, Python JUnit/coverage and integration/persistence artifacts upload even when their tests fail, when files were produced. GitHub retains the job logs. To check workflow ordering and failure handling locally (Python and `jq` required):
+
+```bash
+python -m pip install PyYAML==6.0.2
+python scripts/test-workflow-gates.py
 ```
 
 ---
@@ -96,13 +115,13 @@
 ### Pipeline 2: CI Quality Gate & Security Baseline
 
 - **Workflow:** `.github/workflows/ci-gate.yml`
-- **Trigger:** Pull Requests targeting `dev` or `main`; pushes to `dev` or `main`.
+- **Trigger:** Called by `cd-pipeline.yml` for PRs, pushes and manual releases; also supports a standalone manual run.
 - **Gate Checks:**
-  1. **Pre-commit Quality Checks:** Linting, whitespace, markdown formatting.
+  1. **Pre-commit Quality Checks:** Workflow gate regression checks, linting, whitespace, markdown formatting.
   2. **Gitleaks Secret Detection:** Prevents credential leaks in commits.
-  3. **Backend Service Gate:** Go 1.26 tests (`go test -race ./...`) and `golangci-lint`.
+  3. **Backend Service Gate:** Go 1.26 tests with race detection and coverage; `go fmt` and `go vet` in pre-commit.
   4. **Frontend UI Gate:** Node.js 22 linting, unit test suite (`npm run test`), and bundle build (`npm run build`).
-  5. **Matcher Analytics Gate:** Python 3.11 `pytest` with enforced minimum code coverage threshold.
+  5. **Matcher Analytics Gate:** Python 3.11 `pytest` with JUnit/coverage output and the `PYTHON_MIN_COVERAGE` repository variable when configured. Disposable Kafka/MySQL verification runs separately through `matcher.yml`; schema and persistence verification runs through `database-persistence-tests.yml`.
   6. **Checkov Security Gate:** Enforces zero high/critical vulnerabilities across IaC templates.
 
 ---
@@ -110,29 +129,31 @@
 ### Pipeline 3: Private Database Migration (Liquibase)
 
 - **Workflow:** `.github/workflows/database-migration.yml`
-- **Trigger:** Dispatch or push modifying `database/**`.
-- **Execution Environment:** **Self-Hosted Runner (`runs-on: self-hosted`)** inside `snet-runner`.
+- **Trigger:** Called after `Required CI` succeeds for an eligible release, or manually dispatched for operator maintenance.
+- **Execution Environment:** Self-hosted runner with `azure-vnet` and the selected environment label.
 - **Key Tasks:**
-  1. **Pre-flight Healthcheck:** Validates Azure login, retrieves DB credentials from Azure Key Vault, and verifies `ewastedb` exists.
-  2. **Liquibase Migration:** Executes Liquibase Docker container directly on the internal VNet.
-  3. **Contexts:** Applies changesets for `--contexts=schema,seed`.
-  4. Applies changesets `001` through `025` and seed files `101` through `105`.
+  1. **Pre-flight Healthcheck:** Validates the environment/command, authenticates to Azure and verifies `ewastedb` exists. Database credentials come from the selected GitHub environment's secrets.
+  2. **Liquibase Migration:** Installs Java/Liquibase and the MySQL JDBC driver on the VNet runner, then uses `database/changelog-master.yaml`.
+  3. **Contexts:** Dev/staging use `--contexts=seed`; production omits the explicit seed context. Seed changesets use `@seed` to require explicit selection.
+  4. **Release command:** Normal releases run `update`. Image rollback runs `validate`, without applying or reversing migrations. Confirm that the older image is compatible with the current schema before rollback.
+  5. A failed migration blocks deployment. Manual `status` and `validate` remain available; they do not launch application deployment.
 
 ---
 
 ### Pipeline 4: Continuous Delivery (Build, Push & Deploy)
 
 - **Workflow:** `.github/workflows/cd-pipeline.yml`
-- **Trigger:** Push to `dev` or manual workflow dispatch.
-- **Execution Environment:** Self-hosted runner for zero-network-egress deployment.
+- **Trigger:** See the event/environment table above. PRs to `dev` run checks only.
+- **Execution Environment:** GitHub-hosted runners for verification; environment-labelled VNet runners for migration and deployment.
 - **Key Tasks:**
-  1. **ACR Authentication:** Authenticates using Azure User-Assigned Managed Identity via OIDC (No admin passwords).
-  2. **Immutable Image Build:** Builds three immutable container images:
+  1. **Release prerequisites:** Run all three verification suites, require `Required CI`, then finish the selected environment's Liquibase job before deploying.
+  2. **ACR Authentication:** Authenticates to Azure and ACR using the configured deployment credentials.
+  3. **Immutable Image Build:** Builds three immutable container images (dev examples):
      - `workflow-api:dev-<sha>`
      - `workflow-ui:dev-<sha>`
      - `workflow-analytics:dev-<sha>`
-  3. **Container App Revisions:** Deploys new revisions using `az containerapp update` with zero-downtime rolling updates.
-  4. **Matcher Integration Script:** Executes `scripts/deploy-matcher.sh` to bind the worker to the API internal endpoint and validates `/readyz` health.
+  4. **Container App Revisions:** Deploys new revisions using `az containerapp update`.
+  5. **Matcher Integration Script:** Executes `scripts/deploy-matcher.sh` to bind the worker to the API internal endpoint and validates `/readyz` health.
 
 ---
 
