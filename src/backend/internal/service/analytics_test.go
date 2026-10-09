@@ -21,7 +21,7 @@ func TestBatchServiceAcknowledgeAnalyticsCompletesRecycledBatchAtomically(t *tes
 	if result.Data.Status != string(model.BatchStatusCompleted) || result.Data.Version != 8 || result.EventState != string(model.OutboxPublishStatePending) {
 		t.Fatalf("unexpected completion result: %+v", result)
 	}
-	if len(repo.state.analytics) != 1 || len(repo.state.anomalies) != 1 || len(repo.state.audits) != 2 || len(repo.state.outbox) != 2 {
+	if len(repo.state.analytics) != 1 || len(repo.state.anomalies) != 3 || len(repo.state.audits) != 2 || len(repo.state.outbox) != 2 {
 		t.Fatalf("expected result, anomaly, audit and RequestCompleted writes: analytics=%d anomalies=%d audits=%d outbox=%d", len(repo.state.analytics), len(repo.state.anomalies), len(repo.state.audits), len(repo.state.outbox))
 	}
 	if repo.state.batches["batch-receipt-001"].Status != model.BatchStatusCompleted {
@@ -57,8 +57,34 @@ func TestBatchServiceAcknowledgeAnalyticsReplaysWithoutDuplicateDurableEffects(t
 	if second.EventState != "REPLAYED" || second.EventID != first.EventID || second.Data.AnalyticsResultID != first.Data.AnalyticsResultID {
 		t.Fatalf("replay did not return the saved result: first=%+v second=%+v", first, second)
 	}
-	if len(repo.state.analytics) != 1 || len(repo.state.anomalies) != 1 || len(repo.state.audits) != 2 || len(repo.state.outbox) != 2 {
+	if len(repo.state.analytics) != 1 || len(repo.state.anomalies) != 3 || len(repo.state.audits) != 2 || len(repo.state.outbox) != 2 {
 		t.Fatalf("replay created duplicate durable effects")
+	}
+}
+
+func TestBatchServiceAcknowledgeAnalyticsRejectsAnomalyCodesThatContradictFrozenInput(t *testing.T) {
+	cases := []struct {
+		name  string
+		codes []string
+	}{
+		{name: "missing required weight and count flags", codes: []string{string(model.AnomalyMissingOutcome)}},
+		{name: "invented category flag", codes: []string{string(model.AnomalyCategoryMismatch), string(model.AnomalyCountMismatch), string(model.AnomalyWeightMismatch), string(model.AnomalyMissingOutcome)}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			service, repo := analyticsFixture(t)
+			request, metadata := analyticsRequest(repo, "analytics-run-anomaly-"+tc.name, "analytics-command-anomaly-"+tc.name, 7)
+			request.AnomalyCodes = tc.codes
+
+			if _, err := service.AcknowledgeAnalytics(context.Background(), "batch-receipt-001", request, metadata); !errors.Is(err, ErrBatchValidation) {
+				t.Fatalf("expected anomaly-code validation error, got %v", err)
+			}
+			batch := repo.state.batches["batch-receipt-001"]
+			if batch.Status != model.BatchStatusRecycled || len(repo.state.analytics) != 0 || len(repo.state.anomalies) != 0 || len(repo.state.audits) != 1 || len(repo.state.outbox) != 1 {
+				t.Fatalf("invalid anomaly codes changed durable state: batch=%+v analytics=%d anomalies=%d audits=%d outbox=%d", batch, len(repo.state.analytics), len(repo.state.anomalies), len(repo.state.audits), len(repo.state.outbox))
+			}
+		})
 	}
 }
 
@@ -186,6 +212,6 @@ func analyticsRequest(repo *fakeBatchRepository, runID, idempotencyKey string, v
 			DivertedKg: nil, DeclaredQuantity: new(12), ActualItemCount: new(10), CategoryMatch: new(true),
 			WeightDeltaKg: stringPointer("-0.50"), CountDelta: new(-2),
 		},
-		AnomalyCodes: []string{string(model.AnomalyMissingOutcome)},
+		AnomalyCodes: []string{string(model.AnomalyCountMismatch), string(model.AnomalyWeightMismatch), string(model.AnomalyMissingOutcome)},
 	}, BatchCommandMetadata{ActorScope: "service:analytics-worker", CorrelationID: "corr-analytics", IdempotencyKey: idempotencyKey, ExpectedVersion: version}
 }

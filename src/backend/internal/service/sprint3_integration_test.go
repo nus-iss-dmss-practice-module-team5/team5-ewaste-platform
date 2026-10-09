@@ -177,13 +177,22 @@ func pythonAnalyticsAcknowledgement(payload map[string]any, sourceEventID string
 	inputHash := hex.EncodeToString(sum[:])
 
 	dataQuality := stringValue(data["data_quality"])
-	anomalyCodes := make([]string, 0)
+	anomalyCodes := make([]string, 0, 5)
+	if stringValue(data["declared_category"]) != stringValue(data["actual_category"]) {
+		anomalyCodes = append(anomalyCodes, string(model.AnomalyCategoryMismatch))
+	}
+	declaredCount := int(numberValue(data["declared_quantity"]))
+	actualCount := int(numberValue(data["actual_item_count"]))
+	if declaredCount != actualCount {
+		anomalyCodes = append(anomalyCodes, string(model.AnomalyCountMismatch))
+	}
+	weightDelta, _ := signedDecimalDifference(stringValue(data["actual_weight_kg"]), stringValue(data["declared_weight_kg"]))
+	if weightDelta != "0.00" {
+		anomalyCodes = append(anomalyCodes, string(model.AnomalyWeightMismatch))
+	}
 	if dataQuality == string(model.TreatmentDataQualityMissing) {
 		anomalyCodes = append(anomalyCodes, string(model.AnomalyMissingOutcome))
 	}
-	weightDelta, _ := signedDecimalDifference(stringValue(data["actual_weight_kg"]), stringValue(data["declared_weight_kg"]))
-	declaredCount := int(numberValue(data["declared_quantity"]))
-	actualCount := int(numberValue(data["actual_item_count"]))
 	return dto.AnalyticsAcknowledgement{
 		SourceEventID:      sourceEventID,
 		SourceEventVersion: uint32(numberValue(payload["aggregate_version"])),
