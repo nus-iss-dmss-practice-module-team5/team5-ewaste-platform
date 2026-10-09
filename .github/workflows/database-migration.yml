@@ -1,21 +1,25 @@
 name: Database - Liquibase Migration
 
 on:
-  workflow_run:
-    workflows: ["IaC - Create Cloud Resources (Dev, Stg, Prod)"]
-    types:
-      - completed
-    branches: [dev, main]
-  push:
-    branches: [dev, main]
-    paths:
-      - 'database/**'
-      - '.github/workflows/database-migration.yml'
-  pull_request:
-    branches: [main]
-    paths:
-      - 'database/**'
-      - '.github/workflows/database-migration.yml'
+  workflow_call:
+    inputs:
+      target_env:
+        required: true
+        type: string
+      command:
+        required: false
+        type: string
+        default: 'update'
+      coordinated_release:
+        description: 'Caller already holds the environment release lock'
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      AZURE_CREDENTIALS:
+        required: true
+      MYSQL_DB_ADMIN_PASSWORD:
+        required: true
   workflow_dispatch:
     inputs:
       target_env:
@@ -43,7 +47,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: liquibase-migration-${{ github.event.workflow_run.head_branch || github.ref }}
+  # Standalone maintenance shares the release lock; called jobs must not lock their caller out.
+  group: ${{ inputs.coordinated_release && format('liquibase-migration-{0}', inputs.target_env) || format('release-{0}', inputs.target_env) }}
   cancel-in-progress: false
 
 jobs:
@@ -53,113 +58,25 @@ jobs:
   resolve-environment:
     name: Resolve Target Environment
     runs-on: ubuntu-latest
-    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
       environment: ${{ steps.env_resolver.outputs.environment }}
       is_production: ${{ steps.env_resolver.outputs.is_production }}
     steps:
-      - name: Download Target Environment from Infrastructure Workflow
-        if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@v4
-        with:
-          name: deployment-environment
-          run-id: ${{ github.event.workflow_run.id }}
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: .environment
-        continue-on-error: true
-
-      # ------------------------------------------------------------------------
-      # QUEUE GUARD: Wait for in-progress Terraform workflows to prevent collision
-      # ------------------------------------------------------------------------
-      - name: Wait for Active Upstream Terraform Pipeline
-        if: github.event_name != 'workflow_run'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REF_NAME: ${{ github.ref_name }}
-        run: |
-          echo "=========================================================="
-          echo " Checking for running Terraform pipelines on $REF_NAME..."
-          echo "=========================================================="
-
-          MAX_WAIT=900
-          WAITED=0
-          INTERVAL=15
-
-          while [ $WAITED -lt $MAX_WAIT ]; do
-            ACTIVE_TF=$(gh run list \
-              --repo "$GITHUB_REPOSITORY" \
-              --workflow "IaC - Create Cloud Resources (Dev, Stg, Prod)" \
-              --branch "$REF_NAME" \
-              --json databaseId,status \
-              --jq '.[] | select(.status == "in_progress" or .status == "queued") | .databaseId' 2>/dev/null || echo "")
-
-            if [ -z "$ACTIVE_TF" ]; then
-              echo "No active Terraform pipelines running."
-              break
-            fi
-
-            echo "Active Terraform pipeline detected: $ACTIVE_TF"
-            echo "Queuing up and waiting $INTERVAL seconds (elapsed: ${WAITED}s)..."
-            sleep $INTERVAL
-            WAITED=$((WAITED + INTERVAL))
-          done
-
-          if [ $WAITED -ge $MAX_WAIT ]; then
-            echo "::error::Timed out after $MAX_WAIT seconds waiting for Terraform pipeline to complete."
-            exit 1
-          fi
-
-          LATEST_TF_STATUS=$(gh run list \
-            --repo "$GITHUB_REPOSITORY" \
-            --workflow "IaC - Create Cloud Resources (Dev, Stg, Prod)" \
-            --branch "$REF_NAME" \
-            --limit 1 \
-            --json conclusion \
-            --jq '.[0].conclusion // "none"' 2>/dev/null || echo "none")
-
-          if [ "$LATEST_TF_STATUS" == "failure" ] || [ "$LATEST_TF_STATUS" == "cancelled" ]; then
-            echo "::error::Upstream Terraform pipeline finished with status '$LATEST_TF_STATUS'. Halting database migration immediately to protect environment."
-            exit 1
-          fi
-
-          echo "Terraform dependency check passed. Proceeding with database migration."
-
-      - name: Determine Target Environment from Git Context
+      - name: Validate Migration Environment and Command
         id: env_resolver
         env:
-          EVENT_NAME: ${{ github.event_name }}
           TARGET_ENV_INPUT: ${{ inputs.target_env }}
-          GIT_REF: ${{ github.ref }}
-          TRIGGERING_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          COMMAND: ${{ inputs.command }}
         run: |
-          TARGET=""
-          if [ -f ".environment/target_env" ]; then
-            TARGET=$(tr -d ' \r\n' < .environment/target_env)
-            echo "Loaded target environment from artifact: '$TARGET'"
-          elif [ -f ".environment/deployment-environment/target_env" ]; then
-            TARGET=$(tr -d ' \r\n' < .environment/deployment-environment/target_env)
-            echo "Loaded target environment from artifact: '$TARGET'"
-          fi
-
-          if [ -z "$TARGET" ]; then
-            if [ "$EVENT_NAME" == "workflow_dispatch" ]; then
-              TARGET="$TARGET_ENV_INPUT"
-            elif [ "$EVENT_NAME" == "workflow_call" ]; then
-              TARGET="$TARGET_ENV_INPUT"
-            elif [ "$EVENT_NAME" == "workflow_run" ]; then
-              if [ "$TRIGGERING_BRANCH" == "main" ]; then
-                TARGET="prod"
-              else
-                TARGET="dev"
-              fi
-            elif [ "$EVENT_NAME" == "push" ] && [ "$GIT_REF" == "refs/heads/main" ]; then
-              TARGET="prod"
-            elif [ "$EVENT_NAME" == "push" ] && [ "$GIT_REF" == "refs/heads/dev" ]; then
-              TARGET="dev"
-            else
-              TARGET="dev"
-            fi
-          fi
+          # A reusable workflow retains its caller's event name, so use inputs.
+          case "$TARGET_ENV_INPUT" in
+            dev|stg|prod) TARGET="$TARGET_ENV_INPUT" ;;
+            *) echo "::error::Unsupported migration environment"; exit 1 ;;
+          esac
+          case "$COMMAND" in
+            update|status|validate) ;;
+            *) echo "::error::Unsupported Liquibase command"; exit 1 ;;
+          esac
 
           echo "environment=$TARGET" >> $GITHUB_OUTPUT
           if [ "$TARGET" == "prod" ]; then
@@ -258,7 +175,7 @@ jobs:
           echo "Liquibase $COMMAND executed successfully."
 
       # ------------------------------------------------------------------------
-      # EXPORT TARGET ENVIRONMENT ARTIFACT FOR DOWNSTREAM WORKFLOWS
+      # RETAIN TARGET ENVIRONMENT AS RELEASE EVIDENCE
       # ------------------------------------------------------------------------
       - name: Save Deployment Target Environment
         run: |
@@ -268,6 +185,7 @@ jobs:
       - name: Upload Target Environment Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: deployment-environment
+          name: database-environment
           path: .environment/target_env
+          include-hidden-files: true
           retention-days: 1
