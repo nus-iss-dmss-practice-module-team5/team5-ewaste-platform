@@ -416,9 +416,8 @@ func validateAnalyticsMetrics(metrics dto.AnalyticsMetrics) error {
 
 // validateAnalyticsMetricsAgainstFrozenInput ensures Python cannot
 // acknowledge a result calculated from values other than the immutable
-// RecyclingCompleted snapshot. Rule ownership remains with Python: Go checks
-// the frozen measurements and derived arithmetic, while the worker supplies
-// the deterministic anomaly code list.
+// RecyclingCompleted snapshot. Go also validates the deterministic D3 anomaly
+// code list before any result, anomaly, state, audit, or outbox row is saved.
 func validateAnalyticsMetricsAgainstFrozenInput(data map[string]any, request dto.AnalyticsAcknowledgement) error {
 	metrics := request.Metrics
 	if request.DataQuality != stringValue(data["data_quality"]) {
@@ -466,7 +465,57 @@ func validateAnalyticsMetricsAgainstFrozenInput(data map[string]any, request dto
 			return NewBatchValidationError(map[string]string{"metrics.count_delta": "does not match the frozen count values"})
 		}
 	}
+
+	expectedAnomalyCodes, err := expectedAnalyticsAnomalyCodes(data)
+	if err != nil {
+		return err
+	}
+	if !equalStrings(expectedAnomalyCodes, request.AnomalyCodes) {
+		return NewBatchValidationError(map[string]string{"anomaly_codes": "does not match the deterministic D3 flags for the frozen input"})
+	}
 	return nil
+}
+
+func expectedAnalyticsAnomalyCodes(data map[string]any) ([]string, error) {
+	codes := make([]string, 0, 5)
+	if declaredCategory, actualCategory := stringValue(data["declared_category"]), stringValue(data["actual_category"]); declaredCategory != "" && actualCategory != "" && !strings.EqualFold(declaredCategory, actualCategory) {
+		codes = append(codes, string(model.AnomalyCategoryMismatch))
+	}
+
+	declaredCount := eventIntPointer(data["declared_quantity"])
+	actualCount := eventIntPointer(data["actual_item_count"])
+	if declaredCount != nil && actualCount != nil && *declaredCount != *actualCount {
+		codes = append(codes, string(model.AnomalyCountMismatch))
+	}
+
+	declaredWeight := stringValue(data["declared_weight_kg"])
+	actualWeight := stringValue(data["actual_weight_kg"])
+	if declaredWeight != "" && actualWeight != "" {
+		delta, ok := signedDecimalDifference(actualWeight, declaredWeight)
+		if !ok {
+			return nil, NewBatchValidationError(map[string]string{"anomaly_codes": "frozen weight values are invalid"})
+		}
+		if delta != "0.00" {
+			codes = append(codes, string(model.AnomalyWeightMismatch))
+		}
+	}
+
+	switch stringValue(data["data_quality"]) {
+	case string(model.AnalyticsDataQualityMissing):
+		codes = append(codes, string(model.AnomalyMissingOutcome))
+	case string(model.AnalyticsDataQualityPartial):
+		unknownKg := nullableEventString(data["unknown_kg"])
+		if unknownKg == nil {
+			return nil, NewBatchValidationError(map[string]string{"anomaly_codes": "partial data must retain a positive unknown weight"})
+		}
+		unknownCents, ok := signedCents(*unknownKg)
+		if !ok || unknownCents <= 0 {
+			return nil, NewBatchValidationError(map[string]string{"anomaly_codes": "partial data must retain a positive unknown weight"})
+		}
+		codes = append(codes, string(model.AnomalyUnallocated))
+	}
+
+	return codes, nil
 }
 
 func metricString(metrics dto.AnalyticsMetrics, field string) *string {
