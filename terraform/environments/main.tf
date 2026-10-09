@@ -163,12 +163,14 @@ resource "azurerm_role_assignment" "acr_pull" {
 data "azurerm_client_config" "current" {}
 
 resource "azurerm_role_assignment" "sp_acr_pull" {
+  count                = var.environment == "dev" ? 1 : 0
   scope                = data.azurerm_container_registry.shared_acr.id
   role_definition_name = "AcrPull"
   principal_id         = data.azurerm_client_config.current.object_id
 }
 
 resource "azurerm_role_assignment" "sp_acr_push" {
+  count                = var.environment == "dev" ? 1 : 0
   scope                = data.azurerm_container_registry.shared_acr.id
   role_definition_name = "AcrPush"
   principal_id         = data.azurerm_client_config.current.object_id
@@ -193,6 +195,10 @@ resource "azurerm_mysql_flexible_server" "db" {
   # 100% Private VNet Delegation: No public IP, no public internet access
   delegated_subnet_id = azurerm_subnet.mysql_subnet.id
   private_dns_zone_id = azurerm_private_dns_zone.mysql_dns.id
+
+  depends_on = [
+    azurerm_private_dns_zone_virtual_network_link.mysql_dns_link
+  ]
 
   storage {
     size_gb           = 20
