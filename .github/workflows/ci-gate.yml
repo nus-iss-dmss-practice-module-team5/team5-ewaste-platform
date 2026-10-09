@@ -2,6 +2,11 @@ name: CI Quality Gate & Security Baseline
 
 on:
   workflow_call:
+    secrets:
+      GITLEAKS_LICENSE:
+        required: false
+      COSIGN_PRIVATE_KEY:
+        required: false
   workflow_dispatch:
 
 permissions:

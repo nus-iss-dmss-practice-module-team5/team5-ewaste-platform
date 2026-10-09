@@ -53,7 +53,9 @@ jobs:
   quality-checks:
     name: Quality and security
     uses: ./.github/workflows/ci-gate.yml
-    secrets: inherit
+    secrets:
+      GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+      COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
 
   matcher-tests:
     name: Matching and analytics integration
@@ -187,7 +189,20 @@ jobs:
       target_env: ${{ needs.resolve-environment.outputs.environment }}
       action: ${{ needs.resolve-environment.outputs.apply_infrastructure == 'true' && 'apply' || 'skip' }}
       coordinated_release: true
-    secrets: inherit
+    secrets:
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+      TF_STATE_STORAGE_ACCOUNT: ${{ secrets.TF_STATE_STORAGE_ACCOUNT }}
+      TF_STATE_SA_ACCESS_KEY: ${{ secrets.TF_STATE_SA_ACCESS_KEY }}
+      MATCHER_SIGNING_SECRET: ${{ secrets.MATCHER_SIGNING_SECRET }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      MYSQL_DB_ADMIN_PASSWORD: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
+      EWASTE_AUTH_ACCESS_SECRET: ${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}
+      EWASTE_AUTH_REFRESH_SECRET: ${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}
+      EWASTE_AUTH_REFRESH_HASH_SECRET: ${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}
+      EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN: ${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN }}
+      ANALYTICS_SERVICE_TOKEN: ${{ secrets.ANALYTICS_SERVICE_TOKEN }}
+      GH_RUNNER_PAT: ${{ secrets.GH_RUNNER_PAT }}
+      REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
 
   migrate-database:
     name: Prepare release database
@@ -198,7 +213,9 @@ jobs:
       # Rollback reuses an older image; do not apply new schema changes for it.
       command: ${{ inputs.rollback_tag != '' && 'validate' || 'update' }}
       coordinated_release: true
-    secrets: inherit
+    secrets:
+      AZURE_CREDENTIALS: ${{ secrets.AZURE_CREDENTIALS }}
+      MYSQL_DB_ADMIN_PASSWORD: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
 
   deploy-application:
     name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})

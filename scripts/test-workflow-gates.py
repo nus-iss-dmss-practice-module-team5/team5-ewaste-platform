@@ -6,6 +6,7 @@ Run: python scripts/test-workflow-gates.py
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -86,6 +87,50 @@ class ReleaseWorkflowTests(unittest.TestCase):
                     result, _ = run_step(gate['steps'][0], RESULTS=json.dumps(failed), TESTED_SHA='test-commit')
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn('::error::', result.stdout)
+
+    def test_reusable_workflows_receive_only_declared_consumed_secrets(self):
+        expected = {
+            'quality-checks': {'GITLEAKS_LICENSE', 'COSIGN_PRIVATE_KEY'},
+            'matcher-tests': set(),
+            'database-tests': set(),
+            'prepare-infrastructure': {
+                'AZURE_CREDENTIALS', 'TF_STATE_STORAGE_ACCOUNT', 'TF_STATE_SA_ACCESS_KEY',
+                'MATCHER_SIGNING_SECRET', 'AZURE_TENANT_ID', 'MYSQL_DB_ADMIN_PASSWORD',
+                'EWASTE_AUTH_ACCESS_SECRET', 'EWASTE_AUTH_REFRESH_SECRET',
+                'EWASTE_AUTH_REFRESH_HASH_SECRET', 'EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN',
+                'ANALYTICS_SERVICE_TOKEN', 'GH_RUNNER_PAT', 'REDIS_PASSWORD',
+            },
+            'migrate-database': {'AZURE_CREDENTIALS', 'MYSQL_DB_ADMIN_PASSWORD'},
+        }
+        for name, job in self.jobs.items():
+            if 'uses' not in job:
+                continue
+            with self.subTest(job=name):
+                passed = job.get('secrets', {})
+                self.assertIsInstance(passed, dict, 'Pass named secrets; do not inherit all secrets')
+                child = workflow(Path(job['uses']).name)
+                declared = (child['on']['workflow_call'] or {}).get('secrets', {})
+                consumed = set(re.findall(r'secrets\.([A-Za-z_][A-Za-z0-9_]*)', json.dumps(child['jobs'])))
+                self.assertEqual(set(passed), expected[name])
+                self.assertEqual(set(passed), set(declared))
+                self.assertEqual(set(passed), consumed)
+                for secret, value in passed.items():
+                    self.assertEqual(value, '${{ secrets.' + secret + ' }}')
+
+    def test_named_secrets_preserve_environment_and_optional_fallbacks(self):
+        for child, name in [(self.infrastructure, 'provision-infrastructure'),
+                            (self.migration, 'database-migration')]:
+            self.assertEqual(child['jobs'][name]['environment'],
+                             '${{ needs.resolve-environment.outputs.environment }}')
+        for declaration in self.quality['on']['workflow_call']['secrets'].values():
+            self.assertEqual(declaration['required'], 'false')
+        for declaration in self.infrastructure['on']['workflow_call']['secrets'].values():
+            self.assertEqual(declaration['required'], 'false')
+        provision = self.infrastructure['jobs']['provision-infrastructure']
+        step = next(item for item in provision['steps']
+                    if item.get('name') == 'Apply Target Environment Infrastructure')
+        self.assertEqual(step['env']['ANALYTICS_TOKEN'],
+                         '${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN || secrets.ANALYTICS_SERVICE_TOKEN }}')
 
     def test_migrations_and_deployment_depend_on_successful_checks(self):
         self.assertIn('required-ci', self.jobs['resolve-environment']['needs'])

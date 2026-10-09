@@ -16,6 +16,35 @@ on:
         required: false
         type: boolean
         default: false
+    # Skip needs no credentials; apply/plan retain their existing validation.
+    # Named forwarding also preserves secrets supplied by the selected environment.
+    secrets:
+      AZURE_CREDENTIALS:
+        required: false
+      TF_STATE_STORAGE_ACCOUNT:
+        required: false
+      TF_STATE_SA_ACCESS_KEY:
+        required: false
+      MATCHER_SIGNING_SECRET:
+        required: false
+      AZURE_TENANT_ID:
+        required: false
+      MYSQL_DB_ADMIN_PASSWORD:
+        required: false
+      EWASTE_AUTH_ACCESS_SECRET:
+        required: false
+      EWASTE_AUTH_REFRESH_SECRET:
+        required: false
+      EWASTE_AUTH_REFRESH_HASH_SECRET:
+        required: false
+      EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN:
+        required: false
+      ANALYTICS_SERVICE_TOKEN:
+        required: false
+      GH_RUNNER_PAT:
+        required: false
+      REDIS_PASSWORD:
+        required: false
   workflow_dispatch:
     inputs:
       target_env:
