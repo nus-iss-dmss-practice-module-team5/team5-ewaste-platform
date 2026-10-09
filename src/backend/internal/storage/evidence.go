@@ -7,12 +7,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/blob"
+	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 
 	"workflow-api/internal/config"
 )
@@ -21,6 +23,10 @@ var (
 	ErrEvidenceStorageUnavailable = errors.New("evidence storage unavailable")
 	ErrEvidenceObjectNotFound     = errors.New("evidence object not found")
 )
+
+// generatedObjectKey is the only key shape the service produces. Anything
+// else, including path separators or dots from user input, is rejected.
+var generatedObjectKey = regexp.MustCompile(`^batches/[A-Za-z0-9_-]{1,64}/evidence/[A-Za-z0-9_-]{1,64}$`)
 
 // EvidenceStorage is deliberately narrower than the Azure client. Workflow
 // code can only put, get, and compensate an object; it cannot expose a public
@@ -211,7 +217,7 @@ func (s *azureBlobEvidenceStorage) Put(ctx context.Context, objectKey string, co
 		// The service generates unique keys. Never overwrite an existing object.
 		AccessConditions: &blob.AccessConditions{ModifiedAccessConditions: &blob.ModifiedAccessConditions{IfNoneMatch: new(azcore.ETagAny)}},
 	})
-	return err
+	return mapAzureStorageError(err)
 }
 
 func (s *azureBlobEvidenceStorage) Get(ctx context.Context, objectKey string) ([]byte, error) {
@@ -245,8 +251,7 @@ func (s *azureBlobEvidenceStorage) Delete(ctx context.Context, objectKey string)
 }
 
 func validateObjectKey(objectKey string) error {
-	objectKey = strings.TrimSpace(objectKey)
-	if objectKey == "" || strings.HasPrefix(objectKey, "/") || strings.Contains(objectKey, "..") {
+	if !generatedObjectKey.MatchString(objectKey) {
 		return errors.New("invalid evidence object key")
 	}
 	return nil
@@ -258,8 +263,8 @@ func mapAzureStorageError(err error) error {
 	}
 	// The adapter intentionally does not expose provider details to callers.
 	// Missing objects are mapped for the service; all other failures fail closed.
-	if strings.Contains(strings.ToLower(err.Error()), "blobnotfound") || strings.Contains(strings.ToLower(err.Error()), "blob not found") {
+	if bloberror.HasCode(err, bloberror.BlobNotFound) {
 		return ErrEvidenceObjectNotFound
 	}
-	return err
+	return fmt.Errorf("%w: %w", ErrEvidenceStorageUnavailable, err)
 }

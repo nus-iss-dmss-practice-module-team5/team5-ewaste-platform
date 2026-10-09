@@ -25,10 +25,12 @@ const (
 	UploadEvidenceCommand                   = "UploadEvidence"
 	DownloadEvidenceCommand                 = "DownloadEvidence"
 	DefaultEvidenceMaxUploadSizeBytes int64 = 5 * 1024 * 1024
+	evidenceCleanupTimeout                  = 10 * time.Second
 )
 
 var (
 	ErrEvidenceStorage       = errors.New("evidence: storage operation failed")
+	ErrEvidenceIntegrity     = errors.New("evidence: stored object does not match its metadata")
 	allowedEvidenceMIMETypes = map[string]struct{}{
 		"application/pdf": {},
 		"image/jpeg":      {},
@@ -196,8 +198,11 @@ func (s *EvidenceService) Upload(
 	if err != nil && uploadedObjectKey != "" {
 		// Database rollback after a successful blob write must not leave an
 		// unreferenced object behind. Storage cleanup is best effort, while the
-		// original error remains the result returned to the caller.
-		_ = s.storage.Delete(ctx, uploadedObjectKey)
+		// original error remains the result returned to the caller. The request
+		// context may already be cancelled, so cleanup runs on its own deadline.
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), evidenceCleanupTimeout)
+		_ = s.storage.Delete(cleanupCtx, uploadedObjectKey)
+		cancel()
 	}
 	return result, err
 }
@@ -276,6 +281,9 @@ func (s *EvidenceService) Download(
 	if err != nil {
 		return EvidenceDownloadResult{}, fmt.Errorf("%w: download object: %v", ErrEvidenceStorage, err)
 	}
+	if err := verifyEvidenceContent(evidence, content); err != nil {
+		return EvidenceDownloadResult{}, err
+	}
 
 	if role == "SYSTEM_ADMIN" {
 		if err := s.recordAdminDownload(ctx, batchID, evidenceID, actor, correlationID); err != nil {
@@ -353,8 +361,25 @@ func normalizeEvidenceUpload(request EvidenceUploadRequest, maxBytes int64) (nor
 	}, nil
 }
 
+// verifyEvidenceContent fails closed when the stored object no longer matches
+// the size, hash, or type recorded at upload, so altered or substituted bytes
+// are never served as validated evidence.
+func verifyEvidenceContent(evidence *model.BatchEvidence, content []byte) error {
+	hash := sha256.Sum256(content)
+	if uint64(len(content)) != evidence.FileSizeBytes ||
+		!strings.EqualFold(hex.EncodeToString(hash[:]), evidence.SHA256Hash) ||
+		http.DetectContentType(content) != evidence.MIMEType {
+		return ErrEvidenceIntegrity
+	}
+	return nil
+}
+
 func safeEvidenceFilename(raw string) string {
-	name := filepath.Base(strings.TrimSpace(raw))
+	// Clients on any platform may send a full path; keep only the last element.
+	name := filepath.Base(strings.ReplaceAll(strings.TrimSpace(raw), "\\", "/"))
+	if name == "." || name == ".." || name == string(filepath.Separator) {
+		return ""
+	}
 	name = strings.Map(func(r rune) rune {
 		if unicode.IsControl(r) {
 			return -1
