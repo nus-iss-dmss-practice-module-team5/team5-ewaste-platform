@@ -178,13 +178,10 @@ func TestAnalyticsTrustRejectsMalformedOrAlteredResults(t *testing.T) {
 	})
 }
 
-// EWCSB-173 finding: anomaly codes are checked for format but not against the
-// frozen input, so a completion that drops or invents a flag is accepted and
-// the batch is completed. These cases describe the expected behaviour and are
-// skipped until the owning service validates the flags; remove the Skip to
-// reproduce.
+// Anomaly codes must match the D3 flags the service derives from the frozen
+// input, so a completion cannot drop a required flag or invent one. This was
+// reported under EWCSB-173 and fixed in PR #84.
 func TestAnalyticsTrustRejectsAnomalyCodesThatContradictFrozenInput(t *testing.T) {
-	t.Skip("known gap reported under EWCSB-173: anomaly codes are not reconciled with the frozen input")
 	runAnalyticsTamperCases(t, []analyticsTamper{
 		{"required flag omitted", func(_ *string, r *dto.AnalyticsAcknowledgement, _ *BatchCommandMetadata) {
 			r.AnomalyCodes = []string{}
