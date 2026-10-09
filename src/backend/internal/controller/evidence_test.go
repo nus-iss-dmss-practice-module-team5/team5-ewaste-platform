@@ -145,6 +145,9 @@ func TestEvidenceControllerDownloadWritesValidatedContentHeaders(t *testing.T) {
 	if recorder.Header().Get("X-Content-Type-Options") != "nosniff" || recorder.Header().Get("Cache-Control") != "private, no-store" {
 		t.Fatalf("download must not be sniffed or cached: %v", recorder.Header())
 	}
+	if recorder.Header().Get("Content-Security-Policy") != "default-src 'none'; sandbox" {
+		t.Fatalf("download missing D2 sandbox policy: %q", recorder.Header().Get("Content-Security-Policy"))
+	}
 	if !strings.HasPrefix(recorder.Header().Get("Content-Disposition"), "attachment") {
 		t.Fatalf("download must be served as an attachment: %q", recorder.Header().Get("Content-Disposition"))
 	}

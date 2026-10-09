@@ -124,6 +124,7 @@ func (h *EvidenceController) Download(c *gin.Context) {
 	c.Header("Content-Disposition", contentDisposition)
 	c.Header("Content-Length", strconv.Itoa(result.SizeBytes))
 	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Security-Policy", "default-src 'none'; sandbox")
 	c.Header("Cache-Control", "private, no-store")
 	c.Data(http.StatusOK, result.MIMEType, result.Content)
 }
