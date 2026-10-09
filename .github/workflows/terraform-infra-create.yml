@@ -413,3 +413,18 @@ jobs:
             echo "storage_account_name=${STORAGE_ACCOUNT_NAME}"
             echo "storage_blob_endpoint=${STORAGE_BLOB_ENDPOINT}"
           } >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------------
+      # 1.4 EXPORT TARGET ENVIRONMENT ARTIFACT FOR DOWNSTREAM WORKFLOWS
+      # ------------------------------------------------------------------------
+      - name: Save Deployment Target Environment
+        run: |
+          mkdir -p .environment
+          echo "${{ needs.resolve-environment.outputs.environment }}" > .environment/target_env
+
+      - name: Upload Target Environment Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-environment
+          path: .environment/target_env
+          retention-days: 1
