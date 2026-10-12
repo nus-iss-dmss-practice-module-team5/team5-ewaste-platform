@@ -3,7 +3,6 @@ module workflow-api
 go 1.26.0
 
 require (
-	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.23.2
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.14.1
 	github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.8.2
@@ -15,6 +14,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/mitchellh/mapstructure v1.5.0
 	github.com/redis/go-redis/v9 v9.22.0
+	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/segmentio/kafka-go v0.4.51
 	github.com/spf13/viper v1.21.0
 	github.com/swaggest/swgui v1.8.9
@@ -77,7 +77,7 @@ require (
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/exp v0.0.0-20260813180055-c1d0aacb2297 // indirect
-	golang.org/x/net v0.59.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
