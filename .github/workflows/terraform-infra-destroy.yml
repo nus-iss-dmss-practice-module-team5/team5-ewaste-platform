@@ -126,6 +126,12 @@ jobs:
           TF_STATE_SA_ACCESS_KEY: ${{ secrets.TF_STATE_SA_ACCESS_KEY }}
           AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           MYSQL_PASS: ${{ secrets.MYSQL_DB_ADMIN_PASSWORD }}
+          AUTH_ACCESS: ${{ secrets.EWASTE_AUTH_ACCESS_SECRET }}
+          AUTH_REFRESH: ${{ secrets.EWASTE_AUTH_REFRESH_SECRET }}
+          AUTH_HASH: ${{ secrets.EWASTE_AUTH_REFRESH_HASH_SECRET }}
+          ANALYTICS_TOKEN: ${{ secrets.EWASTE_AUTH_ANALYTICS_SERVICE_TOKEN || secrets.ANALYTICS_SERVICE_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GH_RUNNER_PAT: ${{ secrets.GH_RUNNER_PAT }}
         run: |
           cd terraform/environments
 
@@ -144,16 +150,54 @@ jobs:
             TF_VARS_FILE="environments/dev.tfvars"
           fi
 
+          if [ "$TARGET_ENV" != "dev" ]; then
+            if [ -z "$AUTH_ACCESS" ] || [ -z "$AUTH_REFRESH" ] || [ -z "$AUTH_HASH" ]; then
+              echo "::warning::Missing JWT authentication secrets for environment '$TARGET_ENV'. Using fallback dummy values for destroy."
+              AUTH_ACCESS="${AUTH_ACCESS:-default-dev-access-secret-minimum-32-chars-long}"
+              AUTH_REFRESH="${AUTH_REFRESH:-default-dev-refresh-secret-minimum-32-chars-long}"
+              AUTH_HASH="${AUTH_HASH:-default-dev-refresh-hash-secret-32-chars}"
+            fi
+          else
+            # Local dev environment fallback only
+            AUTH_ACCESS="${AUTH_ACCESS:-default-dev-access-secret-minimum-32-chars-long}"
+            AUTH_REFRESH="${AUTH_REFRESH:-default-dev-refresh-secret-minimum-32-chars-long}"
+            AUTH_HASH="${AUTH_HASH:-default-dev-refresh-hash-secret-32-chars}"
+          fi
+
+          if [ "${#TF_VAR_matcher_signing_secret}" -lt 32 ]; then
+            export TF_VAR_matcher_signing_secret="default-dev-matcher-signing-secret-32-chars"
+          fi
+
+          if [ -z "$ANALYTICS_TOKEN" ] || [ "${#ANALYTICS_TOKEN}" -lt 32 ]; then
+            ANALYTICS_TOKEN="default-analytics-token-minimum-32-chars-long"
+          fi
+
           TENANT="${ARM_TENANT_ID:-${AZURE_TENANT_ID}}"
+          MYSQL_PASS="${MYSQL_PASS:-dummy-db-password-123456!}"
+
+          TF_VAR_ARGS=(
+            -var-file="$TF_VARS_FILE"
+            -var="environment=${TARGET_ENV}"
+            -var="tenant_id=${TENANT}"
+            -var="db_admin_password=${MYSQL_PASS}"
+            -var="auth_access_secret=$AUTH_ACCESS"
+            -var="auth_refresh_secret=$AUTH_REFRESH"
+            -var="auth_refresh_hash_secret=$AUTH_HASH"
+            -var="github_repository=$GITHUB_REPOSITORY"
+          )
+
+          if [ -n "$GH_RUNNER_PAT" ]; then
+            TF_VAR_ARGS+=(-var="github_pat=$GH_RUNNER_PAT")
+          fi
+
+          if [ -n "$ANALYTICS_TOKEN" ]; then
+            TF_VAR_ARGS+=(-var="analytics_service_token=$ANALYTICS_TOKEN")
+          fi
 
           echo "=========================================================="
           echo " Executing Terraform Destroy for Environment: $TARGET_ENV"
           echo "=========================================================="
-          terraform destroy -auto-approve \
-            -var-file="$TF_VARS_FILE" \
-            -var="environment=${TARGET_ENV}" \
-            -var="tenant_id=${TENANT}" \
-            -var="db_admin_password=${MYSQL_PASS}"
+          terraform destroy -auto-approve "${TF_VAR_ARGS[@]}"
 
       - name: Purge Soft-Deleted Azure Key Vault (Post-Cleanup)
         env:
