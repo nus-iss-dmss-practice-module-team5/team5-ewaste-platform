@@ -25,15 +25,15 @@ SBOMs are generated at container build time, pinned to the exact container image
 
 | Service Component | Container Image | SBOM Artifact File | Target Runtime | Package Manager | Direct & Transitive Dependencies |
 | :--- | :--- | :--- | :---: | :---: | :---: |
-| **Backend REST Engine** | `workflow-api` | [`sbom-workflow-api.spdx.json`](file:///C:/Users/laksh/Documents/NUS-ISS%20MTech%20SE/1%20-%20SWE5006%20-%20Designing%20Modern%20Software%20Systems/Practice%20Module/GitHub%20Codebase/team5-ewaste-platform/releases/sboms/sbom-workflow-api.spdx.json) | Go 1.26 Static ELF | `go.mod` (Go Modules) | 60 Packages (Gin, GORM, Azure SDK, Kafka, Zap) |
-| **Frontend Web Portal** | `workflow-ui` | [`sbom-workflow-ui.spdx.json`](file:///C:/Users/laksh/Documents/NUS-ISS%20MTech%20SE/1%20-%20SWE5006%20-%20Designing%20Modern%20Software%20Systems/Practice%20Module/GitHub%20Codebase/team5-ewaste-platform/releases/sboms/sbom-workflow-ui.spdx.json) | Next.js 16.3.6 / Node 20 | `package.json` (npm) | 18 Packages (React 19, Tailwind, Axios, Vitest) |
-| **Matching & Analytics Worker** | `workflow-analytics` | [`sbom-workflow-analytics.spdx.json`](file:///C:/Users/laksh/Documents/NUS-ISS%20MTech%20SE/1%20-%20SWE5006%20-%20Designing%20Modern%20Software%20Systems/Practice%20Module/GitHub%20Codebase/team5-ewaste-platform/releases/sboms/sbom-workflow-analytics.spdx.json) | Python 3.12 (Debian slim) | `requirements.txt` (pip) | 7 Packages (confluent-kafka, jsonschema, referencing) |
+| **Backend REST Engine** | `workflow-api` | [`sbom-workflow-api.spdx.json`](./sbom-workflow-api.spdx.json) | Go 1.26 Static ELF | `go.mod` (Go Modules) | 60 Packages (Gin, GORM, Azure SDK, Kafka, Zap) |
+| **Frontend Web Portal** | `workflow-ui` | [`sbom-workflow-ui.spdx.json`](./sbom-workflow-ui.spdx.json) | Next.js 16.3.6 / Node 20 | `package.json` (npm) | 18 Packages (React 19, Tailwind, Axios, Vitest) |
+| **Matching & Analytics Worker** | `workflow-analytics` | [`sbom-workflow-analytics.spdx.json`](./sbom-workflow-analytics.spdx.json) | Python 3.12 (Debian slim) | `requirements.txt` (pip) | 7 Packages (confluent-kafka, jsonschema, referencing) |
 
 ---
 
 ## 3. Automated Generation & Promotion Pipeline
 
-In the CD pipeline ([`.github/workflows/cd-pipeline.yml`](file:///C:/Users/laksh/Documents/NUS-ISS%20MTech%20SE/1%20-%20SWE5006%20-%20Designing%20Modern%20Software%20Systems/Practice%20Module/GitHub%20Codebase/team5-ewaste-platform/.github/workflows/cd-pipeline.yml)), SBOMs are automatically produced and archived:
+In the CD pipeline ([`.github/workflows/cd-pipeline.yml`](../../.github/workflows/cd-pipeline.yml)), SBOMs are automatically produced and archived:
 
 ```bash
 # 1. Automated Generation via Anchore Syft
