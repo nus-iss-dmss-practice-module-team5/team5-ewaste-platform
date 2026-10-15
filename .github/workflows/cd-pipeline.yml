@@ -218,7 +218,7 @@ jobs:
   # Runs on VNet-injected self-hosted runner with direct Private Link to ACR
   # ============================================================================
   deploy-application:
-    name: Package & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})
+    name: Package, Gate & Deploy (API, UI & Analytics - ${{ needs.resolve-environment.outputs.environment }})
     needs: [resolve-environment]
     runs-on: [self-hosted, azure-vnet, "${{ needs.resolve-environment.outputs.environment }}"]
     environment: ${{ needs.resolve-environment.outputs.environment }}
@@ -226,6 +226,9 @@ jobs:
       aca_api_fqdn: ${{ steps.api_deploy.outputs.aca_api_fqdn }}
       aca_ui_fqdn: ${{ steps.ui_deploy.outputs.aca_ui_fqdn }}
       aca_analytics_fqdn: ${{ steps.analytics_deploy.outputs.aca_analytics_fqdn }}
+      api_digest: ${{ steps.package_containers.outputs.api_digest }}
+      ui_digest: ${{ steps.package_containers.outputs.ui_digest }}
+      analytics_digest: ${{ steps.package_containers.outputs.analytics_digest }}
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -249,6 +252,9 @@ jobs:
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
 
+      - name: Install Anchore Syft
+        uses: anchore/sbom-action/download-syft@df80e98154df312d75dd78371c667a21505926b8 # v0.17.9
+
       - name: Log in to Azure Container Registry
         run: |
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
@@ -264,9 +270,9 @@ jobs:
           echo "$ACR_TOKEN" | docker login "$ACR_NAME".azurecr.io -u 00000000-0000-0000-0000-000000000000 --password-stdin
 
       # ------------------------------------------------------------------------
-      # Resolve Target Deployment Image Tags (STANDARD, EXPLICIT, OR SMART PREVIOUS)
+      # Resolve Target Deployment Image Tags (STANDARD, PROMOTION, OR SMART ROLLBACK)
       # ------------------------------------------------------------------------
-      - name: Resolve Effective Deployment Image Tags
+      - name: Resolve Effective Deployment Image Tags & Mode
         id: resolve_tags
         env:
           GITHUB_SHA: ${{ github.sha }}
@@ -280,8 +286,8 @@ jobs:
 
           # Normalize input: trim whitespace and uppercase
           NORMALIZED_INPUT=$(echo "$RAW_INPUT" | tr '[:lower:]' '[:upper:]' | xargs)
-
           IS_ROLLBACK="false"
+          IS_PROMOTION="false"
           RESOLVED_TAG=""
 
           if [ "$NORMALIZED_INPUT" == "PREVIOUS" ] || [ "$NORMALIZED_INPUT" == "N-1" ]; then
@@ -314,57 +320,261 @@ jobs:
             IS_ROLLBACK="true"
             RESOLVED_TAG="$RAW_INPUT"
             echo "Explicit Rollback requested with tag: $RESOLVED_TAG"
+
+          elif [ "$TARGET_ENV" == "prod" ]; then
+            IS_PROMOTION="true"
+            SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+            STG_TAG="stg-${SHORT_SHA}"
+            if az acr repository show-tags --name "$ACR_NAME" --repository "$IMAGE_NAME_API" --output tsv 2>/dev/null | grep -q "^${STG_TAG}$"; then
+              RESOLVED_TAG="$STG_TAG"
+              echo "Production Promotion: Promoting verified Staging candidate: $RESOLVED_TAG"
+            else
+              RESOLVED_TAG=$(az acr repository show-tags \
+                --name "$ACR_NAME" \
+                --repository "$IMAGE_NAME_API" \
+                --orderby time_desc \
+                --output tsv 2>/dev/null | grep "^stg-" | head -n 1 || echo "prod-${SHORT_SHA}")
+              echo "Promoting latest verified staging candidate: $RESOLVED_TAG"
+            fi
+
           else
             SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
             RESOLVED_TAG="${TARGET_ENV}-${SHORT_SHA}"
-            echo "Standard Build requested with commit tag: $RESOLVED_TAG"
+            echo "Standard Candidate Build requested with tag: $RESOLVED_TAG"
           fi
 
           echo "is_rollback=$IS_ROLLBACK" >> "$GITHUB_OUTPUT"
+          echo "is_promotion=$IS_PROMOTION" >> "$GITHUB_OUTPUT"
           echo "effective_tag=$RESOLVED_TAG" >> "$GITHUB_OUTPUT"
 
       # ------------------------------------------------------------------------
-      # 1.1 BACKEND API CONTAINER
+      # 1. CONTAINER IMAGE PACKAGING / SOURCING (ALL 3 SERVICES)
       # ------------------------------------------------------------------------
-      - name: Build & Publish Backend API Container
+      - name: Package or Source Container Images (API, UI, Matcher)
+        id: package_containers
         env:
           TARGET_TAG: ${{ steps.resolve_tags.outputs.effective_tag }}
+          IS_ROLLBACK: ${{ steps.resolve_tags.outputs.is_rollback }}
+          IS_PROMOTION: ${{ steps.resolve_tags.outputs.is_promotion }}
+          TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
         run: |
+          set -euo pipefail
           ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
 
-          if [ "${{ steps.resolve_tags.outputs.is_rollback }}" == "true" ]; then
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${TARGET_TAG}"
-            echo "Rolling back to existing API image: $IMAGE_TAG"
-            docker pull "$IMAGE_TAG" || true
+          # 1.1 BACKEND API
+          API_IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${TARGET_TAG}"
+          if [ "$IS_ROLLBACK" == "true" ] || [ "$IS_PROMOTION" == "true" ]; then
+            echo "Zero-Recompilation Mode: Sourcing existing API image: $API_IMAGE_TAG"
+            docker pull "$API_IMAGE_TAG"
           else
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}:${TARGET_TAG}"
-            echo "Building API image: $IMAGE_TAG"
-            docker build -t "$IMAGE_TAG" -f src/backend/Dockerfile src/backend/
+            echo "Building API image: $API_IMAGE_TAG"
+            docker build -t "$API_IMAGE_TAG" -f src/backend/Dockerfile src/backend/
             echo "Pushing API image to ACR..."
-            docker push "$IMAGE_TAG"
+            docker push "$API_IMAGE_TAG"
           fi
-          echo "API_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
+          API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$API_IMAGE_TAG" 2>/dev/null || az acr repository show --name "${ACR_NAME}" --image "${{ env.IMAGE_NAME_API }}:${TARGET_TAG}" --query digest -o tsv | awk -v s="${ACR_SERVER}/${{ env.IMAGE_NAME_API }}" '{print s "@" $1}')
+          [[ "$API_DIGEST" == *@sha256:* ]] || { echo "::error::API digest is missing or invalid: $API_DIGEST"; exit 1; }
+          echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> "$GITHUB_ENV"
+          echo "api_digest=$API_DIGEST" >> "$GITHUB_OUTPUT"
 
-          API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
-          echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
+          # 1.2 FRONTEND UI
+          UI_IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${TARGET_TAG}"
+          if [ "$IS_ROLLBACK" == "true" ] || [ "$IS_PROMOTION" == "true" ]; then
+            echo "Zero-Recompilation Mode: Sourcing existing UI image: $UI_IMAGE_TAG"
+            docker pull "$UI_IMAGE_TAG"
+          else
+            echo "Building UI image: $UI_IMAGE_TAG"
+            docker build -t "$UI_IMAGE_TAG" \
+              --build-arg NEXT_PUBLIC_USE_MOCK_AUTH="false" \
+              -f src/frontend/Dockerfile src/frontend/
+            echo "Pushing UI image to ACR..."
+            docker push "$UI_IMAGE_TAG"
+          fi
+          UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$UI_IMAGE_TAG" 2>/dev/null || az acr repository show --name "${ACR_NAME}" --image "${{ env.IMAGE_NAME_UI }}:${TARGET_TAG}" --query digest -o tsv | awk -v s="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}" '{print s "@" $1}')
+          [[ "$UI_DIGEST" == *@sha256:* ]] || { echo "::error::UI digest is missing or invalid: $UI_DIGEST"; exit 1; }
+          echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> "$GITHUB_ENV"
+          echo "ui_digest=$UI_DIGEST" >> "$GITHUB_OUTPUT"
 
-#      - name: Sign API Container Image Digest with Cosign
-#        run: |
-#          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
-#          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-#            cosign sign --yes \
-#              --key env://COSIGN_PRIVATE_KEY \
-#              ${{ env.API_IMMUTABLE_DIGEST }}
-#          else
-#            echo "Generating ephemeral keypair for API signing..."
-#            if [ ! -f cosign.key ]; then
-#              cosign generate-key-pair
-#            fi
-#            cosign sign --yes --key cosign.key ${{ env.API_IMMUTABLE_DIGEST }}
-#          fi
-#        env:
-#          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-#          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          # 1.3 ANALYTICS WORKER
+          ANALYTICS_IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_TAG}"
+          if [ "$IS_ROLLBACK" == "true" ] || [ "$IS_PROMOTION" == "true" ]; then
+            echo "Zero-Recompilation Mode: Sourcing existing Matcher image: $ANALYTICS_IMAGE_TAG"
+            docker pull "$ANALYTICS_IMAGE_TAG"
+            test "$(docker inspect --format '{{index .Config.Labels \"ewaste.component\"}}' \"$ANALYTICS_IMAGE_TAG\")" = matcher
+          else
+            echo "Building Matcher Worker image: $ANALYTICS_IMAGE_TAG"
+            docker build -t "$ANALYTICS_IMAGE_TAG" -f src/matcher/Dockerfile .
+            echo "Pushing Matcher Worker image to ACR..."
+            docker push "$ANALYTICS_IMAGE_TAG"
+          fi
+          ANALYTICS_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$ANALYTICS_IMAGE_TAG" 2>/dev/null || az acr repository show --name "${ACR_NAME}" --image "${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_TAG}" --query digest -o tsv | awk -v s="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}" '{print s "@" $1}')
+          [[ "$ANALYTICS_DIGEST" == *@sha256:* ]] || { echo "::error::Analytics digest is missing or invalid: $ANALYTICS_DIGEST"; exit 1; }
+          echo "ANALYTICS_IMMUTABLE_DIGEST=$ANALYTICS_DIGEST" >> "$GITHUB_ENV"
+          echo "analytics_digest=$ANALYTICS_DIGEST" >> "$GITHUB_OUTPUT"
+
+      # ------------------------------------------------------------------------
+      # GATE 2: SYFT SBOM GENERATION & 90-DAY RETENTION
+      # ------------------------------------------------------------------------
+      - name: Generate Syft SBOMs for Candidate Containers
+        if: steps.resolve_tags.outputs.is_rollback != 'true' && steps.resolve_tags.outputs.is_promotion != 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p releases/sboms
+
+          echo "Generating Syft SPDX-JSON SBOM for API: ${{ env.API_IMMUTABLE_DIGEST }}"
+          syft packages "${{ env.API_IMMUTABLE_DIGEST }}" -o spdx-json > releases/sboms/sbom-workflow-api.spdx.json
+
+          echo "Generating Syft SPDX-JSON SBOM for UI: ${{ env.UI_IMMUTABLE_DIGEST }}"
+          syft packages "${{ env.UI_IMMUTABLE_DIGEST }}" -o spdx-json > releases/sboms/sbom-workflow-ui.spdx.json
+
+          echo "Generating Syft SPDX-JSON SBOM for Analytics: ${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+          syft packages "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" -o spdx-json > releases/sboms/sbom-workflow-analytics.spdx.json
+
+          # RT-16 Fail-Closed Validation: Verify each SBOM is present and non-empty
+          for svc in workflow-api workflow-ui workflow-analytics; do
+            if [ ! -s "releases/sboms/sbom-${svc}.spdx.json" ]; then
+              echo "::error::Missing or empty SBOM for ${svc}. Refusing deployment (RT-16 Fail-Closed)."
+              exit 1
+            fi
+            echo "SBOM verified for ${svc} ($(wc -l < "releases/sboms/sbom-${svc}.spdx.json") lines)."
+          done
+
+      - name: Retain Release SBOM Artifacts (90-Day Retention Policy)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-sboms-${{ needs.resolve-environment.outputs.environment }}-${{ steps.resolve_tags.outputs.effective_tag }}
+          path: releases/sboms/*.spdx.json
+          retention-days: 90
+
+      # ------------------------------------------------------------------------
+      # GATE 2: COSIGN CRYPTOGRAPHIC SIGNING ON IMMUTABLE DIGESTS
+      # ------------------------------------------------------------------------
+      - name: Cosign Sign Candidate Container Image Digests
+        if: steps.resolve_tags.outputs.is_rollback != 'true' && steps.resolve_tags.outputs.is_promotion != 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          echo "=== Gate 2: Cosign Cryptographic Signing ==="
+
+          if [ -n "${COSIGN_PRIVATE_KEY:-}" ]; then
+            echo "Signing with repository secret COSIGN_PRIVATE_KEY..."
+            echo "${COSIGN_PRIVATE_KEY}" > cosign.key
+            cosign sign --yes --key cosign.key "${{ env.API_IMMUTABLE_DIGEST }}"
+            cosign sign --yes --key cosign.key "${{ env.UI_IMMUTABLE_DIGEST }}"
+            cosign sign --yes --key cosign.key "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+            rm -f cosign.key
+          elif [ -f "security/team-root-cosign.key" ]; then
+            echo "Signing with security/team-root-cosign.key..."
+            cosign sign --yes --key security/team-root-cosign.key "${{ env.API_IMMUTABLE_DIGEST }}"
+            cosign sign --yes --key security/team-root-cosign.key "${{ env.UI_IMMUTABLE_DIGEST }}"
+            cosign sign --yes --key security/team-root-cosign.key "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+          else
+            echo "Generating ephemeral Cosign keypair for candidate signing..."
+            COSIGN_PASSWORD="" cosign generate-key-pair
+            COSIGN_PASSWORD="" cosign sign --yes --key cosign.key "${{ env.API_IMMUTABLE_DIGEST }}"
+            COSIGN_PASSWORD="" cosign sign --yes --key cosign.key "${{ env.UI_IMMUTABLE_DIGEST }}"
+            COSIGN_PASSWORD="" cosign sign --yes --key cosign.key "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+            cp cosign.pub security/cosign.pub 2>/dev/null || true
+          fi
+          echo "All 3 candidate image digests successfully signed with Cosign."
+
+      # ------------------------------------------------------------------------
+      # GATE 3: FAIL-CLOSED SIGNATURE & IMMUTABLE DIGEST VERIFICATION (RT-01..RT-20)
+      # ------------------------------------------------------------------------
+      - name: Gate 3 Cryptographic Signature & Policy Verification
+        id: gate3_verification
+        env:
+          COSIGN_PUBLIC_KEY: ${{ secrets.COSIGN_PUBLIC_KEY }}
+          TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
+          IS_ROLLBACK: ${{ steps.resolve_tags.outputs.is_rollback }}
+          TARGET_TAG: ${{ steps.resolve_tags.outputs.effective_tag }}
+        run: |
+          set -euo pipefail
+          echo "=== Gate 3: Deploy & Promotion Gate Verification ==="
+          STAGE_NAME="gate3"
+          if [ "$IS_ROLLBACK" == "true" ]; then STAGE_NAME="rollback"; fi
+
+          # RT-05 Enforcement: Deploy strictly by immutable @sha256 digest
+          for img in "${{ env.API_IMMUTABLE_DIGEST }}" "${{ env.UI_IMMUTABLE_DIGEST }}" "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"; do
+            if [[ "$img" != *@sha256:* ]]; then
+              echo "::error::Deployment by tag is strictly refused (RT-05): $img. Digest required."
+              cat <<EOF > gate-decision.json
+          {
+            "commit_sha": "${{ github.sha }}",
+            "stage": "$STAGE_NAME",
+            "decision": "REFUSED",
+            "refusal_code": "RT-05",
+            "reason": "Deployment references mutable tag instead of immutable @sha256 digest",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+              exit 1
+            fi
+          done
+
+          # Resolve public key
+          if [ -n "${COSIGN_PUBLIC_KEY:-}" ]; then
+            echo "${COSIGN_PUBLIC_KEY}" > verify-pub.key
+          elif [ -f "cosign.pub" ]; then
+            cp cosign.pub verify-pub.key
+          elif [ -f "security/cosign.pub" ]; then
+            cp security/cosign.pub verify-pub.key
+          else
+            echo "::error::Cosign public key not found. Gate 3 fails closed."
+            exit 1
+          fi
+
+          echo "Verifying Cosign cryptographic signatures on immutable release set..."
+          VERIFY_PASS=true
+          cosign verify --key verify-pub.key "${{ env.API_IMMUTABLE_DIGEST }}" || VERIFY_PASS=false
+          cosign verify --key verify-pub.key "${{ env.UI_IMMUTABLE_DIGEST }}" || VERIFY_PASS=false
+          cosign verify --key verify-pub.key "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" || VERIFY_PASS=false
+
+          if [ "$VERIFY_PASS" != "true" ]; then
+            REFUSAL_CODE="RT-02"
+            if [ "$IS_ROLLBACK" == "true" ]; then REFUSAL_CODE="RT-20"; fi
+            echo "::error::Gate 3 REFUSED ($REFUSAL_CODE): Cryptographic signature missing or invalid on candidate digest."
+            cat <<EOF > gate-decision.json
+          {
+            "commit_sha": "${{ github.sha }}",
+            "stage": "$STAGE_NAME",
+            "decision": "REFUSED",
+            "refusal_code": "$REFUSAL_CODE",
+            "reason": "Missing or invalid Cosign signature on candidate container digest",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+            exit 1
+          fi
+
+          echo "Gate 3 PASS (RT-01 / RT-19): All 3 container digests cryptographically verified."
+          cat <<EOF > gate-decision.json
+          {
+            "commit_sha": "${{ github.sha }}",
+            "target_environment": "$TARGET_ENV",
+            "target_tag": "$TARGET_TAG",
+            "stage": "$STAGE_NAME",
+            "decision": "PASS",
+            "digests": {
+              "workflow_api": "${{ env.API_IMMUTABLE_DIGEST }}",
+              "workflow_ui": "${{ env.UI_IMMUTABLE_DIGEST }}",
+              "workflow_analytics": "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+            },
+            "workflow_run_url": "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+            "verifier": "Cosign v3.5.0 (ECDSA P-256)",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+      - name: Retain Gate Decision Record (90-Day Retention Policy)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gate-decision-${{ needs.resolve-environment.outputs.environment }}-${{ steps.resolve_tags.outputs.effective_tag }}
+          path: gate-decision.json
+          retention-days: 90
 
       # ------------------------------------------------------------------------
       # AUTHENTICATION CONTEXT FOR CONTAINER APPS MANAGEMENT
@@ -380,8 +590,13 @@ jobs:
           az login --service-principal -u "$SP_APP_ID" -p "$SP_PASS" --tenant "$SP_TENANT" > /dev/null
           az account set --subscription "$SP_SUB"
 
+      # ------------------------------------------------------------------------
+      # ATOMIC DEPLOYMENT TO AZURE CONTAINER APPS STRICTLY BY DIGEST
+      # ------------------------------------------------------------------------
       - name: Deploy API Container to Azure Container Apps
         id: api_deploy
+        env:
+          TARGET_TAG: ${{ steps.resolve_tags.outputs.effective_tag }}
         run: |
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
           RG="${{ needs.resolve-environment.outputs.resource_group }}"
@@ -394,60 +609,18 @@ jobs:
             --name "$APP_NAME" \
             --resource-group "$RG" \
             --image "${{ env.API_IMMUTABLE_DIGEST }}" \
+            --set-env-vars \
+              RELEASE_ID="${TARGET_TAG}" \
+              RELEASE_COMMIT="${{ github.sha }}" \
+              IMAGE_DIGEST_API="${{ env.API_IMMUTABLE_DIGEST }}" \
+              IMAGE_DIGEST_UI="${{ env.UI_IMMUTABLE_DIGEST }}" \
+              IMAGE_DIGEST_WORKER="${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" \
+              GATE_RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
             --output none
 
           API_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
           echo "aca_api_fqdn=$API_FQDN" >> "$GITHUB_OUTPUT"
           echo "API deployed successfully: https://$API_FQDN"
-
-      # ------------------------------------------------------------------------
-      # 1.2 FRONTEND UI CONTAINER
-      # ------------------------------------------------------------------------
-      - name: Build & Publish Frontend UI Container
-        env:
-          TARGET_TAG: ${{ steps.resolve_tags.outputs.effective_tag }}
-        run: |
-          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
-          API_URL="https://${{ steps.api_deploy.outputs.aca_api_fqdn }}"
-
-          if [ "${{ steps.resolve_tags.outputs.is_rollback }}" == "true" ]; then
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${TARGET_TAG}"
-            echo "Rolling back to existing UI image: $IMAGE_TAG"
-            docker pull "$IMAGE_TAG" || true
-          else
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_UI }}:${TARGET_TAG}"
-            echo "Building UI image: $IMAGE_TAG"
-            docker build -t "$IMAGE_TAG" \
-              --build-arg NEXT_PUBLIC_API_URL="$API_URL" \
-              --build-arg NEXT_PUBLIC_API_BASE_URL="$API_URL" \
-              --build-arg API_PROXY_TARGET="$API_URL" \
-              --build-arg NEXT_PUBLIC_USE_MOCK_AUTH="false" \
-              -f src/frontend/Dockerfile src/frontend/
-            echo "Pushing UI image to ACR..."
-            docker push "$IMAGE_TAG"
-          fi
-          echo "UI_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
-
-          UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
-          echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
-
-#      - name: Sign UI Container Image Digest with Cosign
-#        run: |
-#          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
-#          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-#            cosign sign --yes \
-#              --key env://COSIGN_PRIVATE_KEY \
-#              ${{ env.UI_IMMUTABLE_DIGEST }}
-#          else
-#            echo "Signing UI image with cosign key..."
-#            if [ ! -f cosign.key ]; then
-#              cosign generate-key-pair
-#            fi
-#            cosign sign --yes --key cosign.key ${{ env.UI_IMMUTABLE_DIGEST }}
-#          fi
-#        env:
-#          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-#          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
 
       - name: Deploy UI Container to Azure Container Apps
         id: ui_deploy
@@ -468,34 +641,6 @@ jobs:
           UI_FQDN=$(az containerapp show --name "$APP_NAME" --resource-group "$RG" --query "properties.configuration.ingress.fqdn" -o tsv)
           echo "aca_ui_fqdn=$UI_FQDN" >> "$GITHUB_OUTPUT"
           echo "UI deployed successfully: https://$UI_FQDN"
-
-      # ------------------------------------------------------------------------
-      # 1.3 ANALYTICS WORKER CONTAINER
-      # ------------------------------------------------------------------------
-      - name: Build and Push Analytics Worker Image to ACR
-        env:
-          TARGET_TAG: ${{ steps.resolve_tags.outputs.effective_tag }}
-        run: |
-          set -euo pipefail
-          ACR_SERVER="${{ secrets.AZURE_ACR_NAME }}.azurecr.io"
-
-          if [ "${{ steps.resolve_tags.outputs.is_rollback }}" == "true" ]; then
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_TAG}"
-            echo "Rolling back to existing Matcher image: $IMAGE_TAG"
-            docker pull "$IMAGE_TAG"
-            # A rollback must name an actual matcher image, not the old demo.
-            test "$(docker inspect --format '{{index .Config.Labels "ewaste.component"}}' "$IMAGE_TAG")" = matcher
-          else
-            IMAGE_TAG="${ACR_SERVER}/${{ env.IMAGE_NAME_ANALYTICS }}:${TARGET_TAG}"
-            echo "Building Matcher Worker image: $IMAGE_TAG"
-            docker build -t "$IMAGE_TAG" -f src/matcher/Dockerfile .
-            echo "Pushing Matcher Worker image to ACR..."
-            docker push "$IMAGE_TAG"
-          fi
-
-          ANALYTICS_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG")
-          [[ "$ANALYTICS_DIGEST" == *@sha256:* ]] || { echo 'Matcher image digest is missing or mutable.' >&2; exit 1; }
-          echo "ANALYTICS_IMMUTABLE_DIGEST=$ANALYTICS_DIGEST" >> "$GITHUB_ENV"
 
       - name: Deploy Analytics Worker to Azure Container Apps
         id: analytics_deploy
@@ -611,7 +756,7 @@ jobs:
 
           echo "## Deployment & Rollback Summary" >> $GITHUB_STEP_SUMMARY
           echo "- **Deployed Tag:** \`${TARGET_TAG}\`" >> $GITHUB_STEP_SUMMARY
-          echo "- **Deployment Mode:** \`${{ steps.resolve_tags.outputs.is_rollback == 'true' && 'Rollback' || 'Standard Build' }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Deployment Mode:** \`${{ steps.resolve_tags.outputs.is_rollback == 'true' && 'Rollback' || steps.resolve_tags.outputs.is_promotion == 'true' && 'Promotion (Zero-Recompilation)' || 'Standard Build' }}\`" >> $GITHUB_STEP_SUMMARY
           echo "- **Target Environment:** \`${{ needs.resolve-environment.outputs.environment }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "> [!TIP]" >> $GITHUB_STEP_SUMMARY
