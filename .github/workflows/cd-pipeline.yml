@@ -253,7 +253,7 @@ jobs:
         uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
 
       - name: Install Anchore Syft
-        uses: anchore/sbom-action/download-syft@df80e98154df312d75dd78371c667a21505926b8 # v0.17.9
+        uses: anchore/sbom-action/download-syft@v0.18.0
 
       - name: Log in to Azure Container Registry
         run: |
