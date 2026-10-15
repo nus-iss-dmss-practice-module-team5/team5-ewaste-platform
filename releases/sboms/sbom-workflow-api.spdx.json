@@ -1,0 +1,1364 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "workflow-api-sbom",
+  "documentNamespace": "https://anchore.com/syft/spdx_json/workflow-api-25fe4db1-13b6-4419-9ac5-d2ad0be76378",
+  "creationInfo": {
+    "created": "2026-10-15T05:34:37Z",
+    "creators": [
+      "Tool: syft-1.0.0",
+      "Organization: Team 5 DevSecOps Platform (Lakshanya Poovannan)"
+    ],
+    "licenseListVersion": "3.22"
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-workflow-api",
+      "name": "workflow-api",
+      "versionInfo": "1.0.0-rc1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "supplier": "Organization: Team 5 E-Waste Platform",
+      "originator": "Person: Lakshanya Poovannan",
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "description": "Production container image for workflow-api",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:oci/workflow-api@sha256:staged-candidate"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-azcore-0",
+      "name": "github.com/Azure/azure-sdk-for-go/sdk/azcore",
+      "versionInfo": "v1.23.2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/Azure/azure-sdk-for-go/sdk/azcore@v1.23.2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-azidentity-1",
+      "name": "github.com/Azure/azure-sdk-for-go/sdk/azidentity",
+      "versionInfo": "v1.14.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/Azure/azure-sdk-for-go/sdk/azidentity@v1.14.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-storage-azblob-2",
+      "name": "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob",
+      "versionInfo": "v1.8.2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/Azure/azure-sdk-for-go/sdk/storage/azblob@v1.8.2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-DATA-DOG-go-sqlmock-3",
+      "name": "github.com/DATA-DOG/go-sqlmock",
+      "versionInfo": "v1.5.2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/DATA-DOG/go-sqlmock@v1.5.2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-gin-gonic-gin-4",
+      "name": "github.com/gin-gonic/gin",
+      "versionInfo": "v1.12.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/gin-gonic/gin@v1.12.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-go-sql-driver-mysql-5",
+      "name": "github.com/go-sql-driver/mysql",
+      "versionInfo": "v1.8.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/go-sql-driver/mysql@v1.8.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-golang-jwt-jwt-v5-6",
+      "name": "github.com/golang-jwt/jwt/v5",
+      "versionInfo": "v5.3.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/golang-jwt/jwt/v5@v5.3.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-google-uuid-7",
+      "name": "github.com/google/uuid",
+      "versionInfo": "v1.6.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/google/uuid@v1.6.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-joho-godotenv-8",
+      "name": "github.com/joho/godotenv",
+      "versionInfo": "v1.5.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/joho/godotenv@v1.5.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-mitchellh-mapstructure-9",
+      "name": "github.com/mitchellh/mapstructure",
+      "versionInfo": "v1.5.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/mitchellh/mapstructure@v1.5.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-redis-go-redis-v9-10",
+      "name": "github.com/redis/go-redis/v9",
+      "versionInfo": "v9.22.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/redis/go-redis/v9@v9.22.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-santhosh-tekuri-jsonschema-v5-11",
+      "name": "github.com/santhosh-tekuri/jsonschema/v5",
+      "versionInfo": "v5.3.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/santhosh-tekuri/jsonschema/v5@v5.3.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-segmentio-kafka-go-12",
+      "name": "github.com/segmentio/kafka-go",
+      "versionInfo": "v0.4.51",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/segmentio/kafka-go@v0.4.51"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-spf13-viper-13",
+      "name": "github.com/spf13/viper",
+      "versionInfo": "v1.21.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/spf13/viper@v1.21.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-swaggest-swgui-14",
+      "name": "github.com/swaggest/swgui",
+      "versionInfo": "v1.8.9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/swaggest/swgui@v1.8.9"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-filippo.io-edwards25519-15",
+      "name": "filippo.io/edwards25519",
+      "versionInfo": "v1.2.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/filippo.io/edwards25519@v1.2.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-internal-16",
+      "name": "github.com/Azure/azure-sdk-for-go/sdk/internal",
+      "versionInfo": "v1.12.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/Azure/azure-sdk-for-go/sdk/internal@v1.12.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-storage-internal-17",
+      "name": "github.com/Azure/azure-sdk-for-go/sdk/storage/internal",
+      "versionInfo": "v0.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/Azure/azure-sdk-for-go/sdk/storage/internal@v0.1.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-AzureAD-microsoft-authentication-library-for-go-18",
+      "name": "github.com/AzureAD/microsoft-authentication-library-for-go",
+      "versionInfo": "v1.8.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/AzureAD/microsoft-authentication-library-for-go@v1.8.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-apache-arrow-go-v18-19",
+      "name": "github.com/apache/arrow-go/v18",
+      "versionInfo": "v18.7.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/apache/arrow-go/v18@v18.7.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-bytedance-gopkg-20",
+      "name": "github.com/bytedance/gopkg",
+      "versionInfo": "v0.1.3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/bytedance/gopkg@v0.1.3"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-bytedance-sonic-21",
+      "name": "github.com/bytedance/sonic",
+      "versionInfo": "v1.15.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/bytedance/sonic@v1.15.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-bytedance-sonic-loader-22",
+      "name": "github.com/bytedance/sonic/loader",
+      "versionInfo": "v0.5.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/bytedance/sonic/loader@v0.5.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-cespare-xxhash-v2-23",
+      "name": "github.com/cespare/xxhash/v2",
+      "versionInfo": "v2.3.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/cespare/xxhash/v2@v2.3.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-cloudwego-base64x-24",
+      "name": "github.com/cloudwego/base64x",
+      "versionInfo": "v0.1.6",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/cloudwego/base64x@v0.1.6"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-fsnotify-fsnotify-25",
+      "name": "github.com/fsnotify/fsnotify",
+      "versionInfo": "v1.9.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/fsnotify/fsnotify@v1.9.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-gabriel-vasile-mimetype-26",
+      "name": "github.com/gabriel-vasile/mimetype",
+      "versionInfo": "v1.4.12",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/gabriel-vasile/mimetype@v1.4.12"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-gin-contrib-sse-27",
+      "name": "github.com/gin-contrib/sse",
+      "versionInfo": "v1.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/gin-contrib/sse@v1.1.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-go-playground-locales-28",
+      "name": "github.com/go-playground/locales",
+      "versionInfo": "v0.14.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/go-playground/locales@v0.14.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-go-playground-universal-translator-29",
+      "name": "github.com/go-playground/universal-translator",
+      "versionInfo": "v0.18.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/go-playground/universal-translator@v0.18.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-go-playground-validator-v10-30",
+      "name": "github.com/go-playground/validator/v10",
+      "versionInfo": "v10.30.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/go-playground/validator/v10@v10.30.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-go-viper-mapstructure-v2-31",
+      "name": "github.com/go-viper/mapstructure/v2",
+      "versionInfo": "v2.4.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/go-viper/mapstructure/v2@v2.4.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-goccy-go-json-32",
+      "name": "github.com/goccy/go-json",
+      "versionInfo": "v0.10.6",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/goccy/go-json@v0.10.6"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-goccy-go-yaml-33",
+      "name": "github.com/goccy/go-yaml",
+      "versionInfo": "v1.19.2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/goccy/go-yaml@v1.19.2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-google-flatbuffers-34",
+      "name": "github.com/google/flatbuffers",
+      "versionInfo": "v25.12.19",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/google/flatbuffers@v25.12.19"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-jinzhu-inflection-35",
+      "name": "github.com/jinzhu/inflection",
+      "versionInfo": "v1.0.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/jinzhu/inflection@v1.0.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-jinzhu-now-36",
+      "name": "github.com/jinzhu/now",
+      "versionInfo": "v1.1.5",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/jinzhu/now@v1.1.5"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-json-iterator-go-37",
+      "name": "github.com/json-iterator/go",
+      "versionInfo": "v1.1.12",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/json-iterator/go@v1.1.12"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-klauspost-compress-38",
+      "name": "github.com/klauspost/compress",
+      "versionInfo": "v1.19.2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/klauspost/compress@v1.19.2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-klauspost-cpuid-v2-39",
+      "name": "github.com/klauspost/cpuid/v2",
+      "versionInfo": "v2.4.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/klauspost/cpuid/v2@v2.4.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-kylelemons-godebug-40",
+      "name": "github.com/kylelemons/godebug",
+      "versionInfo": "v1.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/kylelemons/godebug@v1.1.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-leodido-go-urn-41",
+      "name": "github.com/leodido/go-urn",
+      "versionInfo": "v1.4.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/leodido/go-urn@v1.4.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-mattn-go-isatty-42",
+      "name": "github.com/mattn/go-isatty",
+      "versionInfo": "v0.0.20",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/mattn/go-isatty@v0.0.20"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-modern-go-concurrent-43",
+      "name": "github.com/modern-go/concurrent",
+      "versionInfo": "v0.0.0-20180306012644-bacd9c7ef1dd",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/modern-go/concurrent@v0.0.0-20180306012644-bacd9c7ef1dd"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-modern-go-reflect2-44",
+      "name": "github.com/modern-go/reflect2",
+      "versionInfo": "v1.0.2",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/modern-go/reflect2@v1.0.2"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-pelletier-go-toml-v2-45",
+      "name": "github.com/pelletier/go-toml/v2",
+      "versionInfo": "v2.4.3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/pelletier/go-toml/v2@v2.4.3"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-pierrec-lz4-v4-46",
+      "name": "github.com/pierrec/lz4/v4",
+      "versionInfo": "v4.1.28",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/pierrec/lz4/v4@v4.1.28"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-pkg-browser-47",
+      "name": "github.com/pkg/browser",
+      "versionInfo": "v0.0.0-20240102092130-5ac0b6a4141c",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/pkg/browser@v0.0.0-20240102092130-5ac0b6a4141c"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-quic-go-qpack-48",
+      "name": "github.com/quic-go/qpack",
+      "versionInfo": "v0.6.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/quic-go/qpack@v0.6.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-quic-go-quic-go-49",
+      "name": "github.com/quic-go/quic-go",
+      "versionInfo": "v0.59.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/quic-go/quic-go@v0.59.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-sagikazarmark-locafero-50",
+      "name": "github.com/sagikazarmark/locafero",
+      "versionInfo": "v0.11.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/sagikazarmark/locafero@v0.11.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-sourcegraph-conc-51",
+      "name": "github.com/sourcegraph/conc",
+      "versionInfo": "v0.3.1-0.20240121214520-5f936abd7ae8",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/sourcegraph/conc@v0.3.1-0.20240121214520-5f936abd7ae8"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-spf13-afero-52",
+      "name": "github.com/spf13/afero",
+      "versionInfo": "v1.15.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/spf13/afero@v1.15.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-spf13-cast-53",
+      "name": "github.com/spf13/cast",
+      "versionInfo": "v1.10.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/spf13/cast@v1.10.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-spf13-pflag-54",
+      "name": "github.com/spf13/pflag",
+      "versionInfo": "v1.0.10",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/spf13/pflag@v1.0.10"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-subosito-gotenv-55",
+      "name": "github.com/subosito/gotenv",
+      "versionInfo": "v1.6.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/subosito/gotenv@v1.6.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-twitchyliquid64-golang-asm-56",
+      "name": "github.com/twitchyliquid64/golang-asm",
+      "versionInfo": "v0.15.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/twitchyliquid64/golang-asm@v0.15.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-ugorji-go-codec-57",
+      "name": "github.com/ugorji/go/codec",
+      "versionInfo": "v1.3.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/ugorji/go/codec@v1.3.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-vearutop-statigz-58",
+      "name": "github.com/vearutop/statigz",
+      "versionInfo": "v1.4.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/vearutop/statigz@v1.4.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-github.com-zeebo-xxh3-59",
+      "name": "github.com/zeebo/xxh3",
+      "versionInfo": "v1.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:golang/github.com/zeebo/xxh3@v1.1.0"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-workflow-api"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-azcore-0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-azidentity-1"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-storage-azblob-2"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-DATA-DOG-go-sqlmock-3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-gin-gonic-gin-4"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-go-sql-driver-mysql-5"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-golang-jwt-jwt-v5-6"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-google-uuid-7"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-joho-godotenv-8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-mitchellh-mapstructure-9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-redis-go-redis-v9-10"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-santhosh-tekuri-jsonschema-v5-11"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-segmentio-kafka-go-12"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-spf13-viper-13"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-swaggest-swgui-14"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-filippo.io-edwards25519-15"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-internal-16"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-Azure-azure-sdk-for-go-sdk-storage-internal-17"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-AzureAD-microsoft-authentication-library-for-go-18"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-apache-arrow-go-v18-19"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-bytedance-gopkg-20"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-bytedance-sonic-21"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-bytedance-sonic-loader-22"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-cespare-xxhash-v2-23"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-cloudwego-base64x-24"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-fsnotify-fsnotify-25"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-gabriel-vasile-mimetype-26"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-gin-contrib-sse-27"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-go-playground-locales-28"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-go-playground-universal-translator-29"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-go-playground-validator-v10-30"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-go-viper-mapstructure-v2-31"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-goccy-go-json-32"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-goccy-go-yaml-33"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-google-flatbuffers-34"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-jinzhu-inflection-35"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-jinzhu-now-36"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-json-iterator-go-37"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-klauspost-compress-38"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-klauspost-cpuid-v2-39"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-kylelemons-godebug-40"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-leodido-go-urn-41"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-mattn-go-isatty-42"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-modern-go-concurrent-43"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-modern-go-reflect2-44"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-pelletier-go-toml-v2-45"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-pierrec-lz4-v4-46"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-pkg-browser-47"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-quic-go-qpack-48"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-quic-go-quic-go-49"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-sagikazarmark-locafero-50"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-sourcegraph-conc-51"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-spf13-afero-52"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-spf13-cast-53"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-spf13-pflag-54"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-subosito-gotenv-55"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-twitchyliquid64-golang-asm-56"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-ugorji-go-codec-57"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-vearutop-statigz-58"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-api",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-github.com-zeebo-xxh3-59"
+    }
+  ]
+}

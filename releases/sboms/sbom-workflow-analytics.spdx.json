@@ -1,0 +1,198 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "workflow-analytics-sbom",
+  "documentNamespace": "https://anchore.com/syft/spdx_json/workflow-analytics-c5feb101-b5fc-449c-91f4-4f883951ba54",
+  "creationInfo": {
+    "created": "2026-10-15T05:34:37Z",
+    "creators": [
+      "Tool: syft-1.0.0",
+      "Organization: Team 5 DevSecOps Platform (Lakshanya Poovannan)"
+    ],
+    "licenseListVersion": "3.22"
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-workflow-analytics",
+      "name": "workflow-analytics",
+      "versionInfo": "1.0.0-rc1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "supplier": "Organization: Team 5 E-Waste Platform",
+      "originator": "Person: Lakshanya Poovannan",
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "description": "Production container image for workflow-analytics",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:oci/workflow-analytics@sha256:staged-candidate"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-jsonschema-0",
+      "name": "jsonschema",
+      "versionInfo": "4.23.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/jsonschema@4.23.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-confluent-kafka-1",
+      "name": "confluent-kafka",
+      "versionInfo": "2.6.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/confluent-kafka@2.6.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-attrs-2",
+      "name": "attrs",
+      "versionInfo": "26.1.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/attrs@26.1.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-jsonschema-specifications-3",
+      "name": "jsonschema-specifications",
+      "versionInfo": "2025.9.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/jsonschema-specifications@2025.9.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-referencing-4",
+      "name": "referencing",
+      "versionInfo": "0.37.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/referencing@0.37.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-rpds-py-5",
+      "name": "rpds-py",
+      "versionInfo": "2026.6.3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/rpds-py@2026.6.3"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-typing-extensions-6",
+      "name": "typing-extensions",
+      "versionInfo": "4.16.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:pypi/typing-extensions@4.16.0"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-workflow-analytics"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-analytics",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-jsonschema-0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-analytics",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-confluent-kafka-1"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-analytics",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-attrs-2"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-analytics",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-jsonschema-specifications-3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-analytics",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-referencing-4"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-analytics",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-rpds-py-5"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-analytics",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-typing-extensions-6"
+    }
+  ]
+}

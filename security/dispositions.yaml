@@ -1,0 +1,30 @@
+# ==============================================================================
+# Security Dispositions Register (Exception Approvals for High Severity CVEs)
+# Policy Reference: EWCSB-241 (Release Security Gate Policy Section 5)
+# Governed by: Shalett Paulson (Security & Release Governance Lead)
+# ==============================================================================
+# Rules enforced by automated Gate 2 / Gate 3 checks:
+# 1. Critical findings CANNOT be dispositioned (RT-11: fail closed).
+# 2. High findings may pass only with a valid, non-expired entry here (RT-08).
+# 3. Expired dispositions block deployment (RT-09).
+# 4. Self-approval is rejected: approved_by must NOT equal owner (RT-10).
+# 5. Fixable before ignorable: high findings with an available patch must be remediated in EWCSB-249.
+# ==============================================================================
+
+version: '1.0'
+last_updated: '2026-10-15T00:00:00Z'
+governance_lead: 'Shalett Paulson'
+
+dispositions:
+  # Baseline placeholder disposition tracking zlib CVE referenced in EWCSB-241 Section 5
+  - id: 'CVE-2026-85091'
+    rule: 'container-vulnerability-high'
+    severity: 'High'
+    scope: 'workflow-api'
+    target_component: 'zlib-1.2.11'
+    justification: 'Base image Alpine zlib package has no upstream fix available prior to 20 Oct freeze. Evaluated as non-exploitable in Go REST static binary runtime without arbitrary compression input.'
+    owner: 'Wang Jiamin'
+    approved_by: 'Shalett Paulson'
+    created_at: '2026-10-14T08:00:00Z'
+    expires_on: '2026-11-01T00:00:00Z'
+    status: 'APPROVED'
