@@ -260,14 +260,11 @@ jobs:
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
           echo "ACR_NAME=$ACR_NAME" >> $GITHUB_ENV
 
-          echo "Logging into Azure CLI via local VM Managed Identity..."
-          az login --identity
+          echo "Authenticating Docker with ACR using Deployment Service Principal..."
+          SP_APP_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)
+          SP_PASS=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)
 
-          echo "Fetching secure passwordless token for registry login server..."
-          ACR_TOKEN=$(az acr login --name "$ACR_NAME" --expose-token --query accessToken --output tsv)
-
-          echo "Seeding docker daemon authentication context..."
-          echo "$ACR_TOKEN" | docker login "$ACR_NAME".azurecr.io -u 00000000-0000-0000-0000-000000000000 --password-stdin
+          echo "$SP_PASS" | docker login "${ACR_NAME}.azurecr.io" -u "$SP_APP_ID" --password-stdin
 
       # ------------------------------------------------------------------------
       # Resolve Target Deployment Image Tags (STANDARD, PROMOTION, OR SMART ROLLBACK)
