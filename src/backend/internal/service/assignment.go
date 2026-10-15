@@ -309,6 +309,13 @@ func (s *AssignmentWorkflowService) changeAssignment(ctx context.Context, assign
 			if err := tx.AppendAudit(ctx, audit); err != nil {
 				return err
 			}
+			claim, _, err := tx.FindAcceptedClaimReservation(ctx, batch)
+			if err != nil {
+				return err
+			}
+			if _, err := assignNextActiveCollector(ctx, tx, updatedBatch, claim, assignment, nil, metadata, command, model.BatchStatusApproved, 2, 1, now, s.newID); err != nil && !errors.Is(err, repository.ErrAssignmentNoActiveCollector) {
+				return err
+			}
 			result = mutationResult(assignment, metadata.CorrelationID, "")
 		default:
 			return ErrAssignmentValidation
@@ -465,6 +472,15 @@ func (s *AssignmentWorkflowService) recordPickup(ctx context.Context, assignment
 		}
 		if err := tx.EnqueueOutbox(ctx, newOutbox(eventID, command.ID, updatedBatch, eventType, topic, eventPayload, metadata.CorrelationID, now)); err != nil {
 			return err
+		}
+		if failed {
+			claim, _, err := tx.FindAcceptedClaimReservation(ctx, batch)
+			if err != nil {
+				return err
+			}
+			if _, err := assignNextActiveCollector(ctx, tx, updatedBatch, claim, assignment, nil, metadata, command, model.BatchStatusFailedCollection, 2, 2, now, s.newID); err != nil && !errors.Is(err, repository.ErrAssignmentNoActiveCollector) {
+				return err
+			}
 		}
 		result = mutationResult(assignment, metadata.CorrelationID, eventID)
 		responseJSON, err := json.Marshal(result)
@@ -701,11 +717,19 @@ func stateForEvent(eventID string) string {
 }
 
 func buildAssignmentEventPayload(eventID, commandID string, batch *model.Batch, eventType, correlationID string, occurredAt time.Time, data map[string]any) ([]byte, error) {
-	return json.Marshal(map[string]any{"event_id": eventID, "event_type": eventType, "schema_version": 1, "command_id": commandID, "batch_id": batch.ID, "batch_version": batch.Version, "claim_epoch": strconv.FormatUint(batch.ClaimEpoch, 10), "sequence_in_command": 1, "occurred_at": contractTimestamp(occurredAt), "correlation_id": correlationID, "data": data})
+	return buildAssignmentEventPayloadAtSequence(eventID, commandID, batch, eventType, correlationID, occurredAt, 1, data)
 }
 
 func newOutbox(eventID, commandID string, batch *model.Batch, eventType, topic string, payload []byte, correlationID string, now time.Time) *model.EventOutbox {
-	return &model.EventOutbox{EventID: eventID, BatchID: batch.ID, CommandID: commandID, EventType: eventType, Topic: topic, SchemaVersion: 1, AggregateVersion: batch.Version, SequenceInCommand: 1, PartitionKey: batch.ID, PayloadJSON: payload, CorrelationID: correlationID, OccurredAt: now, CreatedAt: now, PublishState: model.OutboxPublishStatePending, NextAttemptAt: new(now)}
+	return newOutboxAtSequence(eventID, commandID, batch, eventType, topic, payload, correlationID, now, 1)
+}
+
+func buildAssignmentEventPayloadAtSequence(eventID, commandID string, batch *model.Batch, eventType, correlationID string, occurredAt time.Time, sequence uint32, data map[string]any) ([]byte, error) {
+	return json.Marshal(map[string]any{"event_id": eventID, "event_type": eventType, "schema_version": 1, "command_id": commandID, "batch_id": batch.ID, "batch_version": batch.Version, "claim_epoch": strconv.FormatUint(batch.ClaimEpoch, 10), "sequence_in_command": sequence, "occurred_at": contractTimestamp(occurredAt), "correlation_id": correlationID, "data": data})
+}
+
+func newOutboxAtSequence(eventID, commandID string, batch *model.Batch, eventType, topic string, payload []byte, correlationID string, now time.Time, sequence uint32) *model.EventOutbox {
+	return &model.EventOutbox{EventID: eventID, BatchID: batch.ID, CommandID: commandID, EventType: eventType, Topic: topic, SchemaVersion: 1, AggregateVersion: batch.Version, SequenceInCommand: sequence, PartitionKey: batch.ID, PayloadJSON: payload, CorrelationID: correlationID, OccurredAt: now, CreatedAt: now, PublishState: model.OutboxPublishStatePending, NextAttemptAt: new(now)}
 }
 
 func mapAssignmentRepositoryError(err error) error {
