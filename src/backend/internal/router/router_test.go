@@ -384,7 +384,7 @@ func TestServiceRoutersRegisterOnlyOwnedRoutes(t *testing.T) {
 }
 
 func TestNewServiceRouterRejectsUnknownService(t *testing.T) {
-	if _, err := NewServiceRouter(Service("unknown"), ServiceDependencies{}); err == nil {
+	if _, err := NewServiceRouter("unknown", ServiceDependencies{}); err == nil {
 		t.Fatal("expected unknown service to be rejected")
 	}
 }
