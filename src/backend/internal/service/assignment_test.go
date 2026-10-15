@@ -220,3 +220,67 @@ func TestHandoffValidationRequiresDesignBounds(t *testing.T) {
 		t.Fatalf("expected future handoff to be rejected, got %v", err)
 	}
 }
+
+func TestOfflineAssignmentMutationsRejectStaleVersionWithCurrentState(t *testing.T) {
+	repo := newFakeAssignmentRepository()
+	workflow := NewAssignmentWorkflowService(repo)
+	now := time.Date(2026, time.January, 1, 10, 0, 0, 0, time.UTC)
+	workflow.clock = func() time.Time { return now }
+	workflow.newID = func() string { return "generated-id" }
+
+	selection, err := workflow.Select(context.Background(), "batch-1", dto.AssignmentSelectionRequest{
+		ExpectedVersion: 1, ClaimEpoch: "1", CollectorScopeID: "scope-1",
+	}, testAssignmentMetadata("selection-key-0001"))
+	if err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	if repo.batch.Version != 2 || repo.assignment == nil {
+		t.Fatalf("selection did not establish current assignment state: batch=%+v assignment=%+v", repo.batch, repo.assignment)
+	}
+
+	staleMetadata := testAssignmentMetadata("stale-command-key-01")
+	staleMetadata.ExpectedVersion = 1
+	tests := []struct {
+		name string
+		run  func() error
+	}{
+		{"accept", func() error {
+			_, err := workflow.Accept(context.Background(), selection.Data.AssignmentID, staleMetadata)
+			return err
+		}},
+		{"handoff", func() error {
+			_, err := workflow.Handoff(context.Background(), selection.Data.AssignmentID, dto.HandoffRequest{
+				PickupOccurredAt: now, DonorRepresentativeName: "Donor representative", ActualItemCount: 1,
+				VerificationHash: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+			}, staleMetadata)
+			return err
+		}},
+		{"failed pickup", func() error {
+			_, err := workflow.Fail(context.Background(), selection.Data.AssignmentID, dto.FailedPickupRequest{FailureReason: "DONOR_UNAVAILABLE"}, staleMetadata)
+			return err
+		}},
+	}
+
+	commands, actions, outbox := len(repo.commands), len(repo.actions), len(repo.outbox)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.run()
+			if !errors.Is(err, ErrAssignmentStaleVersion) {
+				t.Fatalf("expected stale version, got %v", err)
+			}
+			current, ok := AssignmentCurrentStateFromError(err)
+			if !ok {
+				t.Fatal("expected current state on stale version")
+			}
+			if current.AssignmentID != selection.Data.AssignmentID || current.AssignmentStatus != model.AssignmentStatusAccepted || current.AssignmentVersion != 1 || current.BatchID != "batch-1" || current.BatchStatus != string(model.BatchStatusAssigned) || current.BatchVersion != 2 {
+				t.Fatalf("unexpected stale current state: %+v", current)
+			}
+			if current.CurrentAssignmentID == nil || *current.CurrentAssignmentID != selection.Data.AssignmentID {
+				t.Fatalf("current assignment pointer missing: %+v", current)
+			}
+			if len(repo.commands) != commands || len(repo.handoffs) != 0 || len(repo.actions) != actions || len(repo.outbox) != outbox {
+				t.Fatalf("stale %s changed durable state: commands=%d handoffs=%d actions=%d outbox=%d", tt.name, len(repo.commands), len(repo.handoffs), len(repo.actions), len(repo.outbox))
+			}
+		})
+	}
+}

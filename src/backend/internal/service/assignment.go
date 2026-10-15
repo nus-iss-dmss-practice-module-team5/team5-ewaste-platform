@@ -250,7 +250,7 @@ func (s *AssignmentWorkflowService) changeAssignment(ctx context.Context, assign
 			return ErrAssignmentForbidden
 		}
 		if batch.Version != uint32(metadata.ExpectedVersion) || batch.CurrentAssignmentID == nil || *batch.CurrentAssignmentID != assignment.ID {
-			return ErrAssignmentStaleVersion
+			return staleAssignmentError(ctx, tx, assignment, batch)
 		}
 		now := s.clock().UTC().Truncate(time.Microsecond)
 		command := newCommand(metadata, batch.ID, now, s.retainFor)
@@ -387,7 +387,7 @@ func (s *AssignmentWorkflowService) recordPickup(ctx context.Context, assignment
 			return ErrAssignmentForbidden
 		}
 		if batch.Version != uint32(metadata.ExpectedVersion) || batch.CurrentAssignmentID == nil || *batch.CurrentAssignmentID != assignment.ID {
-			return ErrAssignmentStaleVersion
+			return staleAssignmentError(ctx, tx, assignment, batch)
 		}
 		if assignment.AssignmentStatus != model.AssignmentStatusAccepted || batch.Status != model.BatchStatusAssigned {
 			return ErrAssignmentInvalidState
@@ -672,6 +672,21 @@ func (s *AssignmentWorkflowService) action(metadata BatchCommandMetadata, comman
 
 func mutationResult(assignment *model.BatchAssignment, correlationID, eventID string) dto.AssignmentMutationResult {
 	return dto.AssignmentMutationResult{Data: viewOf(assignment), CorrelationID: correlationID, EventID: eventID, EventState: stateForEvent(eventID)}
+}
+
+func staleAssignmentError(ctx context.Context, tx repository.AssignmentTransaction, assignment *model.BatchAssignment, batch *model.Batch) error {
+	current := assignment
+	if batch.CurrentAssignmentID != nil && *batch.CurrentAssignmentID != assignment.ID {
+		var err error
+		current, err = tx.FindAssignmentForUpdate(ctx, *batch.CurrentAssignmentID)
+		if err != nil {
+			return err
+		}
+	}
+	return &AssignmentStaleVersionError{CurrentState: dto.AssignmentCurrentState{
+		AssignmentID: current.ID, AssignmentStatus: current.AssignmentStatus, AssignmentVersion: int64(current.Version),
+		BatchID: batch.ID, BatchStatus: string(batch.Status), BatchVersion: int64(batch.Version), CurrentAssignmentID: batch.CurrentAssignmentID,
+	}}
 }
 
 func viewOf(assignment *model.BatchAssignment) dto.AssignmentView {
