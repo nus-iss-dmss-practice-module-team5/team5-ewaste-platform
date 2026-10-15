@@ -381,12 +381,16 @@ jobs:
           fi
 
       - name: Verify API Container Signature (Pre-Deployment Gate)
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
         run: |
           echo "Verifying Cosign signature for ${{ env.API_IMMUTABLE_DIGEST }}..."
-          if [ -f security/cosign.pub ]; then
+          if [ -n "$COSIGN_PRIVATE_KEY" ] && [ -f security/cosign.pub ]; then
             cosign verify --key security/cosign.pub "${{ env.API_IMMUTABLE_DIGEST }}"
           elif [ -f cosign.pub ]; then
             cosign verify --key cosign.pub "${{ env.API_IMMUTABLE_DIGEST }}"
+          elif [ -f security/cosign.pub ]; then
+            cosign verify --key security/cosign.pub "${{ env.API_IMMUTABLE_DIGEST }}"
           else
             echo "::warning::No public key found, skipping verification"
           fi
@@ -486,12 +490,16 @@ jobs:
           fi
 
       - name: Verify UI Container Signature (Pre-Deployment Gate)
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
         run: |
           echo "Verifying Cosign signature for ${{ env.UI_IMMUTABLE_DIGEST }}..."
-          if [ -f security/cosign.pub ]; then
+          if [ -n "$COSIGN_PRIVATE_KEY" ] && [ -f security/cosign.pub ]; then
             cosign verify --key security/cosign.pub "${{ env.UI_IMMUTABLE_DIGEST }}"
           elif [ -f cosign.pub ]; then
             cosign verify --key cosign.pub "${{ env.UI_IMMUTABLE_DIGEST }}"
+          elif [ -f security/cosign.pub ]; then
+            cosign verify --key security/cosign.pub "${{ env.UI_IMMUTABLE_DIGEST }}"
           else
             echo "::warning::No public key found, skipping verification"
           fi
@@ -575,12 +583,16 @@ jobs:
           fi
 
       - name: Verify Analytics Container Signature (Pre-Deployment Gate)
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
         run: |
           echo "Verifying Cosign signature for ${{ env.ANALYTICS_IMMUTABLE_DIGEST }}..."
-          if [ -f security/cosign.pub ]; then
+          if [ -n "$COSIGN_PRIVATE_KEY" ] && [ -f security/cosign.pub ]; then
             cosign verify --key security/cosign.pub "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
           elif [ -f cosign.pub ]; then
             cosign verify --key cosign.pub "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+          elif [ -f security/cosign.pub ]; then
+            cosign verify --key security/cosign.pub "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
           else
             echo "::warning::No public key found, skipping verification"
           fi
