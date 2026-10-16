@@ -20,7 +20,7 @@ let LagSignals = Signals
 | extend ConsumerGroup = tostring(j.consumer_group),
          Topic = tostring(j.topic),
          Partition = toint(j.partition)
-| summarize arg_max(TimeGenerated, *) by App, ConsumerGroup, Topic, Partition
+| summarize arg_max(TimeGenerated, *) by ConsumerGroup, Topic, Partition
 | extend Stale = TimeGenerated < ago(90s),
          Available = tobool(j.sample_available)
 | extend CurrentLag = iif(Available and not(Stale), tolong(j.consumer_lag), tolong(-1))
@@ -30,7 +30,11 @@ let OffsetCommitSignals = Signals
 | where Observation == "offset_commit_failed" and TimeGenerated > ago(5m)
 | extend ConsumerGroup = tostring(j.consumer_group),
          Topic = tostring(j.topic),
-         Partition = toint(j.partition)
-| project TimeGenerated, App, ConsumerGroup, Topic, Partition, CurrentLag, Stale, Available, TriggerReason="OffsetCommitFailed";
+         Partition = toint(j.partition),
+         CurrentLag = tolong(-1),
+         Stale = false,
+         Available = false,
+         TriggerReason = "OffsetCommitFailed"
+| project TimeGenerated, App, ConsumerGroup, Topic, Partition, CurrentLag, Stale, Available, TriggerReason;
 union LagSignals, OffsetCommitSignals
 | project TimeGenerated, App, ConsumerGroup, Topic, Partition, CurrentLag, Stale, Available, TriggerReason
