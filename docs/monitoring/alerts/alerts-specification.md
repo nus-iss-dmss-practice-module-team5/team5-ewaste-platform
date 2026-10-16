@@ -1,7 +1,7 @@
 # Platform Alerting Rules Specification
 
-**Task Reference:** `S4-OB-I-L-01: Build Monitor workbook and evidence links` (EWCSB-223)
-**Governance Standard:** `EWCSB-241: Release Security Gate Policy` & `EWCSB-245: Admin View & Observability Architecture`
+**Task:** Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links
+**Governance Standards:** Release Security Gate Policy & Administrator Observability Architecture
 **Observability Leads:** Lakshanya Poovannan (Platform / DevOps), Mrigakshi Roy Choudhury (Observability / UI), Shalett Paulson (Security / Governance)
 
 ---
@@ -28,7 +28,7 @@ This document specifies the automated **Azure Monitor Scheduled Query Rules (Ale
 ### 3.1 Alert: Dead-Letter & Quarantined Events (`Alert-DeadLetter-Quarantine`)
 
 - **Query File:** [`dead-letter-quarantine-alert.kql`](./dead-letter-quarantine-alert.kql)
-- **Rationale:** Quarantined events mean an e-waste batch failed contract validation or exceeded retry thresholds. Per EWCSB-245 Requirement R5, these persistent failures must be brought to administrator attention immediately.
+- **Rationale:** Quarantined events mean an e-waste batch failed contract validation or exceeded retry thresholds. Per Administrator Observability requirements, these persistent failures must be brought to administrator attention immediately.
 - **Triage Runbook:**
   1. Inspect the `AffectedBatches` and `SampleCorrelation` from the alert payload.
   2. Navigate to the **E-Waste Operations Workbook** $\rightarrow$ **Tab 3: Dead-Letter & Quarantine**.

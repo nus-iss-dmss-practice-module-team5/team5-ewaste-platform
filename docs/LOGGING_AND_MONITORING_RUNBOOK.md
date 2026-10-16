@@ -379,7 +379,7 @@ If Azure Container Apps is not routing traffic to a container:
 
 ## 6. Azure Monitor Workbook Deployment & Operator Guide
 
-**Task Reference:** `S4-OB-I-L-01: Build Monitor workbook and evidence links` (EWCSB-223)
+**Task:** Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links
 **Workbook Template File:** [`docs/monitoring/ewaste-platform-monitor.workbook.json`](./monitoring/ewaste-platform-monitor.workbook.json)
 
 The **E-Waste Operations & Observability Workbook** unifies real-time container telemetry, Kafka queue depth, dead-letter triaging, and supply chain release evidence into an interactive dashboard.
@@ -404,9 +404,9 @@ The **E-Waste Operations & Observability Workbook** unifies real-time container 
 | **5. End-to-End Request Trace**         | Distributed transaction tracing  | Correlated step-by-step waterfall using durable `correlation_id` or `batch_id`.                              |
 | **6. Release Evidence & Audit Links**   | Supply chain governance          | Direct links to 90-day retained SBOMs, Cosign signature keys, gate decisions, and CD runs.                   |
 
-### 6.3 Admin View Integration (EWCSB-245 R9)
+### 6.3 Admin View Integration (Administrator Observability View)
 
-In compliance with **EWCSB-245 Section 2**, the Next.js Administrator Portal (`/admin`) links directly to this Azure Monitor Workbook:
+In compliance with the **Administrator Observability & Monitoring View design**, the Next.js Administrator Portal (`/admin`) links directly to this Azure Monitor Workbook:
 
 - Clicking the **Latency** or **Consumer Lag** tiles on the Admin Health Tab navigates directly to Tabs 2 & 4 of this workbook.
 - Non-administrators attempting to access this telemetry are strictly rejected with HTTP 403 Forbidden.
@@ -429,7 +429,7 @@ To ensure proactive response before service disruption, the following Azure Moni
 
 ## 8. Release Evidence & Audit Verification
 
-In accordance with **Gate 2 / Gate 3 Release Governance (EWCSB-241 / EWCSB-215)**, every release deployed to Azure Container Apps is linked to verifiable cryptographic evidence:
+In accordance with **Gate 2 / Gate 3 Release Governance (Signed Digest Promotion & Retained Release Evidence)**, every release deployed to Azure Container Apps is linked to verifiable cryptographic evidence:
 
 - **Retained Release SBOM Catalog:** Documented and verified in [`releases/sboms/README.md`](../releases/sboms/README.md).
 - **Cosign Team Public Key:** Root verification key in [`security/cosign.pub`](../security/cosign.pub).

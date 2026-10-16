@@ -1,6 +1,6 @@
 // ==============================================================================
 // Alert Rule: Dead-Letter & Quarantined Event Alert
-// Task Reference: S4-OB-I-L-01 (EWCSB-223)
+// Task: Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links
 // Governed by: Shalett Paulson (Security Lead), Mrigakshi Roy Choudhury (Observability Lead)
 // Severity: 1 (Critical) | Frequency: 5m | Window: 5m | Threshold: > 0
 // Description: Triggers immediately when outbox domain events or worker processing

@@ -1,6 +1,6 @@
 // ==============================================================================
 // Alert Rule: Kafka Consumer Lag & Stalled Partition Alert
-// Task Reference: S4-OB-I-L-01 (EWCSB-223)
+// Task: Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links
 // Governed by: Shalett Paulson (Security Lead), Mrigakshi Roy Choudhury (Observability Lead)
 // Severity: 2 (Warning) | Frequency: 2m | Window: 5m | Threshold: > 0
 // Description: Triggers when Kafka consumer lag exceeds 100 messages on any partition,

@@ -1,6 +1,6 @@
 // ==============================================================================
 // Alert Rule: Platform Response Latency SLO Breach Alert
-// Task Reference: S4-OB-I-L-01 (EWCSB-223)
+// Task: Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links
 // Governed by: Shalett Paulson (Security Lead), Mrigakshi Roy Choudhury (Observability Lead)
 // Severity: 2 (Warning) | Frequency: 5m | Window: 15m | Threshold: > 0
 // Description: Triggers when P95 duration exceeds SLO targets:
