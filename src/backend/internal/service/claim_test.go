@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -200,6 +202,49 @@ type fakeLeaseHandle struct{}
 
 func (fakeLeaseHandle) Release(context.Context) error { return nil }
 
+type renewingFakeLease struct {
+	handle *renewingFakeLeaseHandle
+}
+
+func (l *renewingFakeLease) Acquire(context.Context, string) (lease.Handle, error) {
+	l.handle = &renewingFakeLeaseHandle{interval: time.Millisecond}
+	return l.handle, nil
+}
+
+type renewingFakeLeaseHandle struct {
+	interval time.Duration
+	renewals atomic.Int32
+}
+
+func (h *renewingFakeLeaseHandle) Release(context.Context) error { return nil }
+func (h *renewingFakeLeaseHandle) Renew(context.Context) error {
+	h.renewals.Add(1)
+	return nil
+}
+func (h *renewingFakeLeaseHandle) RenewInterval() time.Duration { return h.interval }
+
+type blockingClaimRepository struct {
+	base    *fakeClaimRepository
+	calls   int
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingClaimRepository) Transaction(ctx context.Context, fn func(repository.ClaimTransaction) error) error {
+	r.calls++
+	if r.calls == 1 {
+		return r.base.Transaction(ctx, fn)
+	}
+	r.once.Do(func() { close(r.started) })
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return r.base.Transaction(ctx, fn)
+}
+
 func newClaimServiceFixture() (
 	*ClaimWorkflowService,
 	*fakeClaimRepository,
@@ -248,18 +293,64 @@ func newClaimServiceFixture() (
 	}
 
 	return service, repo, dto.ClaimRequest{
-			ExpectedVersion: 3,
-			ClaimEpoch:      "1",
-		}, BatchCommandMetadata{
-			Actor: BatchActor{
-				UserID:         "USR-007",
-				OrganisationID: "PROC-001",
-				RoleCode:       "RECYCLER",
-			},
-			CorrelationID:   "corr-claim-001",
-			IdempotencyKey:  "claim-key-000001",
-			ExpectedVersion: 3,
+		ExpectedVersion: 3,
+		ClaimEpoch:      "1",
+	}, BatchCommandMetadata{
+		Actor: BatchActor{
+			UserID:         "USR-007",
+			OrganisationID: "PROC-001",
+			RoleCode:       "RECYCLER",
+		},
+		CorrelationID:   "corr-claim-001",
+		IdempotencyKey:  "claim-key-000001",
+		ExpectedVersion: 3,
+	}
+}
+
+func TestClaimRenewsLeaseDuringLongTransaction(t *testing.T) {
+	service, base, request, metadata := newClaimServiceFixture()
+	leaseProvider := &renewingFakeLease{}
+	service.leases = leaseProvider
+	service.repository = &blockingClaimRepository{
+		base:    base,
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	repo := service.repository.(*blockingClaimRepository)
+
+	type claimResult struct {
+		result dto.ClaimResult
+		err    error
+	}
+	resultCh := make(chan claimResult, 1)
+	go func() {
+		result, err := service.Claim(context.Background(), "batch-001", request, metadata)
+		resultCh <- claimResult{result: result, err: err}
+	}()
+
+	select {
+	case <-repo.started:
+	case <-time.After(time.Second):
+		t.Fatal("claim transaction did not start")
+	}
+	time.Sleep(10 * time.Millisecond)
+	close(repo.release)
+
+	select {
+	case outcome := <-resultCh:
+		if outcome.err != nil {
+			t.Fatalf("claim returned error: %v", outcome.err)
 		}
+		if outcome.result.ClaimID == "" {
+			t.Fatalf("claim result did not contain a claim: %+v", outcome.result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("claim did not complete")
+	}
+
+	if leaseProvider.handle == nil || leaseProvider.handle.renewals.Load() == 0 {
+		t.Fatal("expected the active claim lease to renew during the transaction")
+	}
 }
 
 func TestClaimSuccessCreatesAtomicEvidence(t *testing.T) {

@@ -25,6 +25,20 @@ type fakeEvidenceStorage struct {
 	deleteCtxErr error
 }
 
+type plainEvidenceReadRepository struct {
+	*fakeBatchRepository
+	record *repository.EvidenceDownloadRecord
+	calls  int
+}
+
+func (r *plainEvidenceReadRepository) ReadEvidenceForDownload(
+	_ context.Context,
+	_ repository.EvidenceDownloadQuery,
+) (*repository.EvidenceDownloadRecord, error) {
+	r.calls++
+	return r.record, nil
+}
+
 func newFakeEvidenceStorage() *fakeEvidenceStorage {
 	return &fakeEvidenceStorage{objects: make(map[string][]byte)}
 }
@@ -194,6 +208,44 @@ func TestEvidenceServiceDownloadRequiresAdminReasonAndRejectsOtherRoles(t *testi
 	if !errors.Is(err, ErrBatchForbidden) {
 		t.Fatalf("expected donor forbidden error, got %v", err)
 	}
+}
+
+func TestEvidenceServiceDownloadUsesPlainReadAdapter(t *testing.T) {
+	base := newFakeBatchRepository()
+	repo := &plainEvidenceReadRepository{
+		fakeBatchRepository: base,
+		record: &repository.EvidenceDownloadRecord{
+			Batch: collectedReceiptBatch(),
+			Evidence: &model.BatchEvidence{
+				EvidenceID: "evidence-plain-001", BatchID: "batch-receipt-001",
+				OrganisationID: "facility-001", OriginalFileName: "receipt.pdf",
+				StoredObjectKey: "plain-evidence-key", MIMEType: "application/pdf",
+				FileSizeBytes: uint64(len(pdfFixture)), SHA256Hash: hexHash(pdfFixture),
+				ValidationStatus: model.EvidenceValidationValidated,
+			},
+		},
+	}
+	objectStorage := newFakeEvidenceStorage()
+	objectStorage.objects["plain-evidence-key"] = append([]byte(nil), pdfFixture...)
+	svc := NewEvidenceService(repo, objectStorage)
+
+	result, err := svc.Download(context.Background(), "batch-receipt-001", "evidence-plain-001", EvidenceDownloadActor{
+		BatchActor: recyclerMetadata("plain-read", "corr-plain-read", 0).Actor,
+	}, "corr-plain-read")
+	if err != nil {
+		t.Fatalf("plain evidence read failed: %v", err)
+	}
+	if !bytes.Equal(result.Content, pdfFixture) || repo.calls != 1 {
+		t.Fatalf("expected one plain read and validated bytes: calls=%d result=%+v", repo.calls, result)
+	}
+	if repo.transactionN != 0 {
+		t.Fatalf("download acquired a lifecycle transaction lock: transactions=%d", repo.transactionN)
+	}
+}
+
+func hexHash(content []byte) string {
+	hash := sha256.Sum256(content)
+	return hex.EncodeToString(hash[:])
 }
 
 func pngFixture() []byte {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 	"workflow-api/internal/dto"
 	"workflow-api/internal/model"
@@ -28,6 +29,29 @@ var (
 
 type BatchRepository interface {
 	Transaction(ctx context.Context, fn func(BatchTransaction) error) error
+}
+
+// EvidenceDownloadQuery describes the non-mutating part of an evidence read.
+// It deliberately lives at the repository boundary so the service can avoid
+// holding a lifecycle row lock while object storage is being read.
+type EvidenceDownloadQuery struct {
+	BatchID        string
+	EvidenceID     string
+	UserID         string
+	OrganisationID string
+	RoleCode       string
+}
+
+type EvidenceDownloadRecord struct {
+	Batch    *model.Batch
+	Evidence *model.BatchEvidence
+}
+
+// EvidenceDownloadReader is optional so lightweight repository fakes can keep
+// using the transactional fallback. The production GORM repository implements
+// it with a read-only transaction and no SELECT ... FOR UPDATE.
+type EvidenceDownloadReader interface {
+	ReadEvidenceForDownload(context.Context, EvidenceDownloadQuery) (*EvidenceDownloadRecord, error)
 }
 
 type BatchTransaction interface {
@@ -99,6 +123,80 @@ type GormBatchRepository struct {
 
 func NewGormBatchRepository(db *gorm.DB) *GormBatchRepository {
 	return &GormBatchRepository{db: db}
+}
+
+func (r *GormBatchRepository) ReadEvidenceForDownload(
+	ctx context.Context,
+	query EvidenceDownloadQuery,
+) (*EvidenceDownloadRecord, error) {
+	if r == nil || r.db == nil {
+		return nil, errors.New("repository: evidence database is nil")
+	}
+
+	var record EvidenceDownloadRecord
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var batch model.Batch
+		if err := tx.Where("id = ?", query.BatchID).First(&batch).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrBatchNotFound
+			}
+			return err
+		}
+		if !isEvidenceDownloadBatchStatus(batch.Status) {
+			return ErrEvidenceNotFound
+		}
+
+		var evidence model.BatchEvidence
+		if err := tx.Where("batch_id = ? AND evidence_id = ?", query.BatchID, query.EvidenceID).First(&evidence).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrEvidenceNotFound
+			}
+			return err
+		}
+		if evidence.ValidationStatus != "" && evidence.ValidationStatus != model.EvidenceValidationValidated {
+			return ErrEvidenceNotFound
+		}
+
+		reader := &gormBatchTransaction{db: tx}
+		switch strings.ToUpper(strings.TrimSpace(query.RoleCode)) {
+		case "RECYCLER":
+			if err := reader.ValidateRecyclerActor(ctx, query.UserID, query.OrganisationID); err != nil {
+				return err
+			}
+			if evidence.OrganisationID != query.OrganisationID || batch.CurrentClaimID == nil || batch.CurrentAssignmentID == nil {
+				return ErrEvidenceNotFound
+			}
+			if err := reader.ValidateReceiptScope(ctx, batch.ID, *batch.CurrentClaimID, *batch.CurrentAssignmentID, batch.ClaimEpoch, query.OrganisationID); err != nil {
+				return err
+			}
+		case "AUDITOR":
+			if err := reader.ValidateAuditorActor(ctx, query.UserID); err != nil {
+				return err
+			}
+		case "SYSTEM_ADMIN":
+			if err := reader.ValidateAdminActor(ctx, query.UserID); err != nil {
+				return err
+			}
+		default:
+			return ErrBatchActorNotEligible
+		}
+
+		record = EvidenceDownloadRecord{Batch: &batch, Evidence: &evidence}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &record, nil
+}
+
+func isEvidenceDownloadBatchStatus(status model.BatchStatus) bool {
+	switch status {
+	case model.BatchStatusCollected, model.BatchStatusVerified, model.BatchStatusRecycled, model.BatchStatusCompleted:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *GormBatchRepository) Transaction(
