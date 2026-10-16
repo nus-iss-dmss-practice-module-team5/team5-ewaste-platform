@@ -4,7 +4,7 @@
     {
       "type": 1,
       "content": {
-        "json": "# Responsible E-Waste Platform — Operations & Observability Workbook\n**System Version:** Sprint 4 Release Baseline | **Governance Reference:** Release Security Gate Policy & Administrator Observability Architecture | **Task:** Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links\n\nThis workbook provides live operational telemetry, Kafka consumption lag tracking, dead-letter investigation, and release evidence governance across containerized microservices in Azure Container Apps."
+        "json": "# Responsible E-Waste Platform \u2014 Operations & Observability Workbook\n**System Version:** Sprint 4 Release Baseline | **Governance Reference:** Release Security Gate Policy & Administrator Observability Architecture | **Task:** Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links\n\nThis workbook provides live operational telemetry, Kafka consumption lag tracking, dead-letter investigation, and release evidence governance across containerized microservices in Azure Container Apps."
       },
       "name": "Header-Overview"
     },
@@ -194,7 +194,19 @@
                         },
                         {
                           "operator": "==",
+                          "thresholdValue": "SUCCEEDED",
+                          "representation": "success",
+                          "text": "READY"
+                        },
+                        {
+                          "operator": "==",
                           "thresholdValue": "FAILED",
+                          "representation": "failed",
+                          "text": "FAILED"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "NOT_READY",
                           "representation": "failed",
                           "text": "FAILED"
                         },
@@ -251,7 +263,7 @@
           {
             "type": 1,
             "content": {
-              "json": "### Stage Latency Percentiles & SLO Targets (HTTP Command and Async Worker Execution Durations)\nEvaluates platform stage durations against Sprint 3 / 4 SLO thresholds:\n- **API Command Ingress (HTTP):** P95 $\\le$ 3,000 ms\n- **Worker Async Analytics Step:** P95 $\\le$ 10,000 ms"
+              "json": "### Stage Latency Percentiles & SLO Targets (HTTP Command and Async Worker Execution Durations)\nEvaluates platform stage durations against Sprint 3 / 4 SLO thresholds:\n- **API Command Ingress (HTTP):** P95 <= 3,000 ms\n- **Worker Async Analytics Step:** P95 <= 10,000 ms"
             },
             "name": "Latency-Header"
           },

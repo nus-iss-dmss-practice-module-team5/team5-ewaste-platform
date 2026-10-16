@@ -21,7 +21,7 @@ All Container Apps write JSON logs to `stdout`/`stderr`, which are ingested into
 ### 1.1 Access via Azure Portal
 
 1. Open the [Azure Portal](https://portal.azure.com).
-2. Navigate to **Log Analytics Workspaces** $\rightarrow$ select **`log-ewaste-centralized`**.
+2. Navigate to **Log Analytics Workspaces** -> select **`log-ewaste-centralized`**.
 3. Click **Logs** in the left navigation sidebar.
 4. Copy and paste any of the KQL queries from [Section 4](#4-reusable-kql-query-library).
 
@@ -387,11 +387,11 @@ The **E-Waste Operations & Observability Workbook** unifies real-time container 
 ### 6.1 Importing the Workbook in Azure Portal
 
 1. Navigate to the **Azure Portal** (https://portal.azure.com).
-2. Open **Log Analytics Workspaces** $\rightarrow$ select **`log-ewaste-centralized`**.
+2. Open **Log Analytics Workspaces** -> select **`log-ewaste-centralized`**.
 3. Under the left navigation bar **Monitoring**, select **Workbooks**.
-4. Click **+ New** $\rightarrow$ click the **Advanced Editor** icon (`</>`) in the top toolbar.
+4. Click **+ New** -> click the **Advanced Editor** icon (`</>`) in the top toolbar.
 5. Replace the editor contents with the JSON from [`docs/monitoring/ewaste-platform-monitor.workbook.json`](./monitoring/ewaste-platform-monitor.workbook.json).
-6. Click **Apply** $\rightarrow$ click the **Save** icon $\rightarrow$ Title: **`Responsible E-Waste Platform — Operations & Observability`**.
+6. Click **Apply** -> click the **Save** icon -> Title: **`Responsible E-Waste Platform — Operations & Observability`**.
 
 ### 6.2 Workbook Tab Structure & Operator Workflow
 
