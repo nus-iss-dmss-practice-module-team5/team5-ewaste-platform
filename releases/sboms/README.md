@@ -1,56 +1,67 @@
 # Retained Software Bill of Materials (SBOM) Catalog
 
 **Task Reference:** `S4-SG-I-L-01: Promote only signed digests from ACR and retain each release's SBOM` (EWCSB-215)
-**Governance Standard:** `EWCSB-241: Release Security Gate Policy` (Section 2 Principle 2, Section 6)
+**Governance Standard:** `EWCSB-241: Release Security Gate Policy`
 **Lead / Author:** Lakshanya Poovannan (DevSecOps & Cloud Platform Lead)
 **Approver / Reviewer:** Shalett Paulson (Security & Release Governance Lead)
-**Date:** 15 October 2026
+**Date:** 16 October 2026
 **Format:** SPDX 2.3 JSON (`format: spdx-json`)
-**Retention Mandate:** 90 Days (Workflow run artifacts & Release Evidence Repository)
+**Retention Mandate:** 90 Days (Workflow run artifacts)
 
 ---
 
 ## 1. Scope & Purpose
 
-In compliance with **EW-401 Acceptance Criterion 2** and **Refusal Test RT-16 (Missing SBOM blocks signing & deployment)**, every container release candidate built for the E-Waste Platform generates an immutable Software Bill of Materials (SBOM) using **Anchore Syft**.
+Every container release candidate built for the E-Waste Platform generates a Software Bill of Materials (SBOM) using **Anchore Syft** in the CD pipeline.
 
-SBOMs are generated at container build time, pinned to the exact container image SHA-256 digest, and retained for 90 days. They serve as:
-1. The authoritative inventory for **Grype vulnerability scanning** during Gate 2.
-2. Supply chain transparency records for release sign-off (EWCSB-224).
-3. Runtime verification metadata linked on the System Administrator Release Dashboard (EWCSB-240 / EWCSB-245).
-
----
-
-## 2. Retained Release SBOM Catalog
-
-| Service Component | Container Image | SBOM Artifact File | Target Runtime | Package Manager | Direct & Transitive Dependencies |
-| :--- | :--- | :--- | :---: | :---: | :---: |
-| **Backend REST Engine** | `workflow-api` | [`sbom-workflow-api.spdx.json`](./sbom-workflow-api.spdx.json) | Go 1.26 Static ELF | `go.mod` (Go Modules) | 60 Packages (Gin, GORM, Azure SDK, Kafka, Zap) |
-| **Frontend Web Portal** | `workflow-ui` | [`sbom-workflow-ui.spdx.json`](./sbom-workflow-ui.spdx.json) | Next.js 16.3.6 / Node 20 | `package.json` (npm) | 18 Packages (React 19, Tailwind, Axios, Vitest) |
-| **Matching & Analytics Worker** | `workflow-analytics` | [`sbom-workflow-analytics.spdx.json`](./sbom-workflow-analytics.spdx.json) | Python 3.12 (Debian slim) | `requirements.txt` (pip) | 7 Packages (confluent-kafka, jsonschema, referencing) |
+SBOMs are retained for 90 days as GitHub Actions workflow artifacts. They provide:
+1. Machine-readable software component and package inventories for compliance and security auditing.
+2. Supply chain transparency records for release verification.
+3. Traceable manifests linked to each deployed container image digest.
 
 ---
 
-## 3. Automated Generation & Promotion Pipeline
+## 2. Release SBOM Artifacts & Repository Baseline Catalog
 
-In the CD pipeline ([`.github/workflows/cd-pipeline.yml`](../../.github/workflows/cd-pipeline.yml)), SBOMs are automatically produced and archived:
+| Service Component | Container Image | Repository Baseline File | Target Runtime | Package Ecosystem |
+| :--- | :--- | :--- | :---: | :---: |
+| **Backend REST Engine** | `workflow-api` | [`sbom-workflow-api.spdx.json`](./sbom-workflow-api.spdx.json) | Go 1.26 Static ELF | `go.mod` (Go Modules) |
+| **Frontend Web Portal** | `workflow-ui` | [`sbom-workflow-ui.spdx.json`](./sbom-workflow-ui.spdx.json) | Next.js 16.3.6 / Node 20 | `package.json` (npm) |
+| **Matching & Analytics Worker** | `workflow-analytics` | [`sbom-workflow-analytics.spdx.json`](./sbom-workflow-analytics.spdx.json) | Python 3.12 (Debian slim) | `requirements.txt` (pip) |
 
-```bash
-# 1. Automated Generation via Anchore Syft
-syft packages "${ACR_SERVER}/${SERVICE}:${TARGET_TAG}" \
-  --output spdx-json > "releases/sboms/sbom-${SERVICE}.spdx.json"
-
-# 2. Gate 2 Failure Rule (RT-16: Fail Closed)
-if [ ! -s "releases/sboms/sbom-${SERVICE}.spdx.json" ]; then
-  echo "::error::Missing or empty SBOM for ${SERVICE}. Refusing deployment (RT-16)."
-  exit 1
-fi
-```
+> [!NOTE]
+> **Baseline Files vs. Pipeline Artifacts:**
+> The committed `.spdx.json` files in this directory represent application-level baseline dependency manifests derived directly from repository source manifests (`go.mod`, `package.json`, `requirements.txt`).
+> During each CD pipeline run, Anchore Syft scans the **entire built container image** (`syft "$IMAGE_TAG"`), capturing all underlying OS packages (`apk` / `dpkg`), runtime libraries, and application dependencies into 90-day retained workflow artifacts named `sbom-workflow-<service>-<tag>`.
 
 ---
 
-## 4. Retention & Traceability Guarantee
+## 3. Automated Pipeline Generation & Verification
 
-1. **90-Day GitHub Actions Artifact Retention:** Every CI/CD run uploads `sbom-spdx-json` with `retention-days: 90`.
-2. **Digest Pinned (`Principle 2`):** The SBOM document namespace and root package locator embed the immutable `@sha256:...` digest matching the deployed revision.
-3. **Refusal Enforcement (RT-16):** If the SBOM step fails or is skipped for any image in the release set, Cosign signing is blocked, and deployment is strictly **REFUSED**.
+In the CD pipeline ([`.github/workflows/cd-pipeline.yml`](../../.github/workflows/cd-pipeline.yml)), the following sequence executes for each container:
+
+1. **Immutable Digest Verification:**
+   The image digest is retrieved from Docker inspect and strictly verified to ensure it contains an immutable `@sha256:` locator:
+   ```bash
+   API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG")
+   [[ "$API_DIGEST" == *@sha256:* ]] || { echo '::error::API image digest is missing or mutable.' >&2; exit 1; }
+   ```
+
+2. **Automated Generation via Anchore Syft:**
+   ```bash
+   syft "${IMAGE_TAG}" -o spdx-json="releases/sboms/sbom-${SERVICE}.spdx.json"
+   test -s "releases/sboms/sbom-${SERVICE}.spdx.json" || { echo "::error::SBOM is missing or empty." >&2; exit 1; }
+   ```
+
+3. **90-Day Artifact Upload:**
+   Archived using `actions/upload-artifact@v4` with `retention-days: 90`.
+
+4. **Cryptographic Signing (Fresh Builds Only):**
+   Fresh builds (`is_rollback != 'true'`) are signed with Cosign using the repository secret `COSIGN_PRIVATE_KEY`.
+   *(During rollbacks, existing images in ACR are not re-signed; their existing signature must be valid).*
+
+5. **Signature Verification Gate:**
+   Prior to updating Azure Container Apps, Cosign verifies the image digest strictly against the committed team public key:
+   ```bash
+   cosign verify --key security/cosign.pub "${IMAGE_DIGEST}"
+   ```
