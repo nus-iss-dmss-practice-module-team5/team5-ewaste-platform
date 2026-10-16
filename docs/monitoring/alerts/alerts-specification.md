@@ -8,12 +8,12 @@ This document specifies the automated **Azure Monitor Scheduled Query Rules (Ale
 
 ## 2. Alerts Matrix
 
-| Alert Name                        | Target Signal                                                      | Evaluation Frequency | Window Period |       Severity       |     Threshold      | Escalation & Notification             |
-| :-------------------------------- | :----------------------------------------------------------------- | :------------------: | :-----------: | :------------------: | :----------------: | :------------------------------------ |
-| **`Alert-DeadLetter-Quarantine`** | `Outcome in ("QUARANTINED", "REJECTED")` or `failure_streak >= 3`  |        5 mins        |    5 mins     | **Sev 1** (Critical) |  $> 0$ incidents   | On-Call Lead, Security Lead (Shalett) |
-| **`Alert-Kafka-ConsumerLag`**     | `consumer_lag > 100` or `Stale == true` ($> 90\text{s}$)           |        5 mins        |    5 mins     | **Sev 2** (Warning)  |  $> 0$ partitions  | Platform Ops, Component Lead (Jiamin) |
-| **`Alert-SLO-LatencyBreach`**     | API P95 $> 3\text{s}$ or Worker P95 $> 10\text{s}$                 |        5 mins        |    15 mins    | **Sev 2** (Warning)  |   $> 0$ breaches   | DevSecOps Lead (Lakshanya)            |
-| **`Alert-Readiness-Absence`**     | Missing `/readyz` signals ($> 5\text{m}$) or `Outcome == "FAILED"` |        5 mins        |    5 mins     | **Sev 1** (Critical) | $> 0$ unready apps | Infrastructure Team, SRE              |
+| Alert Name                        | Target Signal                                                                                               | Evaluation Frequency | Window Period |       Severity       |     Threshold      | Escalation & Notification             |
+| :-------------------------------- | :---------------------------------------------------------------------------------------------------------- | :------------------: | :-----------: | :------------------: | :----------------: | :------------------------------------ |
+| **`Alert-DeadLetter-Quarantine`** | `Outcome in ("QUARANTINED", "REJECTED")` or `failure_streak >= 3`                                           |        5 mins        |    5 mins     | **Sev 1** (Critical) |  $> 0$ incidents   | On-Call Lead, Security Lead (Shalett) |
+| **`Alert-Kafka-ConsumerLag`**     | `consumer_lag > 100`, `Stale == true` ($> 90\text{s}$), or `offset_commit_failed` (30m lookback)            |        5 mins        |    5 mins     | **Sev 2** (Warning)  |  $> 0$ partitions  | Platform Ops, Component Lead (Jiamin) |
+| **`Alert-SLO-LatencyBreach`**     | API P95 $> 3\text{s}$ or Worker P95 $> 10\text{s}$                                                          |        5 mins        |    15 mins    | **Sev 2** (Warning)  |   $> 0$ breaches   | DevSecOps Lead (Lakshanya)            |
+| **`Alert-Readiness-Absence`**     | Missing `/readyz` signals ($> 5\text{m}$) or `Outcome in ("FAILED", "NOT_READY")` (30m lookback)            |        5 mins        |    5 mins     | **Sev 1** (Critical) | $> 0$ unready apps | Infrastructure Team, SRE              |
 
 ---
 
@@ -32,7 +32,7 @@ This document specifies the automated **Azure Monitor Scheduled Query Rules (Ale
 ### 3.2 Alert: Kafka Consumer Lag & Stalled Partitions (`Alert-Kafka-ConsumerLag`)
 
 - **Query File:** [`consumer-lag-stalled-partition-alert.kql`](./consumer-lag-stalled-partition-alert.kql)
-- **Rationale:** When Kafka consumer lag rises above 100 or when telemetry heartbeats cease for $> 90\text{s}$, events are queuing faster than processing or the worker has entered an exponential backoff pause.
+- **Rationale:** When Kafka consumer lag rises above 100 or when telemetry heartbeats cease for $> 90\text{s}$, events are queuing faster than processing or the worker has entered an exponential backoff pause. The query maintains a 30-minute lookback window to prevent fully stalled partitions from dropping out of detection.
 - **Triage Runbook:**
   1. Open the **E-Waste Operations Workbook** $\rightarrow$ **Tab 4: Kafka Ingestion & Consumer Lag**.
   2. Verify whether `delivery_paused` is active on any partition.
@@ -49,3 +49,16 @@ This document specifies the automated **Azure Monitor Scheduled Query Rules (Ale
   1. Open the **E-Waste Operations Workbook** $\rightarrow$ **Tab 2: Service Latency & SLOs**.
   2. Identify whether latency spikes originate from HTTP ingress (`workflow-api`) or async computation (`matcher-worker`).
   3. Check database locks in Azure Database for MySQL Flexible Server if API latency is elevated.
+
+### 3.4 Alert: Service Readiness Absence & Unready Probes (`Alert-Readiness-Absence`)
+
+- **Query File:** [`readiness-absence-alert.kql`](./readiness-absence-alert.kql)
+- **Rationale:** Ensures that core container apps (`workflow-api` and `matcher-worker`) maintain continuous availability and health. An alert is triggered if `/readyz` probe signals report non-ready states (`FAILED`, `NOT_READY`) or if telemetry heartbeat signals cease entirely for more than 5 minutes (`StaleReadiness`).
+- **Triage Runbook:**
+  1. Open the **E-Waste Operations Workbook** $\rightarrow$ **Tab 1: Platform Health & Readiness**.
+  2. Inspect the `App`, `ReadinessOutcome`, and `ReadinessCode` columns.
+  3. If `TelemetryAbsent` is true, verify container replica status and restart counts via Azure CLI:
+     ```bash
+     az containerapp replica list --name aca-ewaste-stg-api --resource-group rg-ewaste-stg --output table
+     ```
+  4. If `/readyz` returns 503 (`NOT_READY`), verify downstream database connectivity (Azure MySQL Flexible Server) or Kafka Event Hubs connection strings.

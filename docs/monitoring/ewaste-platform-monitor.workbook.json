@@ -510,6 +510,6 @@
   "style": "isometric",
   "isLocked": false,
   "fallbackResourceIds": [
-    "/subscriptions/c17fe099-bd8f-427b-ab53-544bf2af60c3/resourceGroups/rg-ewaste-dev/providers/microsoft.operationalinsights/workspaces/log-ewaste-centralized"
+    "/subscriptions/c17fe099-bd8f-427b-ab53-544bf2af60c3/resourceGroups/rg-ewaste-shared/providers/microsoft.operationalinsights/workspaces/log-ewaste-centralized"
   ]
 }

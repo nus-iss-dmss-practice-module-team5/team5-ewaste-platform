@@ -1,0 +1,26 @@
+// ==============================================================================
+// Alert Rule: Service Readiness Absence & Unready Probe Alert
+// Task: Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links
+// Governed by: Shalett Paulson (Security Lead), Mrigakshi Roy Choudhury (Observability Lead)
+// Severity: 1 (Critical) | Frequency: 5m | Window: 5m | Threshold: > 0
+// Description: Triggers when /readyz probes fail (Outcome in 'FAILED', 'NOT_READY')
+//              or when readiness telemetry is absent (>5m) for active core services.
+// ==============================================================================
+
+let Lookback = 30m;
+let Signals = union isfuzzy=true
+    (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)),
+    (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log))
+| where TimeGenerated > ago(Lookback)
+| extend j = parse_json(Message)
+| where toint(j.telemetry_version) == 1
+| extend Observation = tostring(j.observation), Outcome = tostring(j.outcome), Code = tostring(j.code);
+let ReadinessSignals = Signals
+| where Observation == "readiness"
+| summarize arg_max(TimeGenerated, *) by App
+| extend StaleReadiness = TimeGenerated < ago(5m),
+         IsFailed = Outcome in ("FAILED", "NOT_READY")
+| where StaleReadiness or IsFailed
+| project TimeGenerated, App, Observation, Outcome, Code, StaleReadiness, IsFailed,
+          TriggerReason = iif(IsFailed, "ReadinessProbeFailed", "ReadinessTelemetryAbsent");
+ReadinessSignals
