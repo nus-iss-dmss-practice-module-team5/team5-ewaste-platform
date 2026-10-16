@@ -1,0 +1,30 @@
+// ==============================================================================
+// Alert Rule: Platform Response Latency SLO Breach Alert
+// Task Reference: S4-OB-I-L-01 (EWCSB-223)
+// Governed by: Shalett Paulson (Security Lead), Mrigakshi Roy Choudhury (Observability Lead)
+// Severity: 2 (Warning) | Frequency: 5m | Window: 15m | Threshold: > 0
+// Description: Triggers when P95 duration exceeds SLO targets:
+//              - API HTTP requests: P95 > 3,000 ms (3 seconds)
+//              - Analytics Worker steps: P95 > 10,000 ms (10 seconds)
+// ==============================================================================
+
+let Lookback = 15m;
+let Signals = union isfuzzy=true
+    (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)),
+    (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log))
+| where TimeGenerated > ago(Lookback)
+| extend j = parse_json(Message)
+| where toint(j.telemetry_version) == 1
+| extend Observation = tostring(j.observation),
+         Operation = tostring(j.operation),
+         DurationMs = todouble(j.duration_ms);
+Signals
+| where Observation in ("http_request", "processing_step") and isnotnull(DurationMs)
+| summarize
+    Samples = count(),
+    P50Ms = round(percentile(DurationMs, 50), 2),
+    P95Ms = round(percentile(DurationMs, 95), 2),
+    P99Ms = round(percentile(DurationMs, 99), 2)
+    by App, Observation, bin(TimeGenerated, 5m)
+| extend SLO_Threshold_Ms = iff(App has "api", 3000.0, 10000.0)
+| where P95Ms > SLO_Threshold_Ms and Samples >= 5

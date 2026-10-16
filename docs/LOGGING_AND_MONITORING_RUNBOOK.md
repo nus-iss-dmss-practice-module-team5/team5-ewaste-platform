@@ -377,7 +377,71 @@ If Azure Container Apps is not routing traffic to a container:
 
 ---
 
-## 6. Audit & Traceability Appendix
+## 6. Azure Monitor Workbook Deployment & Operator Guide
+
+**Task Reference:** `S4-OB-I-L-01: Build Monitor workbook and evidence links` (EWCSB-223)
+**Workbook Template File:** [`docs/monitoring/ewaste-platform-monitor.workbook.json`](./monitoring/ewaste-platform-monitor.workbook.json)
+
+The **E-Waste Operations & Observability Workbook** unifies real-time container telemetry, Kafka queue depth, dead-letter triaging, and supply chain release evidence into an interactive dashboard.
+
+### 6.1 Importing the Workbook in Azure Portal
+
+1. Navigate to the **Azure Portal** (https://portal.azure.com).
+2. Open **Log Analytics Workspaces** $\rightarrow$ select **`log-ewaste-centralized`**.
+3. Under the left navigation bar **Monitoring**, select **Workbooks**.
+4. Click **+ New** $\rightarrow$ click the **Advanced Editor** icon (`</>`) in the top toolbar.
+5. Replace the editor contents with the JSON from [`docs/monitoring/ewaste-platform-monitor.workbook.json`](./monitoring/ewaste-platform-monitor.workbook.json).
+6. Click **Apply** $\rightarrow$ click the **Save** icon $\rightarrow$ Title: **`Responsible E-Waste Platform — Operations & Observability`**.
+
+### 6.2 Workbook Tab Structure & Operator Workflow
+
+| Tab Name                                | Operational Scope                | Key Metrics & Visualizations                                                                                 |
+| :-------------------------------------- | :------------------------------- | :----------------------------------------------------------------------------------------------------------- |
+| **1. Platform Health & Readiness**      | Real-time container availability | `/readyz` probes across Go API and Analytics Worker. Highlights `TelemetryAbsent` (>5m absence).             |
+| **2. Service Latency & SLOs**           | Response time compliance         | P50, P95, P99 stage durations. Highlights SLO breaches (API > 3s, Worker > 10s).                             |
+| **3. Dead-Letter & Quarantined Events** | Incident investigation           | Surfacing events in `QUARANTINED` or `REJECTED`, persistent failure streaks ($\ge 3$), and validation codes. |
+| **4. Kafka Ingestion & Consumer Lag**   | Event pipeline throughput        | Partition-level consumer lag. Flags `Stale` telemetry (>90s) and delivery backoff pauses.                    |
+| **5. End-to-End Request Trace**         | Distributed transaction tracing  | Correlated step-by-step waterfall using durable `correlation_id` or `batch_id`.                              |
+| **6. Release Evidence & Audit Links**   | Supply chain governance          | Direct links to 90-day retained SBOMs, Cosign signature keys, gate decisions, and CD runs.                   |
+
+### 6.3 Admin View Integration (EWCSB-245 R9)
+
+In compliance with **EWCSB-245 Section 2**, the Next.js Administrator Portal (`/admin`) links directly to this Azure Monitor Workbook:
+
+- Clicking the **Latency** or **Consumer Lag** tiles on the Admin Health Tab navigates directly to Tabs 2 & 4 of this workbook.
+- Non-administrators attempting to access this telemetry are strictly rejected with HTTP 403 Forbidden.
+
+---
+
+## 7. Automated Scheduled Query Alert Rules
+
+**Specification File:** [`docs/monitoring/alerts/alerts-specification.md`](./monitoring/alerts/alerts-specification.md)
+
+To ensure proactive response before service disruption, the following Azure Monitor Scheduled Query Rules are active:
+
+| Alert Name                        |   Target Severity    | Frequency / Window | Query Definition                                                                                           | Runbook Action                                                                                                            |
+| :-------------------------------- | :------------------: | :----------------: | :--------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
+| **`Alert-DeadLetter-Quarantine`** | **Sev 1** (Critical) |      5m / 5m       | [`dead-letter-quarantine-alert.kql`](./monitoring/alerts/dead-letter-quarantine-alert.kql)                 | Quarantined event detected. Open Workbook Tab 3, filter by `batch_id`, inspect error code, perform repair before redrive. |
+| **`Alert-Kafka-ConsumerLag`**     | **Sev 2** (Warning)  |      2m / 5m       | [`consumer-lag-stalled-partition-alert.kql`](./monitoring/alerts/consumer-lag-stalled-partition-alert.kql) | Lag > 100 or telemetry heartbeat stale (>90s). Open Workbook Tab 4, check partition backoff, verify Event Hubs.           |
+| **`Alert-SLO-LatencyBreach`**     | **Sev 2** (Warning)  |      5m / 15m      | [`platform-slo-latency-alert.kql`](./monitoring/alerts/platform-slo-latency-alert.kql)                     | P95 latency exceeded (>3s API / >10s Worker). Open Workbook Tab 2, check MySQL lock contention or worker CPU.             |
+
+---
+
+## 8. Release Evidence & Audit Verification
+
+In accordance with **Gate 2 / Gate 3 Release Governance (EWCSB-241 / EWCSB-215)**, every release deployed to Azure Container Apps is linked to verifiable cryptographic evidence:
+
+- **Retained Release SBOM Catalog:** Documented and verified in [`releases/sboms/README.md`](../releases/sboms/README.md).
+- **Cosign Team Public Key:** Root verification key in [`security/cosign.pub`](../security/cosign.pub).
+- **Automated Retention Mandate:** GitHub Actions retains all `sbom-workflow-*.spdx.json` and `gate-decision-*.json` release artifacts for **90 days**.
+- **Immutable Digest Pinning:** Live revisions are inspected via Azure CLI:
+  ```bash
+  az containerapp show --name aca-ewaste-stg-api --resource-group rg-ewaste-stg --query "properties.template.containers[0].image"
+  ```
+
+---
+
+## 9. Audit & Traceability Appendix
 
 | Component                    | Telemetry Standard                                                 | Redaction Guarantee                                    |   Status   |
 | :--------------------------- | :----------------------------------------------------------------- | :----------------------------------------------------- | :--------: |
@@ -385,3 +449,5 @@ If Azure Container Apps is not routing traffic to a container:
 | **`matcher-worker`**         | Structured `observe()` emission with latency and failure streaks   | Unparsed bodies, tokens, snapshots excluded            | **ACTIVE** |
 | **`log-ewaste-centralized`** | Reusable KQL suite across 6 operational categories                 | 30-day retention; accessible via Portal and Azure CLI  | **ACTIVE** |
 | **Probe Signals**            | Sub-second `/healthz` and `/readyz` endpoints wired to ACA         | Prevents traffic routing to paused/unhealthy instances | **ACTIVE** |
+| **Monitor Workbook**         | 6-tab unified operations dashboard with evidence links             | Available in Log Analytics Workbooks                   | **ACTIVE** |
+| **Scheduled Alerts**         | Automated dead-letter, consumer lag, and SLO breach triggers       | Sev 1 / Sev 2 alerts with runbook procedures           | **ACTIVE** |

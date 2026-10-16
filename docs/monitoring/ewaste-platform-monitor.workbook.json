@@ -1,0 +1,503 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# Responsible E-Waste Platform — Operations & Observability Workbook\n**System Version:** Sprint 4 Release Baseline | **Governance Reference:** EWCSB-241 & EWCSB-245 | **Task:** S4-OB-I-L-01 (EWCSB-223)\n\nThis workbook provides live operational telemetry, Kafka consumption lag tracking, dead-letter investigation, and release evidence governance across containerized microservices in Azure Container Apps."
+      },
+      "name": "Header-Overview"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "param-env",
+            "name": "Environment",
+            "type": 2,
+            "description": "Select the target Azure environment",
+            "isRequired": true,
+            "value": "stg",
+            "typeSettings": {
+              "additionalResourceOptions": []
+            },
+            "jsonData": "[\n  {\"value\": \"dev\", \"label\": \"Development (dev)\"},\n  {\"value\": \"stg\", \"label\": \"Staging (stg)\", \"selected\": true},\n  {\"value\": \"prod\", \"label\": \"Production (prod)\"}\n]"
+          },
+          {
+            "id": "param-time-range",
+            "name": "TimeRange",
+            "type": 4,
+            "description": "Select time range for telemetry signals",
+            "isRequired": true,
+            "value": {
+              "durationMs": 3600000
+            },
+            "typeSettings": {
+              "selectableValues": [
+                {
+                  "durationMs": 1800000,
+                  "createdTime": "2026-10-15T00:00:00.000Z",
+                  "isInitialTime": false,
+                  "grain": 1,
+                  "useDashboardTimeRange": false
+                },
+                {
+                  "durationMs": 3600000,
+                  "createdTime": "2026-10-15T00:00:00.000Z",
+                  "isInitialTime": false,
+                  "grain": 1,
+                  "useDashboardTimeRange": false
+                },
+                {
+                  "durationMs": 14400000,
+                  "createdTime": "2026-10-15T00:00:00.000Z",
+                  "isInitialTime": false,
+                  "grain": 1,
+                  "useDashboardTimeRange": false
+                },
+                {
+                  "durationMs": 43200000,
+                  "createdTime": "2026-10-15T00:00:00.000Z",
+                  "isInitialTime": false,
+                  "grain": 1,
+                  "useDashboardTimeRange": false
+                },
+                {
+                  "durationMs": 86400000,
+                  "createdTime": "2026-10-15T00:00:00.000Z",
+                  "isInitialTime": false,
+                  "grain": 1,
+                  "useDashboardTimeRange": false
+                },
+                {
+                  "durationMs": 604800000,
+                  "createdTime": "2026-10-15T00:00:00.000Z",
+                  "isInitialTime": false,
+                  "grain": 1,
+                  "useDashboardTimeRange": false
+                }
+              ]
+            }
+          },
+          {
+            "id": "param-correlation-id",
+            "name": "CorrelationId",
+            "type": 1,
+            "description": "Filter by business Correlation ID or Batch ID",
+            "value": ""
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "Workbook-Parameters"
+    },
+    {
+      "type": 11,
+      "content": {
+        "version": "LinkItem/1.0",
+        "style": "tabs",
+        "links": [
+          {
+            "id": "tab-readiness",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "1. Platform Health & Readiness",
+            "subTarget": "readiness",
+            "style": "link"
+          },
+          {
+            "id": "tab-latency",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "2. Service Latency & SLOs",
+            "subTarget": "latency",
+            "style": "link"
+          },
+          {
+            "id": "tab-dead-letter",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "3. Dead-Letter & Quarantined Events",
+            "subTarget": "deadletter",
+            "style": "link"
+          },
+          {
+            "id": "tab-lag",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "4. Kafka Ingestion & Consumer Lag",
+            "subTarget": "lag",
+            "style": "link"
+          },
+          {
+            "id": "tab-trace",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "5. End-to-End Request Trace",
+            "subTarget": "trace",
+            "style": "link"
+          },
+          {
+            "id": "tab-evidence",
+            "cellValue": "selectedTab",
+            "linkTarget": "parameter",
+            "linkLabel": "6. Release Evidence & Audit Links",
+            "subTarget": "evidence",
+            "style": "link"
+          }
+        ]
+      },
+      "name": "Navigation-Tabs"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "### Platform Readiness & Absence Check (EWCSB-183 Query 1)\nMonitors `/readyz` probe signals across Go API and Python Analytics Worker. Note: **Absence of telemetry is not evidence of health.** If a service has not reported in 5 minutes, it is marked as `TelemetryAbsent`."
+            },
+            "name": "Readiness-Header"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let AppPrefix = strcat(\"aca-ewaste-\", \"{Environment}\", \"-\");\nlet Signals = union isfuzzy=true\n    (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)),\n    (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log))\n| where TimeGenerated {TimeRange} and App startswith AppPrefix\n| extend j=parse_json(Message)\n| where toint(j.telemetry_version)==1\n| extend Observation=tostring(j.observation), Outcome=tostring(j.outcome), Code=tostring(j.code);\nlet ExpectedApps = datatable(AppSuffix:string) [\"api\",\"analytics\"]\n| extend App=strcat(AppPrefix,AppSuffix);\nlet Latest = Signals | summarize LastSignal=max(TimeGenerated) by App;\nlet Readiness = Signals | where Observation==\"readiness\"\n| summarize arg_max(TimeGenerated,*) by App\n| project App, LastReadiness=TimeGenerated, ReadinessOutcome=Outcome, ReadinessCode=Code;\nExpectedApps\n| join kind=leftouter Latest on App\n| join kind=leftouter Readiness on App\n| project App, LastSignal, LastReadiness, ReadinessOutcome, ReadinessCode,\n          TelemetryAbsent=isnull(LastSignal) or LastSignal<ago(5m),\n          ReadinessUnknown=isnull(LastReadiness) or LastReadiness<ago(5m)\n",
+              "size": 0,
+              "timeContext": {
+                "durationMs": 3600000
+              },
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "ReadinessOutcome",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "READY",
+                          "representation": "success",
+                          "text": "READY"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "FAILED",
+                          "representation": "failed",
+                          "text": "FAILED"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "warning",
+                          "text": "UNKNOWN"
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "columnMatch": "TelemetryAbsent",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "true",
+                          "representation": "critical",
+                          "text": "ABSENT (Investigate)"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "success",
+                          "text": "HEALTHY"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "name": "Query-Readiness"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "readiness"
+      },
+      "name": "Group-Readiness"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "### Stage Latency Percentiles & SLO Targets (EWCSB-183 Query 2)\nEvaluates platform stage durations against Sprint 3 / 4 SLO thresholds:\n- **API Command Ingress (HTTP):** P95 $\\le$ 3,000 ms\n- **Worker Async Analytics Step:** P95 $\\le$ 10,000 ms"
+            },
+            "name": "Latency-Header"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let AppPrefix = strcat(\"aca-ewaste-\", \"{Environment}\", \"-\");\nlet Signals = union isfuzzy=true\n    (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)),\n    (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log))\n| where TimeGenerated {TimeRange} and App startswith AppPrefix\n| extend j=parse_json(Message)\n| where toint(j.telemetry_version)==1\n| extend Observation=tostring(j.observation), Outcome=tostring(j.outcome), Code=tostring(j.code),\n         Operation=tostring(j.operation), DurationMs=todouble(j.duration_ms);\nSignals\n| where Observation in (\"http_request\",\"outbox_published\",\"processing_step\")\n| where isnotnull(DurationMs)\n| summarize Samples=count(),\n            P50Ms=round(percentile(DurationMs,50), 2),\n            P95Ms=round(percentile(DurationMs,95), 2),\n            P99Ms=round(percentile(DurationMs,99), 2)\n            by bin(TimeGenerated, 5m), App, Observation, Operation, Outcome\n| extend SLO_Threshold_Ms = iff(App has \"api\", 3000.0, 10000.0)\n| extend SLO_Status = iff(P95Ms > SLO_Threshold_Ms, \"BREACHED\", \"COMPLIANT\")\n| order by TimeGenerated desc\n",
+              "size": 0,
+              "timeContext": {
+                "durationMs": 3600000
+              },
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "visualization": "table",
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "SLO_Status",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "COMPLIANT",
+                          "representation": "success",
+                          "text": "COMPLIANT"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "BREACHED",
+                          "representation": "critical",
+                          "text": "BREACHED"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "name": "Query-Latency"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "latency"
+      },
+      "name": "Group-Latency"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "### Dead-Lettered Events & Quarantined Batches (EWCSB-223 / EWCSB-245 R5)\nIdentifies batches and events that entered `QUARANTINED` or `REJECTED` status, or experienced persistent worker failure streaks. Quarantined records require operator remediation prior to redrive."
+            },
+            "name": "DeadLetter-Header"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let AppPrefix = strcat(\"aca-ewaste-\", \"{Environment}\", \"-\");\nlet Signals = union isfuzzy=true\n    (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)),\n    (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log))\n| where TimeGenerated {TimeRange} and App startswith AppPrefix\n| extend j=parse_json(Message)\n| where toint(j.telemetry_version)==1\n| extend Observation=tostring(j.observation), Outcome=tostring(j.outcome), Code=tostring(j.code),\n         Correlation=tostring(j.correlation_id), Batch=tostring(j.batch_id),\n         Operation=tostring(j.operation), FailureStreak=toint(j.failure_streak), RetryCount=toint(j.retry_count);\nSignals\n| where Outcome in (\"QUARANTINED\", \"REJECTED\")\n     or FailureStreak >= 3\n     or Observation in (\"matching_request_failed\", \"delivery_paused\", \"consumer_error\")\n| project TimeGenerated, App, Observation, Operation, Outcome, Code, Batch, Correlation, RetryCount, FailureStreak, RawLog=Message\n| order by TimeGenerated desc\n",
+              "size": 0,
+              "timeContext": {
+                "durationMs": 3600000
+              },
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Outcome",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "QUARANTINED",
+                          "representation": "critical",
+                          "text": "QUARANTINED"
+                        },
+                        {
+                          "operator": "==",
+                          "thresholdValue": "REJECTED",
+                          "representation": "warning",
+                          "text": "REJECTED"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "error",
+                          "text": "FAILED"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "name": "Query-DeadLetter"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "deadletter"
+      },
+      "name": "Group-DeadLetter"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "### Kafka Ingestion, Partition Lag & Consumer Backoff (EWCSB-183 Query 3 & 4)\nMonitors consumer offset velocity and per-partition lag. Note: **Samples older than 90 seconds are marked as `Stale`**. Stale lag does NOT mean zero lag."
+            },
+            "name": "Lag-Header"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let AppPrefix = strcat(\"aca-ewaste-\", \"{Environment}\", \"-\");\nlet Signals = union isfuzzy=true\n    (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)),\n    (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log))\n| where TimeGenerated {TimeRange} and App startswith AppPrefix\n| extend j=parse_json(Message)\n| where toint(j.telemetry_version)==1\n| extend Observation=tostring(j.observation), Outcome=tostring(j.outcome), Code=tostring(j.code);\nSignals\n| where Observation == \"consumer_lag\" and isnotnull(j.partition)\n| extend ConsumerGroup=tostring(j.consumer_group), Topic=tostring(j.topic), Partition=toint(j.partition)\n| summarize arg_max(TimeGenerated,*) by App,ConsumerGroup,Topic,Partition\n| extend Stale=TimeGenerated < ago(90s), Available=tobool(j.sample_available)\n| project App, ConsumerGroup, Topic, Partition, LastSample=TimeGenerated, Stale, Available,\n          Lag=iif(Available and not(Stale), tolong(j.consumer_lag), long(null)),\n          CommittedOffset=tolong(j.committed_offset), EndOffset=tolong(j.end_offset)\n| order by App asc, Topic asc, Partition asc\n",
+              "size": 0,
+              "timeContext": {
+                "durationMs": 3600000
+              },
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces",
+              "gridSettings": {
+                "formatters": [
+                  {
+                    "columnMatch": "Stale",
+                    "formatter": 18,
+                    "formatOptions": {
+                      "thresholdsOptions": "icons",
+                      "thresholdsGrid": [
+                        {
+                          "operator": "==",
+                          "thresholdValue": "true",
+                          "representation": "critical",
+                          "text": "STALE (>90s)"
+                        },
+                        {
+                          "operator": "Default",
+                          "thresholdValue": null,
+                          "representation": "success",
+                          "text": "LIVE"
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
+            "name": "Query-Lag"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "lag"
+      },
+      "name": "Group-Lag"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "### End-to-End Distributed Request Trace (EWCSB-183 Query 5)\nTraces all processing steps associated with a specific correlation ID across HTTP ingress, database outbox relay, Kafka consumer, and matching decisions."
+            },
+            "name": "Trace-Header"
+          },
+          {
+            "type": 3,
+            "content": {
+              "version": "KqlItem/1.0",
+              "query": "let AppPrefix = strcat(\"aca-ewaste-\", \"{Environment}\", \"-\");\nlet SearchId = \"{CorrelationId}\";\nlet Signals = union isfuzzy=true\n    (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)),\n    (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log))\n| where TimeGenerated {TimeRange} and App startswith AppPrefix\n| extend j=parse_json(Message)\n| where toint(j.telemetry_version)==1\n| extend Observation=tostring(j.observation), Outcome=tostring(j.outcome), Code=tostring(j.code),\n         Correlation=tostring(j.correlation_id), Batch=tostring(j.batch_id),\n         Operation=tostring(j.operation), DurationMs=todouble(j.duration_ms);\nSignals\n| where isempty(SearchId) or Correlation == SearchId or Batch == SearchId or Message has SearchId\n| project TimeGenerated, App, Observation, Operation, Outcome, Code, Batch, Correlation,\n          EventId=tostring(j.event_id), CommandId=tostring(j.command_id), DurationMs\n| order by TimeGenerated asc\n",
+              "size": 0,
+              "timeContext": {
+                "durationMs": 3600000
+              },
+              "timeContextFromParameter": "TimeRange",
+              "queryType": 0,
+              "resourceType": "microsoft.operationalinsights/workspaces"
+            },
+            "name": "Query-Trace"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "trace"
+      },
+      "name": "Group-Trace"
+    },
+    {
+      "type": 12,
+      "content": {
+        "version": "NotebookGroup/1.0",
+        "groupType": "editable",
+        "items": [
+          {
+            "type": 1,
+            "content": {
+              "json": "### Release Evidence, SBOMs & Governance Verification Links\n**Task Reference:** `EWCSB-215` (Promotion & Retained SBOMs) | **Standard:** `EWCSB-241`\n\nEvery container deployed to Azure Container Apps is verified against immutable `@sha256:` digests and anchored to audited supply-chain release evidence retained for 90 days.\n\n| Verification Artifact | Description | Repository & Run Reference |\n| :--- | :--- | :--- |\n| **Backend API SBOM** | 60 Go static packages (SPDX 2.3 JSON) | [sbom-workflow-api.spdx.json](https://github.com/nus-iss-dmss-practice-module-team5/team5-ewaste-platform/blob/dev/releases/sboms/sbom-workflow-api.spdx.json) |\n| **Frontend UI SBOM** | 18 npm packages (SPDX 2.3 JSON) | [sbom-workflow-ui.spdx.json](https://github.com/nus-iss-dmss-practice-module-team5/team5-ewaste-platform/blob/dev/releases/sboms/sbom-workflow-ui.spdx.json) |\n| **Analytics Worker SBOM** | 7 Python packages (SPDX 2.3 JSON) | [sbom-workflow-analytics.spdx.json](https://github.com/nus-iss-dmss-practice-module-team5/team5-ewaste-platform/blob/dev/releases/sboms/sbom-workflow-analytics.spdx.json) |\n| **Cosign Root Public Key** | Team ECDSA P-256 Signature Verification Key | [security/cosign.pub](https://github.com/nus-iss-dmss-practice-module-team5/team5-ewaste-platform/blob/dev/security/cosign.pub) |\n| **CI/CD Evidence Pipeline** | GitHub Actions 90-day Artifact Store | [CD Deployment Runs](https://github.com/nus-iss-dmss-practice-module-team5/team5-ewaste-platform/actions/workflows/cd-pipeline.yml) |\n| **Release Catalog & Runbook** | Multi-environment promotion runbook | [releases/sboms/README.md](https://github.com/nus-iss-dmss-practice-module-team5/team5-ewaste-platform/blob/dev/releases/sboms/README.md) |\n\n---\n\n#### Runtime Digest Verification Check (Gate 3 Refusal Tests RT-02, RT-03, RT-05)\nAll Azure Container Apps are deployed strictly using immutable digest locators. To verify the live revision digests from Azure CLI:\n```bash\naz containerapp show --name aca-ewaste-{Environment}-api --resource-group rg-ewaste-{Environment} --query \"properties.template.containers[0].image\"\naz containerapp show --name aca-ewaste-{Environment}-analytics --resource-group rg-ewaste-{Environment} --query \"properties.template.containers[0].image\"\naz containerapp show --name aca-ewaste-{Environment}-ui --resource-group rg-ewaste-{Environment} --query \"properties.template.containers[0].image\"\n```"
+            },
+            "name": "Evidence-Links"
+          }
+        ]
+      },
+      "conditionalVisibility": {
+        "parameterName": "selectedTab",
+        "comparison": "isEqualTo",
+        "value": "evidence"
+      },
+      "name": "Group-Evidence"
+    }
+  ],
+  "style": "isometric",
+  "isLocked": false,
+  "fallbackResourceIds": [
+    "/subscriptions/c17fe099-bd8f-427b-ab53-544bf2af60c3/resourceGroups/rg-ewaste-dev/providers/microsoft.operationalinsights/workspaces/log-ewaste-centralized"
+  ]
+}
