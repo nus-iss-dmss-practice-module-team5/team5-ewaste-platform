@@ -7,6 +7,7 @@ import {
   EVIDENCE_STATUSES,
   EVIDENCE_VALIDATION_STATUSES,
   OPPORTUNITY_STATUSES,
+  PLATFORM_SUMMARIES,
   PROCESSING_STATUSES,
   type Anomaly,
   type Assignment,
@@ -20,6 +21,10 @@ import {
   type Opportunity,
   type OpportunityStatus,
   type Page,
+  type PlatformRelease,
+  type PlatformStatus,
+  type QuarantinedEvent,
+  type ReleaseImage,
   type Evidence,
   type ProcessingBatch,
   type ProcessingResult,
@@ -550,4 +555,170 @@ export function parseData<T>(
     throw contractError(`${label} response is missing data.`);
   }
   return parseItem(value.data);
+}
+
+// A null or absent number stays null: the source could not be read.
+function nullableNumber(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): number | null {
+  const value = record[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw contractError(`${label} has an invalid ${key}.`);
+  }
+  return value;
+}
+
+function nullableRecord(
+  record: Record<string, unknown>,
+  key: string,
+  label: string,
+): Record<string, unknown> | null {
+  const value = record[key];
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!isRecord(value)) {
+    throw contractError(`${label} has an invalid ${key}.`);
+  }
+  return value;
+}
+
+function parseReleaseImages(value: unknown, label: string): ReleaseImage[] {
+  if (!Array.isArray(value)) {
+    throw contractError(`${label} is missing images.`);
+  }
+  return value.map((item) => {
+    if (!isRecord(item)) {
+      throw contractError(`${label} has an invalid image.`);
+    }
+    return {
+      name: requireString(item, "name", label),
+      digest: requireString(item, "digest", label),
+    };
+  });
+}
+
+function parsePlatformRelease(value: Record<string, unknown>): PlatformRelease {
+  const label = "Release";
+  const rollback = nullableRecord(value, "rollback_target", label);
+  return {
+    id: requireString(value, "id", label),
+    commit: readString(value, "commit") ?? null,
+    deployedAt: readString(value, "deployed_at") ?? null,
+    gateRunUrl: readString(value, "gate_run_url") ?? null,
+    gateDecision: readString(value, "gate_decision") ?? null,
+    images: parseReleaseImages(value.images, label),
+    rollbackTarget: rollback
+      ? {
+          id: requireString(rollback, "id", "Rollback target"),
+          commit: readString(rollback, "commit") ?? null,
+          gateRunUrl: readString(rollback, "gate_run_url") ?? null,
+          images: parseReleaseImages(rollback.images, "Rollback target"),
+        }
+      : null,
+  };
+}
+
+function parseQuarantinedEvent(value: unknown): QuarantinedEvent {
+  const label = "Dead-lettered event";
+  if (!isRecord(value)) {
+    throw contractError(`${label} response is not an object.`);
+  }
+  return {
+    eventType: requireString(value, "event_type", label),
+    schemaVersion: requireNumber(value, "schema_version", label),
+    batchId: requireString(value, "batch_id", label),
+    attemptCount: requireNumber(value, "attempt_count", label),
+    lastErrorCode: readString(value, "last_error_code") ?? null,
+    createdAt: requireString(value, "created_at", label),
+    correlationId: requireString(value, "correlation_id", label),
+  };
+}
+
+export function parsePlatformStatus(value: unknown): PlatformStatus {
+  const label = "Platform status";
+  if (
+    !isRecord(value) ||
+    !isRecord(value.readiness) ||
+    !isRecord(value.unknown)
+  ) {
+    throw contractError(`${label} response is not an object.`);
+  }
+  const { readiness } = value;
+  const latency = nullableRecord(value, "latency", label);
+  const lag = nullableRecord(value, "consumer_lag", label);
+  const outbox = nullableRecord(value, "outbox", label);
+  const evidence = nullableRecord(value, "evidence", label);
+  const release = nullableRecord(value, "release", label);
+  const unknown: Record<string, string> = {};
+  for (const [source, reason] of Object.entries(value.unknown)) {
+    if (typeof reason === "string") {
+      unknown[source] = reason;
+    }
+  }
+  if (outbox && !Array.isArray(outbox.recent_quarantined)) {
+    throw contractError(`${label} is missing recent_quarantined.`);
+  }
+  return {
+    readAt: requireString(value, "read_at", label),
+    environment: readString(value, "environment") ?? null,
+    summary: oneOf(
+      requireString(value, "summary", label),
+      PLATFORM_SUMMARIES,
+      label,
+    ),
+    readiness: {
+      status: requireString(readiness, "status", label),
+      mysql: requireString(readiness, "mysql", label),
+      redis: requireString(readiness, "redis", label),
+    },
+    latency: latency
+      ? {
+          apiP95Ms: nullableNumber(latency, "api_p95_ms", label),
+          apiSamples: requireNumber(latency, "api_samples", label),
+          eventP95Ms: nullableNumber(latency, "event_p95_ms", label),
+          eventSamples: requireNumber(latency, "event_samples", label),
+          windowMinutes: requireNumber(latency, "window_minutes", label),
+          readAt: requireString(latency, "read_at", label),
+        }
+      : null,
+    consumerLag: lag
+      ? {
+          records: nullableNumber(lag, "records", label),
+          partitions: requireNumber(lag, "partitions", label),
+          sampledAt: readString(lag, "sampled_at") ?? null,
+        }
+      : null,
+    outbox: outbox
+      ? {
+          pending: requireNumber(outbox, "pending", label),
+          oldestPendingCreatedAt:
+            readString(outbox, "oldest_pending_created_at") ?? null,
+          quarantined: requireNumber(outbox, "quarantined", label),
+          recentQuarantined: (outbox.recent_quarantined as unknown[]).map(
+            parseQuarantinedEvent,
+          ),
+        }
+      : null,
+    processingFailuresLastHour: nullableNumber(
+      value,
+      "processing_failures_last_hour",
+      label,
+    ),
+    evidence: evidence
+      ? {
+          completedBatches: requireNumber(evidence, "completed_batches", label),
+          withEvidence: requireNumber(evidence, "with_evidence", label),
+          withoutEvidence: requireNumber(evidence, "without_evidence", label),
+        }
+      : null,
+    release: release ? parsePlatformRelease(release) : null,
+    workbookUrl: readString(value, "workbook_url") ?? null,
+    unknown,
+  };
 }

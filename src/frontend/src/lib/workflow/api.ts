@@ -45,6 +45,7 @@ import {
   parseImpactReport,
   parseOpportunity,
   parseOpportunityPage,
+  parsePlatformStatus,
   parseProcessingBatch,
   parseProcessingSummaryPage,
   parseProcessingResult,
@@ -65,6 +66,7 @@ import type {
   ImpactReport,
   Opportunity,
   Page,
+  PlatformStatus,
   Evidence,
   EvidenceStage,
   ProcessingBatch,
@@ -666,5 +668,15 @@ export async function getImpact(
       },
     }),
     (data) => parseData(data, parseImpactReport, "Impact report"),
+  );
+}
+
+// Administrator only. Every other role gets 403 and no data.
+export async function getPlatformStatus(
+  accessToken: string,
+): Promise<PlatformStatus> {
+  return call(
+    api.get("/api/v1/admin/platform-status", authHeaders(accessToken)),
+    (data) => parseData(data, parsePlatformStatus, "Platform status"),
   );
 }
