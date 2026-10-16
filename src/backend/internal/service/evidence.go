@@ -291,6 +291,9 @@ func (s *EvidenceService) Download(
 	if err != nil {
 		return EvidenceDownloadResult{}, err
 	}
+	if evidence == nil {
+		return EvidenceDownloadResult{}, ErrBatchEvidenceNotFound
+	}
 	if s.storage == nil {
 		return EvidenceDownloadResult{}, ErrEvidenceStorage
 	}

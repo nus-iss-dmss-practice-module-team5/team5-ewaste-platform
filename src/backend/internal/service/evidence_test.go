@@ -243,6 +243,29 @@ func TestEvidenceServiceDownloadUsesPlainReadAdapter(t *testing.T) {
 	}
 }
 
+func TestEvidenceServiceDownloadRejectsNilPlainReadEvidence(t *testing.T) {
+	base := newFakeBatchRepository()
+	repo := &plainEvidenceReadRepository{
+		fakeBatchRepository: base,
+		record: &repository.EvidenceDownloadRecord{
+			Batch:    collectedReceiptBatch(),
+			Evidence: nil,
+		},
+	}
+	objectStorage := newFakeEvidenceStorage()
+	svc := NewEvidenceService(repo, objectStorage)
+
+	_, err := svc.Download(context.Background(), "batch-receipt-001", "evidence-nil", EvidenceDownloadActor{
+		BatchActor: recyclerMetadata("nil-evidence", "corr-nil-evidence", 0).Actor,
+	}, "corr-nil-evidence")
+	if !errors.Is(err, ErrBatchEvidenceNotFound) {
+		t.Fatalf("expected missing evidence error, got %v", err)
+	}
+	if objectStorage.getCalls != 0 {
+		t.Fatalf("expected no object read after nil evidence result, got %d calls", objectStorage.getCalls)
+	}
+}
+
 func hexHash(content []byte) string {
 	hash := sha256.Sum256(content)
 	return hex.EncodeToString(hash[:])
