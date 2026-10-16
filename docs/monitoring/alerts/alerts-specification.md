@@ -1,11 +1,5 @@
 # Platform Alerting Rules Specification
 
-**Task:** Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links
-**Governance Standards:** Release Security Gate Policy & Administrator Observability Architecture
-**Observability Leads:** Lakshanya Poovannan (Platform / DevOps), Mrigakshi Roy Choudhury (Observability / UI), Shalett Paulson (Security / Governance)
-
----
-
 ## 1. Executive Summary
 
 This document specifies the automated **Azure Monitor Scheduled Query Rules (Alerts)** deployed to protect the Responsible E-Waste Platform across `dev`, `stg`, and `prod` environments. These rules continuously monitor structured telemetry emitted by `workflow-api`, `matcher-worker`, and the underlying Azure infrastructure (Kafka, MySQL, Container Apps).
