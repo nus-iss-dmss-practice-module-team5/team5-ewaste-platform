@@ -127,9 +127,11 @@ func (r *LogAnalyticsReader) Latency(ctx context.Context, window time.Duration) 
 		p95 := row.float("P95Ms")
 		switch row.string("Kind") {
 		case "api":
-			result.APISamples, result.APIP95Ms = samples, p95
+			result.APISamples = samples
+			result.APIP95Ms = p95
 		case "event":
-			result.EventSamples, result.EventP95Ms = samples, p95
+			result.EventSamples = samples
+			result.EventP95Ms = p95
 		}
 		if last := row.time("LastSample"); last != nil && (result.LastSampleAt == nil || last.After(*result.LastSampleAt)) {
 			result.LastSampleAt = last

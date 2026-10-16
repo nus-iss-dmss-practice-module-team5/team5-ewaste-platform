@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,15 +35,16 @@ func (s adminSessions) FindActiveUserByID(_ context.Context, userID string) (*mo
 	return &model.User{UserID: userID, RoleCode: s.roles[userID], Status: "ACTIVE"}, nil
 }
 
-type adminStatusRepo struct{ reads int }
+// reads is atomic because the service reads its sources in parallel.
+type adminStatusRepo struct{ reads atomic.Int64 }
 
-func (r *adminStatusRepo) ValidateAdmin(context.Context, string) error { r.reads++; return nil }
+func (r *adminStatusRepo) ValidateAdmin(context.Context, string) error { r.reads.Add(1); return nil }
 func (r *adminStatusRepo) SummariseOutbox(context.Context, int) (*model.OutboxSummary, error) {
-	r.reads++
+	r.reads.Add(1)
 	return &model.OutboxSummary{}, nil
 }
 func (r *adminStatusRepo) SummariseEvidence(context.Context) (*model.EvidenceSummary, error) {
-	r.reads++
+	r.reads.Add(1)
 	return &model.EvidenceSummary{}, nil
 }
 
@@ -84,8 +86,8 @@ func TestAdminPlatformStatusIsSystemAdminOnly(t *testing.T) {
 			t.Fatalf("%s: status = %d code = %q, want 403 FORBIDDEN", roles[userID], status, code)
 		}
 	}
-	if repo.reads != 0 {
-		t.Fatalf("a denied caller caused %d repository reads", repo.reads)
+	if reads := repo.reads.Load(); reads != 0 {
+		t.Fatalf("a denied caller caused %d repository reads", reads)
 	}
 	for name, header := range map[string]string{"no token": "", "tampered token": bearer("USR-005") + "x", "not bearer": "Basic abc"} {
 		if status, _ := call(header); status != http.StatusUnauthorized {
