@@ -22,11 +22,22 @@ SEVERITY_ORDER = ["BLOCKER", "HIGH", "CRITICAL", "MEDIUM", "MAJOR", "LOW", "MINO
 TOP_SEVERITIES = {"BLOCKER", "HIGH", "CRITICAL"}
 MAX_LISTED = 50
 
+# (area, label, count metrics, rating metrics). Newer SonarQube versions
+# report the first three areas as software-quality metrics; older ones use the
+# classic names. The first metric present wins.
 OVERVIEW = [
-    ("Reliability", "bugs", "reliability_rating", "Bugs"),
-    ("Security", "vulnerabilities", "security_rating", "Vulnerabilities"),
-    ("Security review", "security_hotspots", "security_review_rating", "Security hotspots"),
-    ("Maintainability", "code_smells", "sqale_rating", "Code smells"),
+    ("Reliability", "Bugs",
+     ("software_quality_reliability_issues", "bugs"),
+     ("software_quality_reliability_rating", "reliability_rating")),
+    ("Security", "Vulnerabilities",
+     ("software_quality_security_issues", "vulnerabilities"),
+     ("software_quality_security_rating", "security_rating")),
+    ("Security review", "Security hotspots",
+     ("security_hotspots",),
+     ("security_review_rating",)),
+    ("Maintainability", "Code smells",
+     ("software_quality_maintainability_issues", "code_smells"),
+     ("software_quality_maintainability_rating", "sqale_rating")),
 ]
 
 
@@ -39,6 +50,10 @@ def load(directory: Path, name: str) -> dict:
 
 def measures_by_key(measures: dict) -> dict[str, str]:
     return {m["metric"]: m.get("value", "") for m in measures.get("component", {}).get("measures", [])}
+
+
+def first(values: dict[str, str], keys: tuple[str, ...]) -> str:
+    return next((values[k] for k in keys if values.get(k) not in (None, "")), "")
 
 
 def rating(value: str) -> str:
@@ -79,9 +94,9 @@ def build(directory: Path, project_key: str, commit: str, run_url: str) -> dict:
     hotspots = load(directory, "hotspots.json").get("hotspots", [])
 
     overview = [
-        {"area": area, "label": label, "count": values.get(count_key, "-"),
-         "rating": rating(values.get(rating_key, ""))}
-        for area, count_key, rating_key, label in OVERVIEW
+        {"area": area, "label": label, "count": first(values, count_keys) or "-",
+         "rating": rating(first(values, rating_keys))}
+        for area, label, count_keys, rating_keys in OVERVIEW
     ]
     kinds = [issue_kind(issue) for issue in issues]
     by_severity = Counter(severity for _, severity in kinds)

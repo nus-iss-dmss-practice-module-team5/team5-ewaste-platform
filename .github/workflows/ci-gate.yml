@@ -502,20 +502,43 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p sonar-results
-          api() { curl -sf --netrc-file "$SONAR_NETRC" "$SONAR_HOST_URL/api/$1"; }
           KEY="$SONAR_PROJECT_KEY"
-          api "qualitygates/project_status?projectKey=$KEY" > sonar-results/status.json
-          api "measures/component?component=$KEY&metricKeys=alert_status,bugs,vulnerabilities,security_hotspots,code_smells,coverage,duplicated_lines_density,ncloc,reliability_rating,security_rating,security_review_rating,sqale_rating" \
-            > sonar-results/measures.json
-          api "hotspots/search?projectKey=$KEY&ps=500" > sonar-results/hotspots.json
-          # Issues come in pages of 500; keep up to 5,000.
+          # Show SonarQube's own error message when a call fails, then stop.
+          api() {
+            local status
+            status=$(curl -s --netrc-file "$SONAR_NETRC" -o "$2" -w '%{http_code}' "$SONAR_HOST_URL/api/$1")
+            if [ "$status" != "200" ]; then
+              echo "::error::SonarQube API /api/${1%%\?*} returned HTTP $status: $(head -c 500 "$2")"
+              return 1
+            fi
+          }
+
+          api "qualitygates/project_status?projectKey=$KEY" sonar-results/status.json
+
+          # Ask only for metrics this server knows: older and newer SonarQube
+          # versions name the reliability, security and maintainability
+          # measures differently, and an unknown key fails the whole call.
+          api "metrics/search?ps=500" sonar-results/metrics.json
+          WANTED="alert_status coverage duplicated_lines_density ncloc security_hotspots security_review_rating
+            bugs vulnerabilities code_smells reliability_rating security_rating sqale_rating
+            software_quality_reliability_issues software_quality_security_issues software_quality_maintainability_issues
+            software_quality_reliability_rating software_quality_security_rating software_quality_maintainability_rating"
+          METRICS=$(jq -r --arg wanted "$WANTED" \
+            '($wanted | split(" ") | map(select(length > 0))) as $w | [.metrics[].key | select(. as $k | $w | index($k))] | join(",")' \
+            sonar-results/metrics.json)
+          echo "Requesting metrics: $METRICS"
+          api "measures/component?component=$KEY&metricKeys=$METRICS" sonar-results/measures.json
+
+          api "hotspots/search?projectKey=$KEY&ps=500" sonar-results/hotspots.json
+
+          # Open issues come in pages of 500; keep up to 5,000.
           for page in $(seq 1 10); do
-            api "issues/search?componentKeys=$KEY&resolved=false&ps=500&p=$page" > "sonar-results/issues-$page.json"
-            [ "$(jq '.issues | length' "sonar-results/issues-$page.json")" -lt 500 ] && break
+            api "issues/search?components=$KEY&issueStatuses=OPEN,CONFIRMED&ps=500&p=$page" "sonar-results/issues-$page.json"
+            if [ "$(jq '.issues | length' "sonar-results/issues-$page.json")" -lt 500 ]; then break; fi
           done
           jq -s '{issues: [.[].issues[]]}' sonar-results/issues-*.json > sonar-results/issues.json
           rm sonar-results/issues-*.json
-          echo "Exported $(jq '.issues | length' sonar-results/issues.json) issues."
+          echo "Exported $(jq '.issues | length' sonar-results/issues.json) issues and $(jq '.hotspots | length' sonar-results/hotspots.json) hotspots."
 
       - name: Build the SonarQube Report
         run: |

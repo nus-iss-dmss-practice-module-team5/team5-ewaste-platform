@@ -80,6 +80,17 @@ class RenderTests(unittest.TestCase):
         self.assertNotIn("<script>alert(1)</script>", page)
         self.assertIn("&lt;script&gt;", page)
 
+    def test_newer_software_quality_metrics_are_used(self):
+        (self.dir / "measures.json").write_text(json.dumps({"component": {"measures": [
+            {"metric": "software_quality_reliability_issues", "value": "4"},
+            {"metric": "software_quality_reliability_rating", "value": "2.0"},
+            {"metric": "software_quality_security_issues", "value": "1"},
+            {"metric": "software_quality_security_rating", "value": "4.0"},
+        ]}}), encoding="utf-8")
+        overview = {o["label"]: o for o in rr.build(self.dir, KEY, "", "")["overview"]}
+        self.assertEqual((overview["Bugs"]["count"], overview["Bugs"]["rating"]), ("4", "B"))
+        self.assertEqual((overview["Vulnerabilities"]["count"], overview["Vulnerabilities"]["rating"]), ("1", "D"))
+
     def test_missing_inputs_render_without_error(self):
         with tempfile.TemporaryDirectory() as empty:
             report = rr.build(Path(empty), KEY, "", "")
