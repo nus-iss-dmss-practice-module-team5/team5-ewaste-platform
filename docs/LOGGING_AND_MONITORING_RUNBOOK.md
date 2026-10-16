@@ -21,7 +21,7 @@ All Container Apps write JSON logs to `stdout`/`stderr`, which are ingested into
 ### 1.1 Access via Azure Portal
 
 1. Open the [Azure Portal](https://portal.azure.com).
-2. Navigate to **Log Analytics Workspaces** $\rightarrow$ select **`log-ewaste-centralized`**.
+2. Navigate to **Log Analytics Workspaces** -> select **`log-ewaste-centralized`**.
 3. Click **Logs** in the left navigation sidebar.
 4. Copy and paste any of the KQL queries from [Section 4](#4-reusable-kql-query-library).
 
@@ -377,7 +377,181 @@ If Azure Container Apps is not routing traffic to a container:
 
 ---
 
-## 6. Audit & Traceability Appendix
+## 6. Azure Monitor Workbook Deployment & Operator Guide
+
+**Task:** Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links
+**Workbook Template File:** [`docs/monitoring/ewaste-platform-monitor.workbook.json`](./monitoring/ewaste-platform-monitor.workbook.json)
+
+The **E-Waste Operations & Observability Workbook** unifies real-time container telemetry, Kafka queue depth, dead-letter triaging, and supply chain release evidence into an interactive dashboard.
+
+### 6.1 Importing the Workbook in Azure Portal
+
+1. Navigate to the **Azure Portal** (https://portal.azure.com).
+2. Open **Log Analytics Workspaces** -> select **`log-ewaste-centralized`**.
+3. Under the left navigation bar **Monitoring**, select **Workbooks**.
+4. Click **+ New** -> click the **Advanced Editor** icon (`</>`) in the top toolbar.
+5. Replace the editor contents with the JSON from [`docs/monitoring/ewaste-platform-monitor.workbook.json`](./monitoring/ewaste-platform-monitor.workbook.json).
+6. Click **Apply** -> click the **Save** icon -> Title: **`Responsible E-Waste Platform — Operations & Observability`**.
+
+### 6.2 Workbook Tab Structure & Operator Workflow
+
+| Tab Name                                | Operational Scope                | Key Metrics & Visualizations                                                                                 |
+| :-------------------------------------- | :------------------------------- | :----------------------------------------------------------------------------------------------------------- |
+| **1. Platform Health & Readiness**      | Real-time container availability | `/readyz` probes across Go API and Analytics Worker. Highlights `TelemetryAbsent` (>5m absence).             |
+| **2. Service Latency & SLOs**           | Response time compliance         | P50, P95, P99 stage durations. Highlights SLO breaches (API > 3s, Worker > 10s).                             |
+| **3. Dead-Letter & Quarantined Events** | Incident investigation           | Surfacing events in `QUARANTINED` or `REJECTED`, persistent failure streaks ($\ge 3$), and validation codes. |
+| **4. Kafka Ingestion & Consumer Lag**   | Event pipeline throughput        | Partition-level consumer lag. Flags `Stale` telemetry (>90s) and delivery backoff pauses.                    |
+| **5. End-to-End Request Trace**         | Distributed transaction tracing  | Correlated step-by-step waterfall using durable `correlation_id` or `batch_id`.                              |
+| **6. Release Evidence & Audit Links**   | Supply chain governance          | Direct links to 90-day retained SBOMs, Cosign signature keys, gate decisions, and CD runs.                   |
+
+### 6.3 Admin View Integration (Administrator Observability View)
+
+In compliance with the **Administrator Observability & Monitoring View design**, the Next.js Administrator Portal (`/admin`) links directly to this Azure Monitor Workbook:
+
+- Clicking the **Latency** or **Consumer Lag** tiles on the Admin Health Tab navigates directly to Tabs 2 & 4 of this workbook.
+- Non-administrators attempting to access this telemetry are strictly rejected with HTTP 403 Forbidden.
+
+---
+
+## 7. Automated Scheduled Query Alert Rules
+
+**Specification File:** [`docs/monitoring/alerts/alerts-specification.md`](./monitoring/alerts/alerts-specification.md)
+
+To ensure proactive response before service disruption, the following Azure Monitor Scheduled Query Rules are active:
+
+| Alert Name                        |   Target Severity    | Frequency / Window | Query Definition                                                                                           | Runbook Action                                                                                                            |
+| :-------------------------------- | :------------------: | :----------------: | :--------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
+| **`Alert-DeadLetter-Quarantine`** | **Sev 1** (Critical) |      5m / 5m       | [`dead-letter-quarantine-alert.kql`](./monitoring/alerts/dead-letter-quarantine-alert.kql)                 | Quarantined event detected. Open Workbook Tab 3, filter by `batch_id`, inspect error code, perform repair before redrive. |
+| **`Alert-Kafka-ConsumerLag`**     | **Sev 2** (Warning)  |      5m / 5m       | [`consumer-lag-stalled-partition-alert.kql`](./monitoring/alerts/consumer-lag-stalled-partition-alert.kql) | Lag > 100 or telemetry heartbeat stale (>90s). Open Workbook Tab 4, check partition backoff, verify Event Hubs.           |
+| **`Alert-SLO-LatencyBreach`**     | **Sev 2** (Warning)  |      5m / 15m      | [`platform-slo-latency-alert.kql`](./monitoring/alerts/platform-slo-latency-alert.kql)                     | P95 latency exceeded (>3s API / >10s Worker). Open Workbook Tab 2, check MySQL lock contention or worker CPU.             |
+
+### 7.1 Provisioning Alert Rules via Bash
+
+Run the following commands using Azure CLI in Bash to schedule the alerts against the centralized Log Analytics workspace:
+
+```bash
+WORKSPACE_ID=$(az monitor log-analytics workspace show \
+  --resource-group rg-ewaste-shared \
+  --workspace-name log-ewaste-centralized \
+  --query id -o tsv)
+
+# 1. Sev 1: Dead-Letter & Quarantined Event Alert (every 5m)
+az monitor scheduled-query create \
+  --name "Alert-DeadLetter-Quarantine" \
+  --resource-group rg-ewaste-shared \
+  --scopes "$WORKSPACE_ID" \
+  --condition "count 'Signals' > 0" \
+  --condition-query Signals='let Lookback = 5m; let Signals = union isfuzzy=true (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)), (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log)) | where TimeGenerated > ago(Lookback) | extend j = parse_json(Message) | where toint(j.telemetry_version) == 1 | extend Observation = tostring(j.observation), Outcome = tostring(j.outcome), Code = tostring(j.code), Correlation = tostring(j.correlation_id), Batch = tostring(j.batch_id), Operation = tostring(j.operation), FailureStreak = toint(j.failure_streak); Signals | where Outcome in ("QUARANTINED", "REJECTED") or FailureStreak >= 3 or Observation in ("matching_request_failed", "delivery_paused", "consumer_error")' \
+  --evaluation-frequency 5m \
+  --window-size 5m \
+  --severity 1 \
+  --description "Sev 1: Dead-letter and quarantined e-waste batch detection alert"
+
+# 2. Sev 2: Kafka Consumer Lag & Stalled Partition Alert (every 5m)
+az monitor scheduled-query create \
+  --name "Alert-Kafka-ConsumerLag" \
+  --resource-group rg-ewaste-shared \
+  --scopes "$WORKSPACE_ID" \
+  --condition "count 'Signals' > 0" \
+  --condition-query Signals='let Lookback = 5m; let Signals = union isfuzzy=true (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)), (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log)) | where TimeGenerated > ago(Lookback) | extend j = parse_json(Message) | where toint(j.telemetry_version) == 1 | extend Observation = tostring(j.observation), Outcome = tostring(j.outcome); Signals | where Observation == "consumer_lag" and isnotnull(j.partition) | extend ConsumerGroup = tostring(j.consumer_group), Topic = tostring(j.topic), Partition = toint(j.partition) | summarize arg_max(TimeGenerated, *) by App, ConsumerGroup, Topic, Partition | extend Stale = TimeGenerated < ago(90s), Available = tobool(j.sample_available) | extend CurrentLag = iif(Available and not(Stale), tolong(j.consumer_lag), tolong(-1)) | where Stale or CurrentLag > 100 or Outcome == "offset_commit_failed" | project TimeGenerated, App, ConsumerGroup, Topic, Partition, CurrentLag, Stale, Available' \
+  --evaluation-frequency 5m \
+  --window-size 5m \
+  --severity 2 \
+  --description "Sev 2: Kafka consumer lag and stalled partition alert"
+
+# 3. Sev 2: Platform SLO Latency Breach Alert (every 5m, 15m window)
+az monitor scheduled-query create \
+  --name "Alert-SLO-LatencyBreach" \
+  --resource-group rg-ewaste-shared \
+  --scopes "$WORKSPACE_ID" \
+  --condition "count 'Signals' > 0" \
+  --condition-query Signals='let Lookback = 15m; let Signals = union isfuzzy=true (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)), (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log)) | where TimeGenerated > ago(Lookback) | extend j = parse_json(Message) | where toint(j.telemetry_version) == 1 | extend Observation = tostring(j.observation), Operation = tostring(j.operation), DurationMs = todouble(j.duration_ms); Signals | where Observation in ("http_request", "processing_step") and isnotnull(DurationMs) | summarize Samples = count(), P50Ms = round(percentile(DurationMs, 50), 2), P95Ms = round(percentile(DurationMs, 95), 2), P99Ms = round(percentile(DurationMs, 99), 2) by App, Observation, bin(TimeGenerated, 5m) | extend SLO_Threshold_Ms = iff(App has "api", 3000.0, 10000.0) | where P95Ms > SLO_Threshold_Ms and Samples >= 5' \
+  --evaluation-frequency 5m \
+  --window-size 15m \
+  --severity 2 \
+  --description "Sev 2: Platform SLO response latency degradation alert"
+```
+
+### 7.2 Provisioning Alert Rules via PowerShell
+
+Run the following commands using Azure CLI in PowerShell:
+
+```powershell
+$ws = (az monitor log-analytics workspace show `
+  --resource-group rg-ewaste-shared `
+  --workspace-name log-ewaste-centralized `
+  --query id -o tsv)
+
+# 1. Sev 1: Dead-Letter & Quarantined Event Alert (every 5m)
+$q1 = "let Lookback = 5m; let Signals = union isfuzzy=true (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)), (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log)) | where TimeGenerated > ago(Lookback) | extend j = parse_json(Message) | where toint(j.telemetry_version) == 1 | extend Observation = tostring(j.observation), Outcome = tostring(j.outcome), Code = tostring(j.code), Correlation = tostring(j.correlation_id), Batch = tostring(j.batch_id), Operation = tostring(j.operation), FailureStreak = toint(j.failure_streak); Signals | where Outcome in ('QUARANTINED', 'REJECTED') or FailureStreak >= 3 or Observation in ('matching_request_failed', 'delivery_paused', 'consumer_error')"
+
+az monitor scheduled-query create `
+  --name "Alert-DeadLetter-Quarantine" `
+  --resource-group rg-ewaste-shared `
+  --scopes $ws `
+  --condition "count 'Signals' > 0" `
+  --condition-query Signals="$q1" `
+  --evaluation-frequency 5m `
+  --window-size 5m `
+  --severity 1 `
+  --description "Sev 1: Dead-letter and quarantined e-waste batch detection alert"
+
+# 2. Sev 2: Kafka Consumer Lag & Stalled Partition Alert (every 5m)
+$q2 = "let Lookback = 5m; let Signals = union isfuzzy=true (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)), (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log)) | where TimeGenerated > ago(Lookback) | extend j = parse_json(Message) | where toint(j.telemetry_version) == 1 | extend Observation = tostring(j.observation), Outcome = tostring(j.outcome); Signals | where Observation == 'consumer_lag' and isnotnull(j.partition) | extend ConsumerGroup = tostring(j.consumer_group), Topic = tostring(j.topic), Partition = toint(j.partition) | summarize arg_max(TimeGenerated, *) by App, ConsumerGroup, Topic, Partition | extend Stale = TimeGenerated < ago(90s), Available = tobool(j.sample_available) | extend CurrentLag = iif(Available and not(Stale), tolong(j.consumer_lag), tolong(-1)) | where Stale or CurrentLag > 100 or Outcome == 'offset_commit_failed' | project TimeGenerated, App, ConsumerGroup, Topic, Partition, CurrentLag, Stale, Available"
+
+az monitor scheduled-query create `
+  --name "Alert-Kafka-ConsumerLag" `
+  --resource-group rg-ewaste-shared `
+  --scopes $ws `
+  --condition "count 'Signals' > 0" `
+  --condition-query Signals="$q2" `
+  --evaluation-frequency 5m `
+  --window-size 5m `
+  --severity 2 `
+  --description "Sev 2: Kafka consumer lag and stalled partition alert"
+
+# 3. Sev 2: Platform SLO Latency Breach Alert (every 5m, 15m window)
+$q3 = "let Lookback = 15m; let Signals = union isfuzzy=true (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)), (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log)) | where TimeGenerated > ago(Lookback) | extend j = parse_json(Message) | where toint(j.telemetry_version) == 1 | extend Observation = tostring(j.observation), Operation = tostring(j.operation), DurationMs = todouble(j.duration_ms); Signals | where Observation in ('http_request', 'processing_step') and isnotnull(DurationMs) | summarize Samples = count(), P50Ms = round(percentile(DurationMs, 50), 2), P95Ms = round(percentile(DurationMs, 95), 2), P99Ms = round(percentile(DurationMs, 99), 2) by App, Observation, bin(TimeGenerated, 5m) | extend SLO_Threshold_Ms = iff(App has 'api', 3000.0, 10000.0) | where P95Ms > SLO_Threshold_Ms and Samples >= 5"
+
+az monitor scheduled-query create `
+  --name "Alert-SLO-LatencyBreach" `
+  --resource-group rg-ewaste-shared `
+  --scopes $ws `
+  --condition "count 'Signals' > 0" `
+  --condition-query Signals="$q3" `
+  --evaluation-frequency 5m `
+  --window-size 15m `
+  --severity 2 `
+  --description "Sev 2: Platform SLO response latency degradation alert"
+```
+
+### 7.3 Verifying Active Alert Rules
+
+To list all live scheduled query alert rules in Azure:
+
+```bash
+az monitor scheduled-query list \
+  --query "[].{Name:name, Severity:severity, Frequency:evaluationFrequency, Window:windowSize, Enabled:enabled}" \
+  --output table
+```
+
+---
+
+## 8. Release Evidence & Audit Verification
+
+In accordance with **Gate 2 / Gate 3 Release Governance (Signed Digest Promotion & Retained Release Evidence)**, every release deployed to Azure Container Apps is linked to verifiable cryptographic evidence:
+
+- **Retained Release SBOM Catalog:** Documented and verified in [`releases/sboms/README.md`](../releases/sboms/README.md).
+- **Cosign Team Public Key:** Root verification key in [`security/cosign.pub`](../security/cosign.pub).
+- **Automated Retention Mandate:** GitHub Actions retains all `sbom-workflow-*.spdx.json` and `gate-decision-*.json` release artifacts for **90 days**.
+- **Immutable Digest Pinning:** Live revisions are inspected via Azure CLI:
+  ```bash
+  az containerapp show --name aca-ewaste-stg-api --resource-group rg-ewaste-stg --query "properties.template.containers[0].image"
+  ```
+
+---
+
+## 9. Audit & Traceability Appendix
 
 | Component                    | Telemetry Standard                                                 | Redaction Guarantee                                    |   Status   |
 | :--------------------------- | :----------------------------------------------------------------- | :----------------------------------------------------- | :--------: |
@@ -385,3 +559,5 @@ If Azure Container Apps is not routing traffic to a container:
 | **`matcher-worker`**         | Structured `observe()` emission with latency and failure streaks   | Unparsed bodies, tokens, snapshots excluded            | **ACTIVE** |
 | **`log-ewaste-centralized`** | Reusable KQL suite across 6 operational categories                 | 30-day retention; accessible via Portal and Azure CLI  | **ACTIVE** |
 | **Probe Signals**            | Sub-second `/healthz` and `/readyz` endpoints wired to ACA         | Prevents traffic routing to paused/unhealthy instances | **ACTIVE** |
+| **Monitor Workbook**         | 6-tab unified operations dashboard with evidence links             | Available in Log Analytics Workbooks                   | **ACTIVE** |
+| **Scheduled Alerts**         | Automated dead-letter, consumer lag, and SLO breach triggers       | Sev 1 / Sev 2 alerts with runbook procedures           | **ACTIVE** |
