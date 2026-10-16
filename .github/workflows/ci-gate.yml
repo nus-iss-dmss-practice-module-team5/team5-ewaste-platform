@@ -451,20 +451,29 @@ jobs:
       - name: Create a Single-Use Analysis Token
         run: |
           set -euo pipefail
-          # The server lives only for this job; replace the default password
-          # before doing anything else, then issue a token for the scanner.
+          # The server lives only for this job; replace the built-in default
+          # password before doing anything else, then issue a token for the
+          # scanner. Credentials go to a private curl netrc file, never the
+          # command line or the job environment.
+          SONAR_NETRC="$RUNNER_TEMP/sonar.netrc"
+          DEFAULT_LOGIN="admin"
+          write_netrc() {
+            (umask 077; printf 'machine localhost\nlogin %s\npassword %s\n' "$DEFAULT_LOGIN" "$1" > "$SONAR_NETRC")
+          }
           ADMIN_PASSWORD="Ci-$(openssl rand -hex 24)"
           echo "::add-mask::$ADMIN_PASSWORD"
-          curl -sf -u admin:admin -X POST "$SONAR_HOST_URL/api/users/change_password" \
-            --data-urlencode "login=admin" --data-urlencode "previousPassword=admin" \
+          write_netrc "$DEFAULT_LOGIN"
+          curl -sf --netrc-file "$SONAR_NETRC" -X POST "$SONAR_HOST_URL/api/users/change_password" \
+            --data-urlencode "login=$DEFAULT_LOGIN" --data-urlencode "previousPassword=$DEFAULT_LOGIN" \
             --data-urlencode "password=$ADMIN_PASSWORD"
-          TOKEN=$(curl -sf -u "admin:$ADMIN_PASSWORD" -X POST "$SONAR_HOST_URL/api/user_tokens/generate" \
+          write_netrc "$ADMIN_PASSWORD"
+          TOKEN=$(curl -sf --netrc-file "$SONAR_NETRC" -X POST "$SONAR_HOST_URL/api/user_tokens/generate" \
             --data-urlencode "name=ci-${GITHUB_RUN_ID}" --data-urlencode "type=GLOBAL_ANALYSIS_TOKEN" | jq -r .token)
           [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || { echo "::error::Could not create a SonarQube token."; exit 1; }
           echo "::add-mask::$TOKEN"
           {
             echo "SONAR_TOKEN=$TOKEN"
-            echo "SONAR_ADMIN_PASSWORD=$ADMIN_PASSWORD"
+            echo "SONAR_NETRC=$SONAR_NETRC"
           } >> "$GITHUB_ENV"
 
       - name: Run SonarQube Scanner
@@ -478,7 +487,7 @@ jobs:
           set -euo pipefail
           TASK_ID=$(grep '^ceTaskId=' .scannerwork/report-task.txt | cut -d= -f2)
           for attempt in $(seq 1 60); do
-            STATUS=$(curl -sf -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/ce/task?id=$TASK_ID" | jq -r .task.status)
+            STATUS=$(curl -sf --netrc-file "$SONAR_NETRC" "$SONAR_HOST_URL/api/ce/task?id=$TASK_ID" | jq -r .task.status)
             echo "Analysis status: $STATUS ($attempt/60)"
             case "$STATUS" in
               SUCCESS) exit 0 ;;
@@ -493,7 +502,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p sonar-results
-          api() { curl -sf -u "admin:$SONAR_ADMIN_PASSWORD" "$SONAR_HOST_URL/api/$1"; }
+          api() { curl -sf --netrc-file "$SONAR_NETRC" "$SONAR_HOST_URL/api/$1"; }
           KEY="$SONAR_PROJECT_KEY"
           api "qualitygates/project_status?projectKey=$KEY" > sonar-results/status.json
           api "measures/component?component=$KEY&metricKeys=alert_status,bugs,vulnerabilities,security_hotspots,code_smells,coverage,duplicated_lines_density,ncloc,reliability_rating,security_rating,security_review_rating,sqale_rating" \
@@ -523,7 +532,7 @@ jobs:
           set -euo pipefail
           # Let the screenshot load the dashboard without a login; the server
           # is private to this job and is discarded when it ends.
-          curl -sf -u "admin:$SONAR_ADMIN_PASSWORD" -X POST "$SONAR_HOST_URL/api/settings/set" \
+          curl -sf --netrc-file "$SONAR_NETRC" -X POST "$SONAR_HOST_URL/api/settings/set" \
             --data-urlencode "key=sonar.forceAuthentication" --data-urlencode "value=false"
           npx --yes playwright@1.64.1 install --with-deps chromium
           for page in "dashboard?id=$SONAR_PROJECT_KEY:dashboard" \
