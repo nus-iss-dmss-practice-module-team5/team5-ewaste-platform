@@ -333,18 +333,18 @@ func newClaimServiceFixture() (
 	}
 
 	return service, repo, dto.ClaimRequest{
-		ExpectedVersion: 3,
-		ClaimEpoch:      "1",
-	}, BatchCommandMetadata{
-		Actor: BatchActor{
-			UserID:         "USR-007",
-			OrganisationID: "PROC-001",
-			RoleCode:       "RECYCLER",
-		},
-		CorrelationID:   "corr-claim-001",
-		IdempotencyKey:  "claim-key-000001",
-		ExpectedVersion: 3,
-	}
+			ExpectedVersion: 3,
+			ClaimEpoch:      "1",
+		}, BatchCommandMetadata{
+			Actor: BatchActor{
+				UserID:         "USR-007",
+				OrganisationID: "PROC-001",
+				RoleCode:       "RECYCLER",
+			},
+			CorrelationID:   "corr-claim-001",
+			IdempotencyKey:  "claim-key-000001",
+			ExpectedVersion: 3,
+		}
 }
 
 func TestClaimRenewsLeaseDuringLongTransaction(t *testing.T) {
