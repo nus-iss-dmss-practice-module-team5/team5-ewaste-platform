@@ -365,6 +365,216 @@ jobs:
           echo "No frontend application available yet."
           echo "Frontend checks will run when src/frontend/package.json exists."
 
+      - name: Upload Frontend Coverage
+        if: steps.frontend-check.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-${{ github.sha }}
+          path: src/frontend/coverage/lcov.info
+          retention-days: 30
+
+
+  # 3.4 SONARQUBE CODE QUALITY & SECURITY ANALYSIS (EWCSB-118)
+  # A SonarQube Community server runs inside this job, analyses Go, TypeScript,
+  # Python and Terraform with the coverage from the test jobs above, and keeps
+  # an HTML/Markdown report plus a dashboard screenshot as a run artifact.
+  # Report-only for now: a fresh server has no baseline for "new code", so its
+  # quality gate is recorded but does not block the pipeline.
+  sonarqube-analysis:
+    name: SonarQube Analysis
+    needs:
+      - backend-tests
+      - analytics-tests
+      - frontend-checks
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      sonarqube:
+        image: sonarqube:26.10.0.133078-community@sha256:2e378f7852b67d43507d3d383ee8fb5a522b8b0f920be9803f74f72952fce8f1
+        ports:
+          - 9000:9000
+        env:
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+
+    env:
+      SONAR_HOST_URL: http://localhost:9000
+      SONAR_PROJECT_KEY: team5-ewaste-platform
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Go Coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: backend-coverage-${{ github.sha }}
+          path: coverage/backend
+
+      - name: Download Python Coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: analytics-test-results-${{ github.sha }}
+          path: coverage/matcher
+
+      - name: Download Frontend Coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: frontend-coverage-${{ github.sha }}
+          path: coverage/frontend
+
+      - name: Align Coverage Paths with the Repository Root
+        run: |
+          # Vitest writes paths relative to src/frontend.
+          if [ -f coverage/frontend/lcov.info ]; then
+            sed -i -E 's#^SF:(src/)#SF:src/frontend/\1#' coverage/frontend/lcov.info
+          fi
+          ls -l coverage/*/ 2>/dev/null || echo "No coverage reports were produced."
+
+      - name: Wait for SonarQube to Start
+        run: |
+          for attempt in $(seq 1 60); do
+            STATUS=$(curl -s "$SONAR_HOST_URL/api/system/status" | jq -r '.status // empty' || true)
+            echo "SonarQube status: ${STATUS:-starting} ($attempt/60)"
+            [ "$STATUS" = "UP" ] && exit 0
+            sleep 5
+          done
+          echo "::error::SonarQube did not start within 5 minutes."
+          exit 1
+
+      - name: Create a Single-Use Analysis Token
+        run: |
+          set -euo pipefail
+          # The server lives only for this job; replace the built-in default
+          # password before doing anything else, then issue a token for the
+          # scanner. Credentials go to a private curl netrc file, never the
+          # command line or the job environment.
+          SONAR_NETRC="$RUNNER_TEMP/sonar.netrc"
+          DEFAULT_LOGIN="admin"
+          write_netrc() {
+            (umask 077; printf 'machine localhost\nlogin %s\npassword %s\n' "$DEFAULT_LOGIN" "$1" > "$SONAR_NETRC")
+          }
+          ADMIN_PASSWORD="Ci-$(openssl rand -hex 24)"
+          echo "::add-mask::$ADMIN_PASSWORD"
+          write_netrc "$DEFAULT_LOGIN"
+          curl -sf --netrc-file "$SONAR_NETRC" -X POST "$SONAR_HOST_URL/api/users/change_password" \
+            --data-urlencode "login=$DEFAULT_LOGIN" --data-urlencode "previousPassword=$DEFAULT_LOGIN" \
+            --data-urlencode "password=$ADMIN_PASSWORD"
+          write_netrc "$ADMIN_PASSWORD"
+          TOKEN=$(curl -sf --netrc-file "$SONAR_NETRC" -X POST "$SONAR_HOST_URL/api/user_tokens/generate" \
+            --data-urlencode "name=ci-${GITHUB_RUN_ID}" --data-urlencode "type=GLOBAL_ANALYSIS_TOKEN" | jq -r .token)
+          [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || { echo "::error::Could not create a SonarQube token."; exit 1; }
+          echo "::add-mask::$TOKEN"
+          {
+            echo "SONAR_TOKEN=$TOKEN"
+            echo "SONAR_NETRC=$SONAR_NETRC"
+          } >> "$GITHUB_ENV"
+
+      - name: Run SonarQube Scanner
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        with:
+          args: >
+            -Dsonar.scm.revision=${{ github.sha }}
+
+      - name: Wait for the Analysis to Finish
+        run: |
+          set -euo pipefail
+          TASK_ID=$(grep '^ceTaskId=' .scannerwork/report-task.txt | cut -d= -f2)
+          for attempt in $(seq 1 60); do
+            STATUS=$(curl -sf --netrc-file "$SONAR_NETRC" "$SONAR_HOST_URL/api/ce/task?id=$TASK_ID" | jq -r .task.status)
+            echo "Analysis status: $STATUS ($attempt/60)"
+            case "$STATUS" in
+              SUCCESS) exit 0 ;;
+              FAILED|CANCELED) echo "::error::SonarQube analysis $STATUS."; exit 1 ;;
+            esac
+            sleep 5
+          done
+          echo "::error::SonarQube analysis did not finish within 5 minutes."
+          exit 1
+
+      - name: Export Analysis Results
+        run: |
+          set -euo pipefail
+          mkdir -p sonar-results
+          KEY="$SONAR_PROJECT_KEY"
+          # Show SonarQube's own error message when a call fails, then stop.
+          api() {
+            local status
+            status=$(curl -s --netrc-file "$SONAR_NETRC" -o "$2" -w '%{http_code}' "$SONAR_HOST_URL/api/$1")
+            if [ "$status" != "200" ]; then
+              echo "::error::SonarQube API /api/${1%%\?*} returned HTTP $status: $(head -c 500 "$2")"
+              return 1
+            fi
+          }
+
+          api "qualitygates/project_status?projectKey=$KEY" sonar-results/status.json
+
+          # Ask only for metrics this server knows: older and newer SonarQube
+          # versions name the reliability, security and maintainability
+          # measures differently, and an unknown key fails the whole call.
+          api "metrics/search?ps=500" sonar-results/metrics.json
+          WANTED="alert_status coverage duplicated_lines_density ncloc security_hotspots security_review_rating
+            bugs vulnerabilities code_smells reliability_rating security_rating sqale_rating
+            software_quality_reliability_issues software_quality_security_issues software_quality_maintainability_issues
+            software_quality_reliability_rating software_quality_security_rating software_quality_maintainability_rating"
+          METRICS=$(jq -r --arg wanted "$WANTED" \
+            '($wanted | split(" ") | map(select(length > 0))) as $w | [.metrics[].key | select(. as $k | $w | index($k))] | join(",")' \
+            sonar-results/metrics.json)
+          echo "Requesting metrics: $METRICS"
+          api "measures/component?component=$KEY&metricKeys=$METRICS" sonar-results/measures.json
+
+          api "hotspots/search?project=$KEY&ps=500" sonar-results/hotspots.json
+
+          # Open issues come in pages of 500; keep up to 5,000.
+          for page in $(seq 1 10); do
+            api "issues/search?components=$KEY&issueStatuses=OPEN,CONFIRMED&ps=500&p=$page" "sonar-results/issues-$page.json"
+            if [ "$(jq '.issues | length' "sonar-results/issues-$page.json")" -lt 500 ]; then break; fi
+          done
+          jq -s '{issues: [.[].issues[]]}' sonar-results/issues-*.json > sonar-results/issues.json
+          rm sonar-results/issues-*.json
+          echo "Exported $(jq '.issues | length' sonar-results/issues.json) issues and $(jq '.hotspots | length' sonar-results/hotspots.json) hotspots."
+
+      - name: Build the SonarQube Report
+        run: |
+          python3 scripts/sonar/render_report.py \
+            --input-dir sonar-results --output-dir sonar-report \
+            --project-key "$SONAR_PROJECT_KEY" --commit "${GITHUB_SHA:0:7}" \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          cp sonar-results/*.json sonar-report/
+          cat sonar-report/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Capture the SonarQube Dashboard
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Let the screenshot load the dashboard without a login; the server
+          # is private to this job and is discarded when it ends.
+          curl -sf --netrc-file "$SONAR_NETRC" -X POST "$SONAR_HOST_URL/api/settings/set" \
+            --data-urlencode "key=sonar.forceAuthentication" --data-urlencode "value=false"
+          npx --yes playwright@1.64.1 install --with-deps chromium
+          for page in "dashboard?id=$SONAR_PROJECT_KEY:dashboard" \
+                      "project/issues?id=$SONAR_PROJECT_KEY&issueStatuses=OPEN%2CCONFIRMED:issues" \
+                      "security_hotspots?id=$SONAR_PROJECT_KEY:hotspots"; do
+            URL_PATH="${page%:*}"
+            NAME="${page##*:}"
+            npx --yes playwright@1.64.1 screenshot --browser chromium --viewport-size "1440,1000" \
+              --wait-for-timeout 8000 --full-page "$SONAR_HOST_URL/$URL_PATH" "sonar-report/sonarqube-$NAME.png"
+          done
+
+      - name: Retain SonarQube Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarqube-report-${{ github.sha }}
+          path: sonar-report/
+          if-no-files-found: warn
+          retention-days: 30
 
   # ============================================================================
   # PHASE 4: CONTAINER PACKAGING & VULNERABILITY AUDIT
