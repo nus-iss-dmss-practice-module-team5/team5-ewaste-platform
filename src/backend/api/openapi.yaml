@@ -17,6 +17,7 @@ tags:
   - name: Evidence
   - name: Analytics
   - name: Auditor
+  - name: Administrator
 paths:
   /healthz:
     get:
@@ -915,6 +916,27 @@ paths:
         '400': {$ref: '#/components/responses/BadRequest'}
         '401': {$ref: '#/components/responses/InvalidSession'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/admin/platform-status:
+    get:
+      tags: [Administrator]
+      summary: Read platform health and the running release
+      description: >-
+        SYSTEM_ADMIN only; every other role gets 403 before any source is read.
+        Read-only. Each source (readiness, outbox, evidence counts, Log
+        Analytics latency, consumer lag and failures) has its own 3-second
+        budget. A source that cannot be read, or whose sample is too old
+        (latency over 15 minutes, lag over 90 seconds), is null and named in
+        `unknown` with a reason. It is never reported as 0. Evidence is
+        platform-wide counts only (D5); no file, link or batch list is returned.
+      operationId: getPlatformStatus
+      parameters:
+        - $ref: '#/components/parameters/Authorization'
+        - $ref: '#/components/parameters/CorrelationId'
+      responses:
+        '200': {description: Platform status, content: {application/json: {schema: {$ref: '#/components/schemas/PlatformStatusResponse'}}}}
+        '401': {$ref: '#/components/responses/InvalidSession'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {$ref: '#/components/responses/ServiceUnavailable'}
 components:
   parameters:
     Authorization:
@@ -1482,6 +1504,118 @@ components:
         status: {type: string, enum: [ok, ready, not_ready]}
         mysql: {type: string, enum: [ok, unavailable]}
         redis: {type: string, enum: [ok, unavailable]}
+    PlatformStatusResponse:
+      type: object
+      required: [data, correlation_id]
+      properties:
+        data:
+          type: object
+          required: [read_at, environment, summary, readiness, latency, consumer_lag, outbox, processing_failures_last_hour, evidence, release, workbook_url, unknown]
+          properties:
+            read_at: {type: string, format: date-time}
+            environment: {type: string, nullable: true, example: prod}
+            summary:
+              type: string
+              enum: [OK, ATTENTION, NOT_READY, UNKNOWN]
+              description: >-
+                The worst signal. NOT_READY when readiness fails; ATTENTION for
+                quarantined events, API P95 over 3 s, event P95 over 10 s or lag
+                over 100 records; UNKNOWN when a health source is unknown.
+                A missing release record does not count.
+            readiness:
+              type: object
+              required: [status, mysql, redis]
+              properties:
+                status: {type: string, enum: [ready, not_ready]}
+                mysql: {type: string, enum: [ok, unavailable]}
+                redis: {type: string, enum: [ok, unavailable]}
+            latency:
+              type: object
+              nullable: true
+              required: [api_p95_ms, api_samples, event_p95_ms, event_samples, window_minutes, read_at]
+              properties:
+                api_p95_ms: {type: number, nullable: true}
+                api_samples: {type: integer}
+                event_p95_ms: {type: number, nullable: true}
+                event_samples: {type: integer}
+                window_minutes: {type: integer, example: 15}
+                read_at: {type: string, format: date-time, description: Newest sample in the window.}
+            consumer_lag:
+              type: object
+              nullable: true
+              required: [records, partitions, sampled_at]
+              properties:
+                records: {type: integer, nullable: true, description: Null when any partition sample is missing or older than 90 seconds.}
+                partitions: {type: integer}
+                sampled_at: {type: string, format: date-time, nullable: true, description: Oldest of the latest per-partition samples.}
+            outbox:
+              type: object
+              nullable: true
+              required: [pending, oldest_pending_created_at, quarantined, recent_quarantined]
+              properties:
+                pending: {type: integer}
+                oldest_pending_created_at: {type: string, format: date-time, nullable: true}
+                quarantined: {type: integer, description: Dead-lettered events (publish_state QUARANTINED).}
+                recent_quarantined:
+                  type: array
+                  maxItems: 5
+                  description: Newest by created_at. Metadata only; no payload.
+                  items:
+                    type: object
+                    required: [event_type, schema_version, batch_id, attempt_count, last_error_code, created_at, correlation_id]
+                    properties:
+                      event_type: {type: string}
+                      schema_version: {type: integer}
+                      batch_id: {type: string}
+                      attempt_count: {type: integer}
+                      last_error_code: {type: string, nullable: true}
+                      created_at: {type: string, format: date-time}
+                      correlation_id: {type: string}
+            processing_failures_last_hour: {type: integer, nullable: true}
+            evidence:
+              type: object
+              nullable: true
+              required: [completed_batches, with_evidence, without_evidence]
+              properties:
+                completed_batches: {type: integer}
+                with_evidence: {type: integer}
+                without_evidence: {type: integer}
+            release:
+              type: object
+              nullable: true
+              description: Values the deploy job stamped on the API container. Null when not recorded.
+              required: [id, commit, deployed_at, gate_run_url, gate_decision, images, rollback_target]
+              properties:
+                id: {type: string, example: s4-rc2}
+                commit: {type: string, nullable: true}
+                deployed_at: {type: string, format: date-time, nullable: true}
+                gate_run_url: {type: string, nullable: true}
+                gate_decision: {type: string, nullable: true, example: PASS}
+                images: {type: array, items: {$ref: '#/components/schemas/ReleaseImage'}}
+                rollback_target:
+                  type: object
+                  nullable: true
+                  required: [id, commit, gate_run_url, images]
+                  properties:
+                    id: {type: string}
+                    commit: {type: string, nullable: true}
+                    gate_run_url: {type: string, nullable: true}
+                    images: {type: array, items: {$ref: '#/components/schemas/ReleaseImage'}}
+            workbook_url: {type: string, nullable: true, description: Azure Monitor workbook for charts and history.}
+            unknown:
+              type: object
+              description: Source name to reason, for every source that could not be read.
+              additionalProperties:
+                type: string
+                enum: [NOT_CONFIGURED, LOG_QUERY_FAILED, TIMED_OUT, NO_SAMPLE, STALE_SAMPLE, READ_FAILED, NOT_RECORDED]
+              example: {latency: LOG_QUERY_FAILED}
+        correlation_id: {type: string}
+    ReleaseImage:
+      type: object
+      required: [name, digest]
+      properties:
+        name: {type: string, enum: [workflow-api, workflow-ui, workflow-analytics]}
+        digest: {type: string, example: 'sha256:9b1e...'}
   responses:
     BadRequest:
       description: Missing or malformed request.

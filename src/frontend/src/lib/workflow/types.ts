@@ -327,3 +327,75 @@ export type ImpactReport = {
   totals: ImpactTotals;
   items: ImpactItem[];
 };
+
+// GET /api/v1/admin/platform-status. A null source could not be read; its
+// reason is in `unknown`. Null is never shown as 0.
+export const PLATFORM_SUMMARIES = [
+  "OK",
+  "ATTENTION",
+  "NOT_READY",
+  "UNKNOWN",
+] as const;
+export type PlatformSummary = (typeof PLATFORM_SUMMARIES)[number];
+
+export type QuarantinedEvent = {
+  eventType: string;
+  schemaVersion: number;
+  batchId: string;
+  attemptCount: number;
+  lastErrorCode: string | null;
+  createdAt: string;
+  correlationId: string;
+};
+
+export type ReleaseImage = { name: string; digest: string };
+
+export type PlatformRelease = {
+  id: string;
+  commit: string | null;
+  deployedAt: string | null;
+  gateRunUrl: string | null;
+  gateDecision: string | null;
+  images: ReleaseImage[];
+  rollbackTarget: {
+    id: string;
+    commit: string | null;
+    gateRunUrl: string | null;
+    images: ReleaseImage[];
+  } | null;
+};
+
+export type PlatformStatus = {
+  readAt: string;
+  environment: string | null;
+  summary: PlatformSummary;
+  readiness: { status: string; mysql: string; redis: string };
+  latency: {
+    apiP95Ms: number | null;
+    apiSamples: number;
+    eventP95Ms: number | null;
+    eventSamples: number;
+    windowMinutes: number;
+    readAt: string;
+  } | null;
+  consumerLag: {
+    records: number | null;
+    partitions: number;
+    sampledAt: string | null;
+  } | null;
+  outbox: {
+    pending: number;
+    oldestPendingCreatedAt: string | null;
+    quarantined: number;
+    recentQuarantined: QuarantinedEvent[];
+  } | null;
+  processingFailuresLastHour: number | null;
+  evidence: {
+    completedBatches: number;
+    withEvidence: number;
+    withoutEvidence: number;
+  } | null;
+  release: PlatformRelease | null;
+  workbookUrl: string | null;
+  unknown: Record<string, string>;
+};
