@@ -249,6 +249,9 @@ jobs:
       - name: Install Sigstore Cosign
         uses: sigstore/cosign-installer@59acb6260d9c0ba8f4a2f9d9b48431a222b68e20 # v3.5.0
 
+      - name: Install Anchore Syft
+        uses: anchore/sbom-action/download-syft@v0.18.0
+
       - name: Log in to Azure Container Registry
         run: |
           ACR_NAME=$(echo "${{ secrets.AZURE_ACR_NAME }}" | cut -d'.' -f1)
@@ -345,26 +348,45 @@ jobs:
           fi
           echo "API_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
-          API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
-          echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> $GITHUB_ENV
+          API_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG")
+          [[ "$API_DIGEST" == *@sha256:* ]] || { echo '::error::API image digest is missing or mutable.' >&2; exit 1; }
+          echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> "$GITHUB_ENV"
 
-#      - name: Sign API Container Image Digest with Cosign
-#        run: |
-#          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
-#          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-#            cosign sign --yes \
-#              --key env://COSIGN_PRIVATE_KEY \
-#              ${{ env.API_IMMUTABLE_DIGEST }}
-#          else
-#            echo "Generating ephemeral keypair for API signing..."
-#            if [ ! -f cosign.key ]; then
-#              cosign generate-key-pair
-#            fi
-#            cosign sign --yes --key cosign.key ${{ env.API_IMMUTABLE_DIGEST }}
-#          fi
-#        env:
-#          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-#          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+      - name: Generate API SBOM (Syft SPDX)
+        run: |
+          mkdir -p releases/sboms
+          syft "${{ env.API_IMAGE }}" -o spdx-json=releases/sboms/sbom-workflow-api.spdx.json
+          test -s releases/sboms/sbom-workflow-api.spdx.json || { echo "::error::API SBOM is missing or empty." >&2; exit 1; }
+          echo "API SBOM generated successfully."
+
+      - name: Retain API SBOM Artifact (90-Day Policy)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-workflow-api-${{ steps.resolve_tags.outputs.effective_tag }}
+          path: releases/sboms/sbom-workflow-api.spdx.json
+          retention-days: 90
+
+      - name: Sign API Container Image Digest with Cosign
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          echo "Signing immutable API image digest: ${{ env.API_IMMUTABLE_DIGEST }}"
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            echo "::error::COSIGN_PRIVATE_KEY secret is missing. Cannot sign release candidate."
+            exit 1
+          fi
+          cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${{ env.API_IMMUTABLE_DIGEST }}"
+
+      - name: Verify API Container Signature (Pre-Deployment Gate)
+        run: |
+          echo "Verifying Cosign signature for ${{ env.API_IMMUTABLE_DIGEST }}..."
+          if [ ! -f security/cosign.pub ]; then
+            echo "::error::Committed team public key security/cosign.pub is missing. Cannot verify release."
+            exit 1
+          fi
+          cosign verify --key security/cosign.pub "${{ env.API_IMMUTABLE_DIGEST }}"
 
       # ------------------------------------------------------------------------
       # AUTHENTICATION CONTEXT FOR CONTAINER APPS MANAGEMENT
@@ -428,26 +450,45 @@ jobs:
           fi
           echo "UI_IMAGE=$IMAGE_TAG" >> $GITHUB_ENV
 
-          UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG" 2>/dev/null || echo "$IMAGE_TAG")
-          echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> $GITHUB_ENV
+          UI_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG")
+          [[ "$UI_DIGEST" == *@sha256:* ]] || { echo '::error::UI image digest is missing or mutable.' >&2; exit 1; }
+          echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> "$GITHUB_ENV"
 
-#      - name: Sign UI Container Image Digest with Cosign
-#        run: |
-#          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
-#          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
-#            cosign sign --yes \
-#              --key env://COSIGN_PRIVATE_KEY \
-#              ${{ env.UI_IMMUTABLE_DIGEST }}
-#          else
-#            echo "Signing UI image with cosign key..."
-#            if [ ! -f cosign.key ]; then
-#              cosign generate-key-pair
-#            fi
-#            cosign sign --yes --key cosign.key ${{ env.UI_IMMUTABLE_DIGEST }}
-#          fi
-#        env:
-#          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
-#          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+      - name: Generate UI SBOM (Syft SPDX)
+        run: |
+          mkdir -p releases/sboms
+          syft "${{ env.UI_IMAGE }}" -o spdx-json=releases/sboms/sbom-workflow-ui.spdx.json
+          test -s releases/sboms/sbom-workflow-ui.spdx.json || { echo "::error::UI SBOM is missing or empty." >&2; exit 1; }
+          echo "UI SBOM generated successfully."
+
+      - name: Retain UI SBOM Artifact (90-Day Policy)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-workflow-ui-${{ steps.resolve_tags.outputs.effective_tag }}
+          path: releases/sboms/sbom-workflow-ui.spdx.json
+          retention-days: 90
+
+      - name: Sign UI Container Image Digest with Cosign
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          echo "Signing immutable UI image digest: ${{ env.UI_IMMUTABLE_DIGEST }}"
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            echo "::error::COSIGN_PRIVATE_KEY secret is missing. Cannot sign release candidate."
+            exit 1
+          fi
+          cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${{ env.UI_IMMUTABLE_DIGEST }}"
+
+      - name: Verify UI Container Signature (Pre-Deployment Gate)
+        run: |
+          echo "Verifying Cosign signature for ${{ env.UI_IMMUTABLE_DIGEST }}..."
+          if [ ! -f security/cosign.pub ]; then
+            echo "::error::Committed team public key security/cosign.pub is missing. Cannot verify release."
+            exit 1
+          fi
+          cosign verify --key security/cosign.pub "${{ env.UI_IMMUTABLE_DIGEST }}"
 
       - name: Deploy UI Container to Azure Container Apps
         id: ui_deploy
@@ -496,6 +537,43 @@ jobs:
           ANALYTICS_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_TAG")
           [[ "$ANALYTICS_DIGEST" == *@sha256:* ]] || { echo 'Matcher image digest is missing or mutable.' >&2; exit 1; }
           echo "ANALYTICS_IMMUTABLE_DIGEST=$ANALYTICS_DIGEST" >> "$GITHUB_ENV"
+          echo "ANALYTICS_IMAGE=$IMAGE_TAG" >> "$GITHUB_ENV"
+
+      - name: Generate Analytics SBOM (Syft SPDX)
+        run: |
+          mkdir -p releases/sboms
+          syft "${{ env.ANALYTICS_IMAGE }}" -o spdx-json=releases/sboms/sbom-workflow-analytics.spdx.json
+          test -s releases/sboms/sbom-workflow-analytics.spdx.json || { echo "::error::Analytics SBOM is missing or empty." >&2; exit 1; }
+          echo "Analytics SBOM generated successfully."
+
+      - name: Retain Analytics SBOM Artifact (90-Day Policy)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: sbom-workflow-analytics-${{ steps.resolve_tags.outputs.effective_tag }}
+          path: releases/sboms/sbom-workflow-analytics.spdx.json
+          retention-days: 90
+
+      - name: Sign Analytics Container Image Digest with Cosign
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          echo "Signing immutable Analytics image digest: ${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            echo "::error::COSIGN_PRIVATE_KEY secret is missing. Cannot sign release candidate."
+            exit 1
+          fi
+          cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+
+      - name: Verify Analytics Container Signature (Pre-Deployment Gate)
+        run: |
+          echo "Verifying Cosign signature for ${{ env.ANALYTICS_IMMUTABLE_DIGEST }}..."
+          if [ ! -f security/cosign.pub ]; then
+            echo "::error::Committed team public key security/cosign.pub is missing. Cannot verify release."
+            exit 1
+          fi
+          cosign verify --key security/cosign.pub "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
 
       - name: Deploy Analytics Worker to Azure Container Apps
         id: analytics_deploy
