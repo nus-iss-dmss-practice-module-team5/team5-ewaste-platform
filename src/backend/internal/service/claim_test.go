@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -200,6 +202,89 @@ type fakeLeaseHandle struct{}
 
 func (fakeLeaseHandle) Release(context.Context) error { return nil }
 
+type renewingFakeLease struct {
+	handle *renewingFakeLeaseHandle
+}
+
+func (l *renewingFakeLease) Acquire(context.Context, string) (lease.Handle, error) {
+	l.handle = &renewingFakeLeaseHandle{interval: time.Millisecond}
+	return l.handle, nil
+}
+
+type renewingFakeLeaseHandle struct {
+	interval time.Duration
+	renewals atomic.Int32
+}
+
+func (h *renewingFakeLeaseHandle) Release(context.Context) error { return nil }
+func (h *renewingFakeLeaseHandle) Renew(context.Context) error {
+	h.renewals.Add(1)
+	return nil
+}
+func (h *renewingFakeLeaseHandle) RenewInterval() time.Duration { return h.interval }
+
+type failingRenewingFakeLease struct {
+	handle *failingRenewingFakeLeaseHandle
+}
+
+func (l *failingRenewingFakeLease) Acquire(context.Context, string) (lease.Handle, error) {
+	l.handle = &failingRenewingFakeLeaseHandle{interval: time.Millisecond}
+	return l.handle, nil
+}
+
+type failingRenewingFakeLeaseHandle struct {
+	interval time.Duration
+	renewals atomic.Int32
+}
+
+func (h *failingRenewingFakeLeaseHandle) Release(context.Context) error { return nil }
+func (h *failingRenewingFakeLeaseHandle) Renew(context.Context) error {
+	h.renewals.Add(1)
+	return lease.ErrLost
+}
+func (h *failingRenewingFakeLeaseHandle) RenewInterval() time.Duration { return h.interval }
+
+type blockingClaimRepository struct {
+	base    *fakeClaimRepository
+	calls   int
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (r *blockingClaimRepository) Transaction(ctx context.Context, fn func(repository.ClaimTransaction) error) error {
+	r.calls++
+	if r.calls != 2 {
+		return r.base.Transaction(ctx, fn)
+	}
+	r.once.Do(func() { close(r.started) })
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	return r.base.Transaction(ctx, fn)
+}
+
+type commitBeforeReturnClaimRepository struct {
+	base      *fakeClaimRepository
+	calls     int
+	committed chan struct{}
+	release   chan struct{}
+	once      sync.Once
+}
+
+func (r *commitBeforeReturnClaimRepository) Transaction(ctx context.Context, fn func(repository.ClaimTransaction) error) error {
+	r.calls++
+	if r.calls != 2 {
+		return r.base.Transaction(ctx, fn)
+	}
+	err := r.base.Transaction(ctx, fn)
+	r.once.Do(func() { close(r.committed) })
+	<-r.release
+	return err
+}
+
 func newClaimServiceFixture() (
 	*ClaimWorkflowService,
 	*fakeClaimRepository,
@@ -260,6 +345,142 @@ func newClaimServiceFixture() (
 			IdempotencyKey:  "claim-key-000001",
 			ExpectedVersion: 3,
 		}
+}
+
+func TestClaimRenewsLeaseDuringLongTransaction(t *testing.T) {
+	service, base, request, metadata := newClaimServiceFixture()
+	leaseProvider := &renewingFakeLease{}
+	service.leases = leaseProvider
+	service.repository = &blockingClaimRepository{
+		base:    base,
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	repo := service.repository.(*blockingClaimRepository)
+
+	type claimResult struct {
+		result dto.ClaimResult
+		err    error
+	}
+	resultCh := make(chan claimResult, 1)
+	go func() {
+		result, err := service.Claim(context.Background(), "batch-001", request, metadata)
+		resultCh <- claimResult{result: result, err: err}
+	}()
+
+	select {
+	case <-repo.started:
+	case <-time.After(time.Second):
+		t.Fatal("claim transaction did not start")
+	}
+	time.Sleep(10 * time.Millisecond)
+	close(repo.release)
+
+	select {
+	case outcome := <-resultCh:
+		if outcome.err != nil {
+			t.Fatalf("claim returned error: %v", outcome.err)
+		}
+		if outcome.result.ClaimID == "" {
+			t.Fatalf("claim result did not contain a claim: %+v", outcome.result)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("claim did not complete")
+	}
+
+	if leaseProvider.handle == nil || leaseProvider.handle.renewals.Load() == 0 {
+		t.Fatal("expected the active claim lease to renew during the transaction")
+	}
+}
+
+func TestClaimLeaseRenewalFailureCancelsTransaction(t *testing.T) {
+	service, base, request, metadata := newClaimServiceFixture()
+	leaseProvider := &failingRenewingFakeLease{}
+	service.leases = leaseProvider
+	service.repository = &blockingClaimRepository{
+		base:    base,
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	repo := service.repository.(*blockingClaimRepository)
+
+	resultCh := make(chan error, 1)
+	go func() {
+		_, err := service.Claim(context.Background(), "batch-001", request, metadata)
+		resultCh <- err
+	}()
+
+	select {
+	case <-repo.started:
+	case <-time.After(time.Second):
+		t.Fatal("claim transaction did not start")
+	}
+
+	select {
+	case err := <-resultCh:
+		if !errors.Is(err, ErrClaimLeaseUnavailable) {
+			t.Fatalf("err = %v, want lease unavailable", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("claim did not stop after lease renewal failure")
+	}
+
+	if leaseProvider.handle == nil || leaseProvider.handle.renewals.Load() == 0 {
+		t.Fatal("expected a failed lease renewal")
+	}
+	if len(base.state.commands) != 0 || len(base.state.claims) != 0 || len(base.state.reservations) != 0 {
+		t.Fatalf("lease loss committed claim state: commands=%d claims=%d reservations=%d", len(base.state.commands), len(base.state.claims), len(base.state.reservations))
+	}
+}
+
+func TestClaimLeaseRenewalFailureAfterCommitReturnsReplay(t *testing.T) {
+	service, base, request, metadata := newClaimServiceFixture()
+	leaseProvider := &failingRenewingFakeLease{}
+	service.leases = leaseProvider
+	service.repository = &commitBeforeReturnClaimRepository{
+		base:      base,
+		committed: make(chan struct{}),
+		release:   make(chan struct{}),
+	}
+	repo := service.repository.(*commitBeforeReturnClaimRepository)
+
+	type claimResult struct {
+		result dto.ClaimResult
+		err    error
+	}
+	resultCh := make(chan claimResult, 1)
+	go func() {
+		result, err := service.Claim(context.Background(), "batch-001", request, metadata)
+		resultCh <- claimResult{result: result, err: err}
+	}()
+
+	select {
+	case <-repo.committed:
+	case <-time.After(time.Second):
+		t.Fatal("claim transaction did not commit")
+	}
+	deadline := time.After(time.Second)
+	for leaseProvider.handle.renewals.Load() == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("expected a failed lease renewal")
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+	close(repo.release)
+
+	select {
+	case outcome := <-resultCh:
+		if outcome.err != nil {
+			t.Fatalf("committed claim returned error: %v", outcome.err)
+		}
+		if outcome.result.ClaimID == "" || len(base.state.claims) != 1 {
+			t.Fatalf("expected committed replay result: result=%+v claims=%d", outcome.result, len(base.state.claims))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("claim did not return committed replay")
+	}
 }
 
 func TestClaimSuccessCreatesAtomicEvidence(t *testing.T) {
