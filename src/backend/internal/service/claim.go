@@ -102,7 +102,7 @@ func (s *ClaimWorkflowService) Claim(
 	if renewable, ok := lockHandle.(lease.RenewableHandle); ok {
 		renewErrCh = make(chan error, 1)
 		renewDone = make(chan struct{})
-		go renewClaimLease(leaseCtx, renewable, renewErrCh, renewDone)
+		go renewClaimLease(leaseCtx, renewable, cancelLease, renewErrCh, renewDone)
 	}
 
 	var result dto.ClaimResult
@@ -331,6 +331,7 @@ func (s *ClaimWorkflowService) Claim(
 func renewClaimLease(
 	ctx context.Context,
 	handle lease.RenewableHandle,
+	cancel context.CancelFunc,
 	errCh chan<- error,
 	done chan<- struct{},
 ) {
@@ -348,6 +349,11 @@ func renewClaimLease(
 			return
 		case <-ticker.C:
 			if err := handle.Renew(ctx); err != nil {
+				// Stop the database transaction as soon as ownership is lost.
+				// The caller still checks the durable command after the
+				// transaction returns, so a commit that raced this cancellation
+				// is reported as the committed result rather than a false error.
+				cancel()
 				select {
 				case errCh <- err:
 				default:
