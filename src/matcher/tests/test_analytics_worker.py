@@ -3,11 +3,11 @@ import threading
 import unittest
 from unittest.mock import Mock, patch
 
-from analytics_helpers import completion, preparation, source
+from analytics_helpers import completion, fixtures, preparation, source
 from matcher.analytics import acknowledgement
 from matcher.analytics_runtime import CombinedHealth, analytics_runner, run_workers
 from matcher.analytics_worker import AnalyticsFacade, AnalyticsProcessor
-from matcher.contract import ContractError, canonical
+from matcher.contract import ContractError, canonical, loads
 from matcher.facade import FacadeError
 from matcher.health import Health
 from matcher.worker import Delivery, Record
@@ -37,6 +37,36 @@ class AnalyticsWorkerTests(unittest.TestCase):
         self.assertEqual((first.stage, first.disposition), ("DONE", "COMMITTED"))
         self.assertEqual(first.output, restart.output)
         self.assertEqual(self.facade.commit.call_args_list[0], self.facade.commit.call_args_list[1])
+
+    def test_category_golden_values_survive_response_loss_and_redelivery(self):
+        for case in (c for c in fixtures() if c["id"] in ("R02", "R06")):
+            with self.subTest(case=case["id"]):
+                self.event = source(case)
+                ready = preparation(self.event)
+                output = acknowledgement(ready, self.event)
+                self.facade.reset_mock()
+                self.facade.prepare.return_value = ready
+                self.facade.commit.side_effect = [FacadeError(), completion(self.event, output),
+                                                  completion(self.event, output)]
+                first = self.delivery()
+                self.advance(first)
+                self.assertEqual((first.stage, first.retries), ("COMMIT", 1))
+                self.processor.step(first)
+                redelivery = self.delivery()
+                self.advance(redelivery)
+                expected = case["expected_category_anomaly"]
+                for delivery in (first, redelivery):
+                    self.assertEqual((delivery.stage, delivery.disposition), ("DONE", "COMMITTED"))
+                    frozen = loads(delivery.context["input_canonical_json"])
+                    self.assertEqual(frozen["declared_category"], expected["declared_value"])
+                    self.assertEqual(frozen["actual_category"], expected["actual_value"])
+                    self.assertEqual({k: delivery.output[k] for k in case["expected"]}, case["expected"])
+                    self.assertIn(expected["code"], delivery.output["anomaly_codes"])
+                    self.assertEqual(delivery.output["input_hash"], ready["input_hash"])
+                calls = self.facade.commit.call_args_list
+                self.assertEqual(len(calls), 3)
+                self.assertEqual(calls[0], calls[1])
+                self.assertEqual(calls[1], calls[2])
 
     def test_response_loss_and_invalid_ack_retry_same_request(self):
         for failure in (FacadeError(), {"data": {}}):

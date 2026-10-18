@@ -62,6 +62,57 @@ func TestBatchServiceAcknowledgeAnalyticsReplaysWithoutDuplicateDurableEffects(t
 	}
 }
 
+func TestBatchServiceCategoryAnomalyPreservesFrozenValuesOnRecoveryAndReplay(t *testing.T) {
+	service, repo, _ := testBatchService()
+	installTreatmentFixture(repo)
+	repo.state.receipts["batch-receipt-001"].ActualCategory = "BATTERIES"
+	if _, err := service.RecordTreatment(context.Background(), "batch-receipt-001", dto.TreatmentRequest{}, treatmentMetadata("category-treatment", "corr-category", 6)); err != nil {
+		t.Fatalf("create category mismatch source: %v", err)
+	}
+	request, metadata := analyticsRequest(repo, "category-run", "category-command", 7)
+	request.Metrics.CategoryMatch = new(false)
+	request.AnomalyCodes = append([]string{string(model.AnomalyCategoryMismatch)}, request.AnomalyCodes...)
+
+	// Anomaly values must come from the frozen source, not a later live-row read.
+	repo.state.batches["batch-receipt-001"].Category = new("CONSUMER_ELECTRONICS")
+	repo.state.receipts["batch-receipt-001"].ActualCategory = "ICT_EQUIPMENT"
+	repo.failOutbox = true
+	if _, err := service.AcknowledgeAnalytics(context.Background(), "batch-receipt-001", request, metadata); err == nil {
+		t.Fatal("expected final outbox failure")
+	}
+	if repo.state.batches["batch-receipt-001"].Status != model.BatchStatusRecycled || len(repo.state.anomalies) != 0 || len(repo.state.analytics) != 0 || len(repo.state.commands) != 1 || len(repo.state.audits) != 1 || len(repo.state.outbox) != 1 {
+		t.Fatal("failed completion left partial writes")
+	}
+	repo.failOutbox = false
+	var categoryID string
+	for _, key := range []string{"category-command", "category-command", "category-source-replay"} {
+		metadata.IdempotencyKey = key
+		if _, err := service.AcknowledgeAnalytics(context.Background(), "batch-receipt-001", request, metadata); err != nil {
+			t.Fatalf("completion/replay failed: %v", err)
+		}
+		if len(repo.state.analytics) != 1 || len(repo.state.anomalies) != 4 || len(repo.state.commands) != 2 || len(repo.state.audits) != 2 || len(repo.state.outbox) != 2 {
+			t.Fatal("completion/replay changed the expected durable row counts")
+		}
+		categoryCount := 0
+		for _, anomaly := range repo.state.anomalies {
+			if anomaly.Code != model.AnomalyCategoryMismatch {
+				continue
+			}
+			categoryCount++
+			if anomaly.DeclaredValue == nil || *anomaly.DeclaredValue != "ICT_EQUIPMENT" || anomaly.ActualValue == nil || *anomaly.ActualValue != "BATTERIES" || anomaly.DeltaKg != nil {
+				t.Fatalf("category anomaly lost its frozen declared/actual values: %+v", anomaly)
+			}
+			if categoryID != "" && anomaly.AnomalyID != categoryID {
+				t.Fatal("replay replaced the category anomaly")
+			}
+			categoryID = anomaly.AnomalyID
+		}
+		if categoryCount != 1 {
+			t.Fatalf("expected one category anomaly, got %d", categoryCount)
+		}
+	}
+}
+
 func TestBatchServiceAcknowledgeAnalyticsRejectsAnomalyCodesThatContradictFrozenInput(t *testing.T) {
 	cases := []struct {
 		name  string

@@ -1,0 +1,155 @@
+{
+  "version": "s4-jmeter-v1",
+  "rule_version": "d3-v1",
+  "cases": [
+    {
+      "name": "clean",
+      "receipt": {
+        "actual_category": "ICT_EQUIPMENT",
+        "actual_item_count": 5,
+        "actual_weight_kg": "12.00"
+      },
+      "treatment": {
+        "reused_kg": "2.00",
+        "recycled_kg": "9.00",
+        "disposed_kg": "1.00"
+      },
+      "quality": "COMPLETE",
+      "metrics": {
+        "reused_kg": "2.00",
+        "recycled_kg": "9.00",
+        "disposed_kg": "1.00",
+        "diverted_kg": "11.00",
+        "unknown_kg": "0.00"
+      },
+      "analytics_metrics": {
+        "declared_weight_kg": "12.00",
+        "actual_weight_kg": "12.00",
+        "declared_quantity": 5,
+        "actual_item_count": 5,
+        "category_match": true,
+        "weight_delta_kg": "0.00",
+        "count_delta": 0,
+        "reused_kg": "2.00",
+        "recycled_kg": "9.00",
+        "disposed_kg": "1.00",
+        "diverted_kg": "11.00",
+        "unknown_kg": "0.00"
+      },
+      "flags": []
+    },
+    {
+      "name": "discrepant",
+      "receipt": {
+        "actual_category": "BATTERIES",
+        "actual_item_count": 4,
+        "actual_weight_kg": "10.50"
+      },
+      "treatment": {
+        "reused_kg": "2.00",
+        "recycled_kg": "7.00",
+        "disposed_kg": "1.00"
+      },
+      "quality": "PARTIAL",
+      "metrics": {
+        "reused_kg": "2.00",
+        "recycled_kg": "7.00",
+        "disposed_kg": "1.00",
+        "diverted_kg": "9.00",
+        "unknown_kg": "0.50"
+      },
+      "analytics_metrics": {
+        "declared_weight_kg": "12.00",
+        "actual_weight_kg": "10.50",
+        "declared_quantity": 5,
+        "actual_item_count": 4,
+        "category_match": false,
+        "weight_delta_kg": "-1.50",
+        "count_delta": -1,
+        "reused_kg": "2.00",
+        "recycled_kg": "7.00",
+        "disposed_kg": "1.00",
+        "diverted_kg": "9.00",
+        "unknown_kg": "0.50"
+      },
+      "flags": [
+        "CATEGORY_MISMATCH",
+        "COUNT_MISMATCH",
+        "WEIGHT_MISMATCH",
+        "UNALLOCATED_WEIGHT"
+      ]
+    },
+    {
+      "name": "missing",
+      "receipt": {
+        "actual_category": "ICT_EQUIPMENT",
+        "actual_item_count": 5,
+        "actual_weight_kg": "12.00"
+      },
+      "treatment": {},
+      "quality": "MISSING",
+      "metrics": {
+        "reused_kg": null,
+        "recycled_kg": null,
+        "disposed_kg": null,
+        "diverted_kg": null,
+        "unknown_kg": "12.00"
+      },
+      "analytics_metrics": {
+        "declared_weight_kg": "12.00",
+        "actual_weight_kg": "12.00",
+        "declared_quantity": 5,
+        "actual_item_count": 5,
+        "category_match": true,
+        "weight_delta_kg": "0.00",
+        "count_delta": 0,
+        "reused_kg": null,
+        "recycled_kg": null,
+        "disposed_kg": null,
+        "diverted_kg": null,
+        "unknown_kg": "12.00"
+      },
+      "flags": [
+        "MISSING_OUTCOME"
+      ]
+    },
+    {
+      "name": "zero",
+      "receipt": {
+        "actual_category": "ICT_EQUIPMENT",
+        "actual_item_count": 5,
+        "actual_weight_kg": "12.00"
+      },
+      "treatment": {
+        "reused_kg": "0.00",
+        "recycled_kg": "0.00",
+        "disposed_kg": "0.00"
+      },
+      "quality": "PARTIAL",
+      "metrics": {
+        "reused_kg": "0.00",
+        "recycled_kg": "0.00",
+        "disposed_kg": "0.00",
+        "diverted_kg": "0.00",
+        "unknown_kg": "12.00"
+      },
+      "analytics_metrics": {
+        "declared_weight_kg": "12.00",
+        "actual_weight_kg": "12.00",
+        "declared_quantity": 5,
+        "actual_item_count": 5,
+        "category_match": true,
+        "weight_delta_kg": "0.00",
+        "count_delta": 0,
+        "reused_kg": "0.00",
+        "recycled_kg": "0.00",
+        "disposed_kg": "0.00",
+        "diverted_kg": "0.00",
+        "unknown_kg": "12.00"
+      },
+      "flags": [
+        "UNALLOCATED_WEIGHT"
+      ]
+    }
+  ]
+}
