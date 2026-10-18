@@ -2,12 +2,12 @@
 // Alert Rule: Kafka Consumer Lag & Stalled Partition Alert
 // Task: Build Azure Monitor workbook, dead-letter & lag alerts, and release evidence links
 // Governed by: Shalett Paulson (Security Lead), Mrigakshi Roy Choudhury (Observability Lead)
-// Severity: 2 (Warning) | Frequency: 2m | Window: 5m | Threshold: > 0
+// Severity: 2 (Warning) | Frequency: 5m | Window: 5m | Threshold: > 0
 // Description: Triggers when Kafka consumer lag exceeds 100 messages on any partition,
 //              heartbeat telemetry is stale (>90s), or offset commit failures occur.
 // ==============================================================================
 
-let Lookback = 5m;
+let Lookback = 30m;
 let Signals = union isfuzzy=true
     (ContainerAppConsoleLogs_CL | project TimeGenerated, App=tostring(ContainerAppName_s), Message=tostring(Log_s)),
     (ContainerAppConsoleLogs | project TimeGenerated, App=tostring(ContainerAppName), Message=tostring(Log))
@@ -15,14 +15,26 @@ let Signals = union isfuzzy=true
 | extend j = parse_json(Message)
 | where toint(j.telemetry_version) == 1
 | extend Observation = tostring(j.observation), Outcome = tostring(j.outcome);
-Signals
+let LagSignals = Signals
 | where Observation == "consumer_lag" and isnotnull(j.partition)
 | extend ConsumerGroup = tostring(j.consumer_group),
          Topic = tostring(j.topic),
          Partition = toint(j.partition)
-| summarize arg_max(TimeGenerated, *) by App, ConsumerGroup, Topic, Partition
+| summarize arg_max(TimeGenerated, *) by ConsumerGroup, Topic, Partition
 | extend Stale = TimeGenerated < ago(90s),
          Available = tobool(j.sample_available)
 | extend CurrentLag = iif(Available and not(Stale), tolong(j.consumer_lag), tolong(-1))
-| where Stale or CurrentLag > 100 or Outcome == "offset_commit_failed"
-| project TimeGenerated, App, ConsumerGroup, Topic, Partition, CurrentLag, Stale, Available
+| where Stale or CurrentLag > 100
+| project TimeGenerated, App, ConsumerGroup, Topic, Partition, CurrentLag, Stale, Available, TriggerReason=iif(Stale, "StalledPartition", "HighConsumerLag");
+let OffsetCommitSignals = Signals
+| where Observation == "offset_commit_failed" and TimeGenerated > ago(5m)
+| extend ConsumerGroup = tostring(j.consumer_group),
+         Topic = tostring(j.topic),
+         Partition = toint(j.partition),
+         CurrentLag = tolong(-1),
+         Stale = false,
+         Available = false,
+         TriggerReason = "OffsetCommitFailed"
+| project TimeGenerated, App, ConsumerGroup, Topic, Partition, CurrentLag, Stale, Available, TriggerReason;
+union LagSignals, OffsetCommitSignals
+| project TimeGenerated, App, ConsumerGroup, Topic, Partition, CurrentLag, Stale, Available, TriggerReason
