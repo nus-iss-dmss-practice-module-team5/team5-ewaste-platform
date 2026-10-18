@@ -123,17 +123,3 @@ zap-reports/
 # Local Azure files / credentials
 # =========================================================
 .azure/
-
-# Shareable EWCSB-194 plan and Sprint 4 inputs; keep other artifacts private.
-!artifacts/
-artifacts/*
-!artifacts/jmeter/
-artifacts/jmeter/*
-!artifacts/jmeter/EWaste_API_Test_Plan.jmx
-!artifacts/jmeter/README.md
-!artifacts/jmeter/data/
-artifacts/jmeter/data/*
-!artifacts/jmeter/data/s4-golden.json
-!artifacts/jmeter/data/s4-functional.properties
-!artifacts/jmeter/data/s4-burst-100.properties
-!artifacts/jmeter/data/credentials.example.properties

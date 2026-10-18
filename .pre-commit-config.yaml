@@ -15,8 +15,6 @@ repos:
       - id: check-json
       - id: check-added-large-files
         args: ['--maxkb=1000']
-        # Existing full JMeter plan includes inline scripts and all API groups.
-        exclude: ^artifacts/jmeter/EWaste_API_Test_Plan\.jmx$
       - id: check-merge-conflict
       - id: debug-statements
       - id: detect-private-key

@@ -8,12 +8,12 @@ This document specifies the automated **Azure Monitor Scheduled Query Rules (Ale
 
 ## 2. Alerts Matrix
 
-| Alert Name                        | Target Signal                                                                                               | Evaluation Frequency | Window Period |       Severity       |     Threshold      | Escalation & Notification             |
-| :-------------------------------- | :---------------------------------------------------------------------------------------------------------- | :------------------: | :-----------: | :------------------: | :----------------: | :------------------------------------ |
-| **`Alert-DeadLetter-Quarantine`** | `Outcome in ("QUARANTINED", "REJECTED")` or `failure_streak >= 3`                                           |        5 mins        |    5 mins     | **Sev 1** (Critical) |  $> 0$ incidents   | On-Call Lead, Security Lead (Shalett) |
-| **`Alert-Kafka-ConsumerLag`**     | `consumer_lag > 100`, `Stale == true` ($> 90\text{s}$), or `offset_commit_failed` (30m lookback)            |        5 mins        |    5 mins     | **Sev 2** (Warning)  |  $> 0$ partitions  | Platform Ops, Component Lead (Jiamin) |
-| **`Alert-SLO-LatencyBreach`**     | API P95 $> 3\text{s}$ or Worker P95 $> 10\text{s}$                                                          |        5 mins        |    15 mins    | **Sev 2** (Warning)  |   $> 0$ breaches   | DevSecOps Lead (Lakshanya)            |
-| **`Alert-Readiness-Absence`**     | Missing `/readyz` signals ($> 5\text{m}$) or `Outcome in ("FAILED", "NOT_READY")` (30m lookback)            |        5 mins        |    5 mins     | **Sev 1** (Critical) | $> 0$ unready apps | Infrastructure Team, SRE              |
+| Alert Name                        | Target Signal                                                                                    | Evaluation Frequency | Window Period |       Severity       |     Threshold      | Escalation & Notification             |
+| :-------------------------------- | :----------------------------------------------------------------------------------------------- | :------------------: | :-----------: | :------------------: | :----------------: | :------------------------------------ |
+| **`Alert-DeadLetter-Quarantine`** | `Outcome in ("QUARANTINED", "REJECTED")` or `failure_streak >= 3`                                |        5 mins        |    5 mins     | **Sev 1** (Critical) |  $> 0$ incidents   | On-Call Lead, Security Lead (Shalett) |
+| **`Alert-Kafka-ConsumerLag`**     | `consumer_lag > 100`, `Stale == true` ($> 90\text{s}$), or `offset_commit_failed` (30m lookback) |        5 mins        |    5 mins     | **Sev 2** (Warning)  |  $> 0$ partitions  | Platform Ops, Component Lead (Jiamin) |
+| **`Alert-SLO-LatencyBreach`**     | API P95 $> 3\text{s}$ or Worker P95 $> 10\text{s}$                                               |        5 mins        |    15 mins    | **Sev 2** (Warning)  |   $> 0$ breaches   | DevSecOps Lead (Lakshanya)            |
+| **`Alert-Readiness-Absence`**     | Missing `/readyz` signals ($> 5\text{m}$) or `Outcome in ("FAILED", "NOT_READY")` (30m lookback) |        5 mins        |    5 mins     | **Sev 1** (Critical) | $> 0$ unready apps | Infrastructure Team, SRE              |
 
 ---
 
