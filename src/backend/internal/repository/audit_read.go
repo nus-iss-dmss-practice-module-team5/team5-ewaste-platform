@@ -85,7 +85,7 @@ func (r *GormAuditorReadRepository) FindAuditAnomalies(
 	}
 	var anomalies []*model.BatchAnomaly
 	if err := query.
-		Order("detected_at ASC, anomaly_id ASC").
+		Order(model.AnomalyOrderSQL + ", anomaly_id ASC").
 		Offset((page.Page - 1) * page.PageSize).
 		Limit(page.PageSize).
 		Find(&anomalies).Error; err != nil {
@@ -244,7 +244,7 @@ func (r *GormAuditorReadRepository) findAnomalyCodes(ctx context.Context, result
 	codes := make([]string, 0)
 	if err := r.db.WithContext(ctx).Table("batch_anomalies").
 		Where("metric_id = ? AND batch_id = ?", resultID, batchID).
-		Order("anomaly_id ASC").Pluck("anomaly_code", &codes).Error; err != nil {
+		Order(model.AnomalyOrderSQL+", anomaly_id ASC").Pluck("anomaly_code", &codes).Error; err != nil {
 		return nil, err
 	}
 	return codes, nil

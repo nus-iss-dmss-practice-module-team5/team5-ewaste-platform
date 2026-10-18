@@ -107,8 +107,7 @@ func (h *EvidenceController) Download(c *gin.Context) {
 	}
 
 	result, err := h.service.Download(c.Request.Context(), params.BatchID, params.EvidenceID, service.EvidenceDownloadActor{
-		BatchActor:        service.BatchActor{UserID: claims.UserID, OrganisationID: claims.OrganisationID, RoleCode: claims.RoleCode},
-		AdminAccessReason: c.GetHeader("X-Admin-Access-Reason"),
+		BatchActor: service.BatchActor{UserID: claims.UserID, OrganisationID: claims.OrganisationID, RoleCode: claims.RoleCode},
 	}, middleware.GetCorrelationID(c))
 	if err != nil {
 		h.writeError(c, mapEvidenceError(err), err)

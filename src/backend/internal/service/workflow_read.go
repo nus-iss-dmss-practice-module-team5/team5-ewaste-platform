@@ -365,6 +365,7 @@ func processingDetailToDTO(detail *model.ProcessingDetail) dto.ProcessingDetailV
 		DivertedKg:        detail.DivertedKg,
 		DataQuality:       detail.DataQuality,
 		EvidenceStatus:    detail.EvidenceStatus,
+		EvidenceID:        detail.EvidenceID,
 		AnomalyCodes:      append([]string{}, detail.AnomalyCodes...),
 	}
 }

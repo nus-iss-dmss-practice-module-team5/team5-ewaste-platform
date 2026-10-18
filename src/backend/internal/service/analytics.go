@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -83,9 +82,8 @@ func (s *BatchService) AcknowledgeAnalytics(
 			for _, anomaly := range existingAnomalies {
 				storedCodes = append(storedCodes, string(anomaly.Code))
 			}
-			sort.Strings(storedCodes)
-			requestedCodes := append([]string{}, request.AnomalyCodes...)
-			sort.Strings(requestedCodes)
+			storedCodes = model.SortAnomalyCodes(storedCodes)
+			requestedCodes := model.SortAnomalyCodes(request.AnomalyCodes)
 			if !equalStrings(storedCodes, requestedCodes) {
 				return ErrBatchIdempotencyConflict
 			}
@@ -477,15 +475,15 @@ func validateAnalyticsMetricsAgainstFrozenInput(data map[string]any, request dto
 }
 
 func expectedAnalyticsAnomalyCodes(data map[string]any) ([]string, error) {
-	codes := make([]string, 0, 5)
+	flags := make(map[model.AnomalyCode]bool, len(model.CanonicalAnomalyOrder))
 	if declaredCategory, actualCategory := stringValue(data["declared_category"]), stringValue(data["actual_category"]); declaredCategory != "" && actualCategory != "" && !strings.EqualFold(declaredCategory, actualCategory) {
-		codes = append(codes, string(model.AnomalyCategoryMismatch))
+		flags[model.AnomalyCategoryMismatch] = true
 	}
 
 	declaredCount := eventIntPointer(data["declared_quantity"])
 	actualCount := eventIntPointer(data["actual_item_count"])
 	if declaredCount != nil && actualCount != nil && *declaredCount != *actualCount {
-		codes = append(codes, string(model.AnomalyCountMismatch))
+		flags[model.AnomalyCountMismatch] = true
 	}
 
 	declaredWeight := stringValue(data["declared_weight_kg"])
@@ -496,13 +494,13 @@ func expectedAnalyticsAnomalyCodes(data map[string]any) ([]string, error) {
 			return nil, NewBatchValidationError(map[string]string{"anomaly_codes": "frozen weight values are invalid"})
 		}
 		if delta != "0.00" {
-			codes = append(codes, string(model.AnomalyWeightMismatch))
+			flags[model.AnomalyWeightMismatch] = true
 		}
 	}
 
 	switch stringValue(data["data_quality"]) {
 	case string(model.AnalyticsDataQualityMissing):
-		codes = append(codes, string(model.AnomalyMissingOutcome))
+		flags[model.AnomalyMissingOutcome] = true
 	case string(model.AnalyticsDataQualityPartial):
 		unknownKg := nullableEventString(data["unknown_kg"])
 		if unknownKg == nil {
@@ -512,9 +510,15 @@ func expectedAnalyticsAnomalyCodes(data map[string]any) ([]string, error) {
 		if !ok || unknownCents <= 0 {
 			return nil, NewBatchValidationError(map[string]string{"anomaly_codes": "partial data must retain a positive unknown weight"})
 		}
-		codes = append(codes, string(model.AnomalyUnallocated))
+		flags[model.AnomalyUnallocated] = true
 	}
 
+	codes := make([]string, 0, len(flags))
+	for _, code := range model.CanonicalAnomalyOrder {
+		if flags[code] {
+			codes = append(codes, string(code))
+		}
+	}
 	return codes, nil
 }
 

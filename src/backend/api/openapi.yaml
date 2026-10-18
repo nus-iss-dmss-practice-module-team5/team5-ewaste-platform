@@ -739,14 +739,9 @@ paths:
           in: path
           required: true
           schema: {type: string, format: uuid}
-        - name: X-Admin-Access-Reason
-          in: header
-          required: false
-          description: Required for System Administrator downloads and recorded in the audit event; ignored for other authorised roles.
-          schema: {type: string, minLength: 1, maxLength: 256}
       responses:
         '200':
-          description: Validated evidence bytes. Downloads are authorised by the owning facility, Auditor, or System Administrator policy.
+          description: Validated evidence bytes. Downloads are authorised only for the owning facility or an Auditor; every successful read creates an EvidenceDownloaded audit event.
           content:
             application/pdf: {schema: {type: string, format: binary}}
             image/jpeg: {schema: {type: string, format: binary}}
@@ -1168,6 +1163,7 @@ components:
         anomaly_codes:
           type: array
           uniqueItems: true
+          description: Return flags in D3 order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.
           items: {type: string, enum: [CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT]}
     AnalyticsMetrics:
       type: object
@@ -1200,7 +1196,7 @@ components:
             analytics_result_id: {type: string, format: uuid}
             data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
             metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
-            anomaly_codes: {type: array, items: {type: string}}
+            anomaly_codes: {type: array, items: {type: string}, description: D3 anomaly order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.}
         correlation_id: {type: string}
         event_id: {type: string, format: uuid}
         event_state: {type: string, enum: [PENDING, REPLAYED]}
@@ -1211,7 +1207,7 @@ components:
         batch_id: {type: string, format: uuid}
         status: {type: string, enum: [COLLECTED, VERIFIED, RECYCLED, COMPLETED]}
         version: {type: integer}
-        evidence_status: {type: string, enum: [PRESENT, ABSENT], description: Evidence presence is independent of treatment data quality; rejected uploads are not represented.}
+        evidence_status: {type: string, enum: [PRESENT, ABSENT], description: PRESENT means at least one validated evidence object exists for the batch; it does not imply that treatment evidence is linked. Rejected uploads are not represented.}
     ProcessingListResponse:
       type: object
       required: [data, page, page_size, total_count, correlation_id]
@@ -1243,8 +1239,9 @@ components:
             unknown_kg: {type: string, nullable: true}
             diverted_kg: {type: string, nullable: true}
             data_quality: {type: string, nullable: true, enum: [COMPLETE, PARTIAL, MISSING]}
-            evidence_status: {type: string, enum: [PRESENT, ABSENT], description: Evidence presence is independent of treatment data quality; rejected uploads are not represented.}
-            anomaly_codes: {type: array, items: {type: string}}
+            evidence_status: {type: string, enum: [PRESENT, ABSENT], description: PRESENT means at least one validated evidence object exists for the batch; it does not imply that treatment evidence is linked. Rejected uploads are not represented.}
+            evidence_id: {type: string, nullable: true, format: uuid, description: Treatment-linked evidence identifier. Null means no treatment evidence is linked; evidence_status may still be PRESENT for receipt-stage or unlinked evidence.}
+            anomaly_codes: {type: array, items: {type: string}, description: D3 anomaly order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.}
         correlation_id: {type: string}
     TimelineResponse:
       type: object
@@ -1352,7 +1349,7 @@ components:
         input_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
         data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
         metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
-        anomaly_codes: {type: array, items: {type: string}}
+        anomaly_codes: {type: array, items: {type: string}, description: D3 anomaly order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.}
         acknowledged_at: {type: string, format: date-time}
     BatchListResponse:
       type: object
