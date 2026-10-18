@@ -32,8 +32,8 @@ export const ROLE_NAV: Record<Role, NavItem[]> = {
     { id: "impact", label: "Impact" },
   ],
   ADMIN: [
-    { id: "users", label: "Users" },
-    { id: "settings", label: "Settings" },
+    { id: "platform-health", label: "Platform health" },
+    { id: "release", label: "Release" },
   ],
 };
 
@@ -42,5 +42,5 @@ export const ROLE_HOME_TITLE: Record<Role, string> = {
   RECYCLER: "Matched opportunities",
   COLLECTOR: "Assignments",
   AUDITOR: "Chain of custody",
-  ADMIN: "Users",
+  ADMIN: "Platform health",
 };

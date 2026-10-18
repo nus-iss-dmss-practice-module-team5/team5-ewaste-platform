@@ -7,9 +7,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/joho/godotenv"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
@@ -17,11 +20,13 @@ import (
 	"workflow-api/internal/config"
 	"workflow-api/internal/controller"
 	"workflow-api/internal/docs"
+	"workflow-api/internal/dto"
 	"workflow-api/internal/eventbus"
 	"workflow-api/internal/health"
 	"workflow-api/internal/lease"
 	"workflow-api/internal/logger"
 	"workflow-api/internal/matching"
+	"workflow-api/internal/monitor"
 	"workflow-api/internal/outbox"
 	"workflow-api/internal/ratelimit"
 	"workflow-api/internal/repository"
@@ -220,6 +225,14 @@ func run() error {
 		workflowReadController,
 	)
 
+	platformStatusService := service.NewPlatformStatusService(
+		repository.NewGormPlatformStatusRepository(db),
+		checker,
+		newTelemetryReader(cfg.Platform, appLogger.Logger),
+		platformStatusSettings(cfg),
+	)
+	router.RegisterAdmin(appRouter, tokens, repo, controller.NewPlatformStatusController(platformStatusService, appLogger.Logger))
+
 	if err := matching.RegisterFromEnv(appRouter, db); err != nil {
 		return fmt.Errorf("configure matching facade: %w", err)
 	}
@@ -234,4 +247,50 @@ func run() error {
 	}
 
 	return nil
+}
+
+// newTelemetryReader returns nil when no workspace is configured, so the
+// Admin view reports latency, lag and failures as unknown instead of 0.
+func newTelemetryReader(platform config.PlatformConfig, log *zap.Logger) monitor.Reader {
+	if strings.TrimSpace(platform.LogAnalyticsWorkspaceID) == "" {
+		log.Info("log analytics workspace not configured; admin telemetry tiles will read unknown")
+		return nil
+	}
+	prefix := strings.TrimSpace(platform.LogAppPrefix)
+	if prefix == "" && platform.Environment != "" {
+		prefix = "aca-ewaste-" + strings.ToLower(strings.TrimSpace(platform.Environment)) + "-"
+	}
+	credential, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		log.Warn("log analytics credential unavailable; admin telemetry tiles will read unknown", zap.Error(err))
+		return nil
+	}
+	reader, err := monitor.NewLogAnalyticsReader(platform.LogAnalyticsWorkspaceID, prefix, credential, &http.Client{Timeout: 5 * time.Second})
+	if err != nil {
+		log.Warn("log analytics reader not created; admin telemetry tiles will read unknown", zap.Error(err))
+		return nil
+	}
+	return reader
+}
+
+func platformStatusSettings(cfg config.Config) service.PlatformStatusSettings {
+	r := cfg.Release
+	return service.PlatformStatusSettings{
+		Environment: cfg.Platform.Environment,
+		WorkbookURL: cfg.Platform.WorkbookURL,
+		Release: service.PlatformRelease{
+			ID: r.ID, Commit: r.Commit, DeployedAt: r.DeployedAt, GateRunURL: r.GateRunURL, GateDecision: r.GateDecision,
+			Images: []dto.ReleaseImageView{
+				{Name: "workflow-api", Digest: r.ImageDigestAPI},
+				{Name: "workflow-ui", Digest: r.ImageDigestUI},
+				{Name: "workflow-analytics", Digest: r.ImageDigestAnalytics},
+			},
+			RollbackID: r.RollbackID, RollbackCommit: r.RollbackCommit, RollbackGateRunURL: r.RollbackGateRunURL,
+			RollbackImages: []dto.ReleaseImageView{
+				{Name: "workflow-api", Digest: r.RollbackImageDigestAPI},
+				{Name: "workflow-ui", Digest: r.RollbackImageDigestUI},
+				{Name: "workflow-analytics", Digest: r.RollbackImageDigestAnalytics},
+			},
+		},
+	}
 }

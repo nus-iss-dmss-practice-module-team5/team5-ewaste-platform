@@ -3,6 +3,7 @@
 import { ROLE_HOME_TITLE, ROLE_LABEL, ROLE_NAV } from "@/lib/auth/roles";
 import { useSession } from "@/lib/auth/session-context";
 import { useState } from "react";
+import { PlatformHealthView, ReleaseView } from "./admin";
 import { ClaimAction } from "./claim-action";
 import { CollectorWork } from "./collector-work";
 import { CustodyView } from "./custody";
@@ -53,6 +54,10 @@ export function HomeShell() {
           setActiveNav("custody");
         }}
       />
+    ) : user.role === "ADMIN" && current === "platform-health" ? (
+      <PlatformHealthView />
+    ) : user.role === "ADMIN" && current === "release" ? (
+      <ReleaseView />
     ) : null;
 
   async function onLogout() {

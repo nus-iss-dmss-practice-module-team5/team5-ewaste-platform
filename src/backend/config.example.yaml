@@ -72,3 +72,29 @@ logging:
   max_age_days: 30
   compress: true
   console: true
+
+# Administrator health view (GET /api/v1/admin/platform-status).
+# With no workspace id, latency, lag and failure counts read "unknown".
+platform:
+  environment: ""                  # EWASTE_PLATFORM_ENVIRONMENT, e.g. prod
+  log_analytics_workspace_id: ""   # workspace (customer) id; needs Log Analytics Reader on the API identity
+  log_app_prefix: ""               # defaults to aca-ewaste-<environment>-
+  workbook_url: ""                 # link to the Azure Monitor workbook
+
+# Stamped by the deploy job from gate-decision.json (EWASTE_RELEASE_*).
+# Empty means "Release details not recorded for this deployment".
+release:
+  id: ""
+  commit: ""
+  deployed_at: ""                  # RFC 3339
+  gate_run_url: ""
+  gate_decision: ""                # PASS or FAIL
+  image_digest_api: ""
+  image_digest_ui: ""
+  image_digest_analytics: ""
+  rollback_id: ""
+  rollback_commit: ""
+  rollback_gate_run_url: ""
+  rollback_image_digest_api: ""
+  rollback_image_digest_ui: ""
+  rollback_image_digest_analytics: ""
