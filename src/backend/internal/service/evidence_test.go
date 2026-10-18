@@ -166,7 +166,7 @@ func TestEvidenceServiceUploadCleansObjectWhenMetadataTransactionRollsBack(t *te
 	}
 }
 
-func TestEvidenceServiceDownloadAuthorizesOwnerAndAuditsAdmin(t *testing.T) {
+func TestEvidenceServiceDownloadAuthorizesOwnerAndAuditsEveryReader(t *testing.T) {
 	repo := newFakeBatchRepository()
 	repo.state.batches["batch-receipt-001"] = collectedReceiptBatch()
 	objectStorage := seedStoredEvidence(repo, pdfFixture)
@@ -177,19 +177,18 @@ func TestEvidenceServiceDownloadAuthorizesOwnerAndAuditsAdmin(t *testing.T) {
 		t.Fatalf("owner download failed: result=%+v err=%v", owner, err)
 	}
 
-	admin, err := svc.Download(context.Background(), "batch-receipt-001", "evidence-001", EvidenceDownloadActor{
-		BatchActor:        BatchActor{UserID: "admin-001", OrganisationID: "platform-001", RoleCode: "SYSTEM_ADMIN"},
-		AdminAccessReason: "incident review",
-	}, "corr-download-admin")
-	if err != nil || len(admin.Content) == 0 {
-		t.Fatalf("admin download failed: result=%+v err=%v", admin, err)
+	auditor, err := svc.Download(context.Background(), "batch-receipt-001", "evidence-001", EvidenceDownloadActor{
+		BatchActor: BatchActor{UserID: "auditor-001", OrganisationID: "platform-001", RoleCode: "AUDITOR"},
+	}, "corr-download-auditor")
+	if err != nil || len(auditor.Content) == 0 {
+		t.Fatalf("auditor download failed: result=%+v err=%v", auditor, err)
 	}
-	if len(repo.state.audits) != 1 || repo.state.audits[0].EventType != model.BatchAuditEventEvidenceDownloaded {
-		t.Fatalf("expected one admin download audit, got %+v", repo.state.audits)
+	if len(repo.state.audits) != 2 || repo.state.audits[0].EventType != model.BatchAuditEventEvidenceDownloaded || repo.state.audits[1].EventType != model.BatchAuditEventEvidenceDownloaded {
+		t.Fatalf("expected one durable read audit per successful reader, got %+v", repo.state.audits)
 	}
 }
 
-func TestEvidenceServiceDownloadRequiresAdminReasonAndRejectsOtherRoles(t *testing.T) {
+func TestEvidenceServiceDownloadRejectsAdminAndOtherRolesBeforeStorage(t *testing.T) {
 	repo := newFakeBatchRepository()
 	repo.state.batches["batch-receipt-001"] = collectedReceiptBatch()
 	objectStorage := seedStoredEvidence(repo, pdfFixture)
@@ -198,8 +197,8 @@ func TestEvidenceServiceDownloadRequiresAdminReasonAndRejectsOtherRoles(t *testi
 	_, err := svc.Download(context.Background(), "batch-receipt-001", "evidence-001", EvidenceDownloadActor{
 		BatchActor: BatchActor{UserID: "admin-001", OrganisationID: "platform-001", RoleCode: "SYSTEM_ADMIN"},
 	}, "corr-admin-no-reason")
-	if !errors.Is(err, ErrBatchValidation) {
-		t.Fatalf("expected missing admin reason validation error, got %v", err)
+	if !errors.Is(err, ErrBatchForbidden) {
+		t.Fatalf("expected admin evidence download to be forbidden, got %v", err)
 	}
 
 	_, err = svc.Download(context.Background(), "batch-receipt-001", "evidence-001", EvidenceDownloadActor{
@@ -207,6 +206,9 @@ func TestEvidenceServiceDownloadRequiresAdminReasonAndRejectsOtherRoles(t *testi
 	}, "corr-donor-download")
 	if !errors.Is(err, ErrBatchForbidden) {
 		t.Fatalf("expected donor forbidden error, got %v", err)
+	}
+	if objectStorage.getCalls != 0 || len(repo.state.audits) != 0 {
+		t.Fatalf("denied readers reached storage or audit path: gets=%d audits=%d", objectStorage.getCalls, len(repo.state.audits))
 	}
 }
 
@@ -238,8 +240,24 @@ func TestEvidenceServiceDownloadUsesPlainReadAdapter(t *testing.T) {
 	if !bytes.Equal(result.Content, pdfFixture) || repo.calls != 1 {
 		t.Fatalf("expected one plain read and validated bytes: calls=%d result=%+v", repo.calls, result)
 	}
-	if repo.transactionN != 0 {
-		t.Fatalf("download acquired a lifecycle transaction lock: transactions=%d", repo.transactionN)
+	if repo.transactionN != 1 {
+		t.Fatalf("download should use one audit transaction without a lifecycle lookup transaction: transactions=%d", repo.transactionN)
+	}
+}
+
+func TestEvidenceServiceDownloadFailsClosedWhenReadAuditCannotPersist(t *testing.T) {
+	repo := newFakeBatchRepository()
+	repo.state.batches["batch-receipt-001"] = collectedReceiptBatch()
+	repo.failAudit = true
+	objectStorage := seedStoredEvidence(repo, pdfFixture)
+	svc := NewEvidenceService(repo, objectStorage)
+
+	result, err := downloadAsRecycler(svc, "facility-001")
+	if err == nil || len(result.Content) != 0 {
+		t.Fatalf("audit failure returned evidence bytes: result=%+v err=%v", result, err)
+	}
+	if len(repo.state.audits) != 0 || len(repo.state.commands) != 0 {
+		t.Fatalf("audit failure left durable effects: audits=%d commands=%d err=%v", len(repo.state.audits), len(repo.state.commands), err)
 	}
 }
 
@@ -493,8 +511,7 @@ func TestEvidenceServiceDownloadFailsClosedOnMetadataMismatch(t *testing.T) {
 			svc := NewEvidenceService(repo, objectStorage)
 
 			result, err := svc.Download(context.Background(), "batch-receipt-001", "evidence-001", EvidenceDownloadActor{
-				BatchActor:        BatchActor{UserID: "admin-001", OrganisationID: "platform-001", RoleCode: "SYSTEM_ADMIN"},
-				AdminAccessReason: "incident review",
+				BatchActor: BatchActor{UserID: "auditor-001", OrganisationID: "platform-001", RoleCode: "AUDITOR"},
 			}, "corr-download-integrity")
 			if !errors.Is(err, ErrEvidenceIntegrity) {
 				t.Fatalf("expected integrity error, got %v", err)

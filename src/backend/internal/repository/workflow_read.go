@@ -181,7 +181,8 @@ func (r *GormWorkflowReadRepository) FindProcessingBatch(
 			END AS data_quality,
 			CASE WHEN EXISTS (
 				SELECT 1 FROM batch_evidence AS e WHERE e.batch_id = b.id
-			) THEN 'PRESENT' ELSE 'ABSENT' END AS evidence_status
+			) THEN 'PRESENT' ELSE 'ABSENT' END AS evidence_status,
+			t.evidence_id AS evidence_id
 		`).
 		Joins("LEFT JOIN batch_receipts AS r ON r.batch_id = b.id").
 		Joins("LEFT JOIN batch_treatments AS t ON t.batch_id = b.id").
@@ -201,7 +202,7 @@ func (r *GormWorkflowReadRepository) FindProcessingBatch(
 	if err := r.db.WithContext(ctx).
 		Table("batch_anomalies").
 		Where("batch_id = ?", batchID).
-		Order("anomaly_id ASC").
+		Order(model.AnomalyOrderSQL+", anomaly_id ASC").
 		Pluck("anomaly_code", &anomalyCodes).Error; err != nil {
 		return nil, err
 	}

@@ -29,5 +29,6 @@ type ProcessingDetail struct {
 	DivertedKg        *string     `gorm:"column:diverted_kg"`
 	DataQuality       *string     `gorm:"column:data_quality"`
 	EvidenceStatus    string      `gorm:"column:evidence_status"`
+	EvidenceID        *string     `gorm:"column:evidence_id"`
 	AnomalyCodes      []string    `gorm:"-"`
 }
