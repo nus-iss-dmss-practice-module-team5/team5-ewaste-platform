@@ -29,6 +29,16 @@ on:
         description: 'Optional: Image tag to rollback to (e.g. "PREVIOUS" for automatic N-1 release, or exact tag dev-a1b2c3d). Leave empty for standard build.'
         required: false
         default: ''
+      refusal_test:
+        description: 'Dev only (EWCSB-241 RT-02/03/17): run a release that the gates must refuse. The API is never deployed.'
+        required: false
+        default: 'none'
+        type: choice
+        options:
+          - none
+          - unsigned
+          - tampered-digest
+          - scanner-error
 
 permissions:
   contents: read
@@ -213,6 +223,44 @@ jobs:
           echo " Resource Group: rg-ewaste-${TARGET}"
           echo "========================================================"
 
+      - name: Validate Refusal Test Request
+        env:
+          REFUSAL_TEST: ${{ inputs.refusal_test || 'none' }}
+          TARGET_ENV: ${{ steps.env_resolver.outputs.environment }}
+          ROLLBACK_TAG: ${{ inputs.rollback_tag }}
+        run: |
+          if [ "$REFUSAL_TEST" != "none" ] && { [ "$TARGET_ENV" != "dev" ] || [ -n "$ROLLBACK_TAG" ]; }; then
+            echo "::error::Refusal tests run only as a standard build against dev (requested: $TARGET_ENV)."
+            exit 1
+          fi
+
+      # ------------------------------------------------------------------------
+      # GATE 1 (EWCSB-241): the released commit passed the CI quality gate.
+      # A rollback builds nothing; Gate 3 checks its original Gate 2 record.
+      # ------------------------------------------------------------------------
+      - name: Checkout Gate Scripts
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          sparse-checkout: scripts/gate
+
+      - name: Gate 1 - Require Passing CI for the Release Commit
+        if: inputs.rollback_tag == ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GATE_DIR: gate-decisions
+          TARGET_ENV: ${{ steps.env_resolver.outputs.environment }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_SHA: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.sha }}
+        run: bash scripts/gate/ci_gate.sh "$RELEASE_SHA"
+
+      - name: Retain Gate 1 Decision (90-Day Policy)
+        if: always() && hashFiles('gate-decisions/gate-decision-ci.json') != ''
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gate-decision-ci-${{ github.run_id }}
+          path: gate-decisions/gate-decision-ci.json
+          retention-days: 90
+
   # ============================================================================
   # STAGE 1: MULTI-CONTAINER RELEASE (API, UI & ANALYTICS) & ACA DEPLOYMENT
   # Runs on VNet-injected self-hosted runner with direct Private Link to ACR
@@ -226,6 +274,14 @@ jobs:
       aca_api_fqdn: ${{ steps.api_deploy.outputs.aca_api_fqdn }}
       aca_ui_fqdn: ${{ steps.ui_deploy.outputs.aca_ui_fqdn }}
       aca_analytics_fqdn: ${{ steps.analytics_deploy.outputs.aca_analytics_fqdn }}
+    env:
+      # Release gate records (EWCSB-241 section 6), one folder per service.
+      GATE_DIR: gate-decisions
+      COMMIT: ${{ github.sha }}
+      TARGET_ENV: ${{ needs.resolve-environment.outputs.environment }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      REFUSAL_TEST: ${{ inputs.refusal_test || 'none' }}
+      GATE_PREDICATE_TYPE: https://github.com/nus-iss-dmss-practice-module-team5/team5-ewaste-platform/gate-decision/v1
     steps:
       - name: Checkout Code Repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -251,6 +307,21 @@ jobs:
 
       - name: Install Anchore Syft
         uses: anchore/sbom-action/download-syft@v0.18.0
+
+      - name: Install Anchore Grype (Gate 2 Scanner)
+        id: grype
+        uses: anchore/scan-action/download-grype@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2
+        with:
+          grype-version: v0.120.1
+
+      - name: Prepare Release Gate
+        env:
+          GRYPE_CMD: ${{ steps.grype.outputs.cmd }}
+          PIP_BREAK_SYSTEM_PACKAGES: "1"
+        run: |
+          echo "GRYPE=$GRYPE_CMD" >> "$GITHUB_ENV"
+          # gate_policy.py reads security/dispositions.yaml; without PyYAML it refuses.
+          python3 -c 'import yaml' 2>/dev/null || python3 -m pip install --user --quiet 'PyYAML==6.0.2'
 
       - name: Log in to Azure Container Registry
         run: |
@@ -366,8 +437,13 @@ jobs:
           path: releases/sboms/sbom-workflow-api.spdx.json
           retention-days: 90
 
-      - name: Sign API Container Image Digest with Cosign
+      # GATE 2 (EWCSB-241): only an image that passes the scan is signed.
+      - name: Gate 2 - Scan API Image Before Signing
         if: steps.resolve_tags.outputs.is_rollback != 'true'
+        run: bash scripts/gate/build_gate.sh api "${{ env.IMAGE_NAME_API }}" "${{ env.API_IMMUTABLE_DIGEST }}" releases/sboms/sbom-workflow-api.spdx.json
+
+      - name: Sign API Container Image Digest with Cosign
+        if: steps.resolve_tags.outputs.is_rollback != 'true' && env.REFUSAL_TEST != 'unsigned'
         env:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
@@ -378,15 +454,25 @@ jobs:
             exit 1
           fi
           cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${{ env.API_IMMUTABLE_DIGEST }}"
+          cosign attest --yes --key env://COSIGN_PRIVATE_KEY --type "$GATE_PREDICATE_TYPE" \
+            --predicate "$GATE_DIR/api/gate-decision-build.json" "${{ env.API_IMMUTABLE_DIGEST }}"
+          cosign attest --yes --key env://COSIGN_PRIVATE_KEY --type spdxjson \
+            --predicate releases/sboms/sbom-workflow-api.spdx.json "${{ env.API_IMMUTABLE_DIGEST }}"
 
-      - name: Verify API Container Signature (Pre-Deployment Gate)
+      # RT-03: swap the image after signing; Gate 3 must refuse the new digest.
+      - name: "Refusal Test: Push a Tampered API Image"
+        if: env.REFUSAL_TEST == 'tampered-digest'
         run: |
-          echo "Verifying Cosign signature for ${{ env.API_IMMUTABLE_DIGEST }}..."
-          if [ ! -f security/cosign.pub ]; then
-            echo "::error::Committed team public key security/cosign.pub is missing. Cannot verify release."
-            exit 1
-          fi
-          cosign verify --key security/cosign.pub "${{ env.API_IMMUTABLE_DIGEST }}"
+          TAMPERED="${{ env.API_IMAGE }}-tampered"
+          printf 'FROM %s\nLABEL ewaste.refusal-test="tampered-digest"\n' "${{ env.API_IMMUTABLE_DIGEST }}" | docker build -t "$TAMPERED" -
+          docker push "$TAMPERED"
+          TAMPERED_DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$TAMPERED")
+          echo "::warning::Refusal test RT-03: deploying unsigned $TAMPERED_DIGEST in place of ${{ env.API_IMMUTABLE_DIGEST }}."
+          echo "API_IMMUTABLE_DIGEST=$TAMPERED_DIGEST" >> "$GITHUB_ENV"
+
+      # GATE 3 (EWCSB-241): deploy only a signed digest with a passing Gate 2 record.
+      - name: Gate 3 - Verify API Signature and Gate Record
+        run: bash scripts/gate/deploy_gate.sh api "${{ env.IMAGE_NAME_API }}" "${{ env.API_IMMUTABLE_DIGEST }}" "${{ steps.resolve_tags.outputs.is_rollback == 'true' && 'rollback' || 'deploy' }}"
 
       # ------------------------------------------------------------------------
       # AUTHENTICATION CONTEXT FOR CONTAINER APPS MANAGEMENT
@@ -468,6 +554,10 @@ jobs:
           path: releases/sboms/sbom-workflow-ui.spdx.json
           retention-days: 90
 
+      - name: Gate 2 - Scan UI Image Before Signing
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
+        run: bash scripts/gate/build_gate.sh ui "${{ env.IMAGE_NAME_UI }}" "${{ env.UI_IMMUTABLE_DIGEST }}" releases/sboms/sbom-workflow-ui.spdx.json
+
       - name: Sign UI Container Image Digest with Cosign
         if: steps.resolve_tags.outputs.is_rollback != 'true'
         env:
@@ -480,15 +570,13 @@ jobs:
             exit 1
           fi
           cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${{ env.UI_IMMUTABLE_DIGEST }}"
+          cosign attest --yes --key env://COSIGN_PRIVATE_KEY --type "$GATE_PREDICATE_TYPE" \
+            --predicate "$GATE_DIR/ui/gate-decision-build.json" "${{ env.UI_IMMUTABLE_DIGEST }}"
+          cosign attest --yes --key env://COSIGN_PRIVATE_KEY --type spdxjson \
+            --predicate releases/sboms/sbom-workflow-ui.spdx.json "${{ env.UI_IMMUTABLE_DIGEST }}"
 
-      - name: Verify UI Container Signature (Pre-Deployment Gate)
-        run: |
-          echo "Verifying Cosign signature for ${{ env.UI_IMMUTABLE_DIGEST }}..."
-          if [ ! -f security/cosign.pub ]; then
-            echo "::error::Committed team public key security/cosign.pub is missing. Cannot verify release."
-            exit 1
-          fi
-          cosign verify --key security/cosign.pub "${{ env.UI_IMMUTABLE_DIGEST }}"
+      - name: Gate 3 - Verify UI Signature and Gate Record
+        run: bash scripts/gate/deploy_gate.sh ui "${{ env.IMAGE_NAME_UI }}" "${{ env.UI_IMMUTABLE_DIGEST }}" "${{ steps.resolve_tags.outputs.is_rollback == 'true' && 'rollback' || 'deploy' }}"
 
       - name: Deploy UI Container to Azure Container Apps
         id: ui_deploy
@@ -553,6 +641,10 @@ jobs:
           path: releases/sboms/sbom-workflow-analytics.spdx.json
           retention-days: 90
 
+      - name: Gate 2 - Scan Analytics Image Before Signing
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
+        run: bash scripts/gate/build_gate.sh analytics "${{ env.IMAGE_NAME_ANALYTICS }}" "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" releases/sboms/sbom-workflow-analytics.spdx.json
+
       - name: Sign Analytics Container Image Digest with Cosign
         if: steps.resolve_tags.outputs.is_rollback != 'true'
         env:
@@ -565,15 +657,13 @@ jobs:
             exit 1
           fi
           cosign sign --yes --key env://COSIGN_PRIVATE_KEY "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+          cosign attest --yes --key env://COSIGN_PRIVATE_KEY --type "$GATE_PREDICATE_TYPE" \
+            --predicate "$GATE_DIR/analytics/gate-decision-build.json" "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+          cosign attest --yes --key env://COSIGN_PRIVATE_KEY --type spdxjson \
+            --predicate releases/sboms/sbom-workflow-analytics.spdx.json "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
 
-      - name: Verify Analytics Container Signature (Pre-Deployment Gate)
-        run: |
-          echo "Verifying Cosign signature for ${{ env.ANALYTICS_IMMUTABLE_DIGEST }}..."
-          if [ ! -f security/cosign.pub ]; then
-            echo "::error::Committed team public key security/cosign.pub is missing. Cannot verify release."
-            exit 1
-          fi
-          cosign verify --key security/cosign.pub "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}"
+      - name: Gate 3 - Verify Analytics Signature and Gate Record
+        run: bash scripts/gate/deploy_gate.sh analytics "${{ env.IMAGE_NAME_ANALYTICS }}" "${{ env.ANALYTICS_IMMUTABLE_DIGEST }}" "${{ steps.resolve_tags.outputs.is_rollback == 'true' && 'rollback' || 'deploy' }}"
 
       - name: Deploy Analytics Worker to Azure Container Apps
         id: analytics_deploy
@@ -705,6 +795,33 @@ jobs:
               echo "Repository $REPO has 3 or fewer tags. Nothing to prune."
             fi
           done
+
+      # ------------------------------------------------------------------------
+      # RELEASE GATE RECORDS (EWCSB-241 section 6) - kept for passes AND refusals
+      # ------------------------------------------------------------------------
+      - name: Summarise Release Gate Decisions
+        if: always()
+        run: |
+          {
+            echo "## Release Gate Decisions (EWCSB-241)"
+            if [ "$REFUSAL_TEST" != "none" ]; then echo "> Refusal test: \`$REFUSAL_TEST\` - a REFUSED result is the expected outcome."; fi
+            echo ""
+            echo "| Service | Gate | Decision | Reasons |"
+            echo "| :--- | :--- | :---: | :--- |"
+            find "$GATE_DIR" -name 'gate-decision-*.json' 2>/dev/null | sort | while read -r record; do
+              jq -r --arg svc "$(basename "$(dirname "$record")")" \
+                '"| \($svc) | \(.stage) | \(.decision) | \(.reasons | join("; ") | gsub("\\|"; "/")) |"' "$record"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain Release Gate Decisions (90-Day Policy)
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: gate-decisions-${{ needs.resolve-environment.outputs.environment }}-${{ github.run_id }}
+          path: gate-decisions/
+          if-no-files-found: warn
+          retention-days: 90
 
       # ------------------------------------------------------------------------
       # 1.6 PUBLISH ROLLBACK CANDIDATES TO GITHUB ACTIONS SUMMARY
