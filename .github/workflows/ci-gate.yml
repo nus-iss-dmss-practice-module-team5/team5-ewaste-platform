@@ -580,7 +580,7 @@ jobs:
       # CI, which Gate 1 in the CD pipeline requires to pass. Hotspots and the
       # SonarQube quality gate stay report-only (residual risk).
       - name: Enforce SonarQube Security Gate (EWCSB-241)
-        run: python3 scripts/sonar/security_gate.py --issues sonar-results/issues.json --project-key "$SONAR_PROJECT_KEY"
+        run: python3 scripts/sonar/security_gate.py --issues sonar-results/issues.json --project-key "$SONAR_PROJECT_KEY" --exceptions security/sonar-exceptions.yaml
 
   # ============================================================================
   # PHASE 4: CONTAINER PACKAGING & VULNERABILITY AUDIT

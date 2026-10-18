@@ -1,0 +1,21 @@
+# Reviewed SonarQube false positives (EWCSB-241 section 4).
+#
+# The CI SonarQube server is created per job, so an issue cannot be marked
+# "false positive" there. An entry here stops one rule on one file from failing
+# scripts/sonar/security_gate.py; the issue still appears in the report and is
+# listed as accepted in the job log. Rules:
+#   - only for issues shown to be false positives, never to defer a real fix
+#   - approved_by: the security lead plus one technical approver
+#   - changes only by reviewed PR (see .github/CODEOWNERS)
+
+security_lead: Shalett Paulson
+exceptions:
+  - rule: python:S4830
+    path: src/matcher/matcher/facade.py
+    justification: >-
+      The flagged HTTPSHandler uses ssl.create_default_context(), which sets
+      verify_mode=CERT_REQUIRED and check_hostname=True, so the server
+      certificate and hostname are validated. No code path disables them.
+    approved_by: [Shalett Paulson, Shubham Kaushik]
+    approved_on: 2026-10-18
+    ticket: EWCSB-214

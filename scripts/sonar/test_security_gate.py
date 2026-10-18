@@ -41,6 +41,40 @@ class SecurityGateTests(unittest.TestCase):
     def test_missing_export_refuses(self):
         self.assertEqual(sg.main(["--issues", "/nonexistent/issues.json", "--project-key", KEY]), 1)
 
+    def run_with_exceptions(self, issues, exceptions_yaml):
+        with tempfile.TemporaryDirectory() as directory:
+            issues_path, exceptions_path = Path(directory) / "issues.json", Path(directory) / "exceptions.yaml"
+            issues_path.write_text(json.dumps({"issues": issues}))
+            exceptions_path.write_text(exceptions_yaml)
+            return sg.main(["--issues", str(issues_path), "--project-key", KEY, "--exceptions", str(exceptions_path)])
+
+    EXCEPTION = """security_lead: Shalett Paulson
+exceptions:
+  - rule: go:S2068
+    path: src/backend/a.go
+    justification: verified false positive
+    approved_by: [{approvers}]
+    approved_on: 2026-10-18
+    ticket: EWCSB-214
+"""
+    CRITICAL = dict(type="VULNERABILITY", severity="CRITICAL")
+
+    def test_reviewed_false_positive_does_not_block_but_others_do(self):
+        exceptions = self.EXCEPTION.format(approvers="Shalett Paulson, Shubham Kaushik")
+        self.assertEqual(self.run_with_exceptions([issue(**self.CRITICAL)], exceptions), 0)
+        other_file = issue(component=f"{KEY}:src/backend/b.go", **self.CRITICAL)
+        self.assertEqual(self.run_with_exceptions([issue(**self.CRITICAL), other_file], exceptions), 1)
+
+    def test_exception_without_lead_and_second_approver_refuses(self):
+        for approvers in ("Shubham Kaushik, Jiamin Wang", "Shalett Paulson"):
+            with self.subTest(approvers=approvers):
+                exceptions = self.EXCEPTION.format(approvers=approvers)
+                self.assertEqual(self.run_with_exceptions([issue(**self.CRITICAL)], exceptions), 1)
+
+    def test_repository_exceptions_file_is_valid(self):
+        repo_file = Path(__file__).resolve().parents[2] / "security" / "sonar-exceptions.yaml"
+        self.assertTrue(sg.load_exceptions(repo_file))
+
 
 if __name__ == "__main__":
     unittest.main()

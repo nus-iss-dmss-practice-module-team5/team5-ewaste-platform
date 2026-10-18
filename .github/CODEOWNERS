@@ -3,3 +3,4 @@
 /security/dispositions.yaml   @Shalett
 /security/cosign.pub          @Shalett
 /scripts/gate/                @Shalett
+/security/sonar-exceptions.yaml  @Shalett
