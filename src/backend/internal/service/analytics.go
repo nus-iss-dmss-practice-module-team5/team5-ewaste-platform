@@ -230,7 +230,7 @@ func (s *BatchService) AcknowledgeAnalytics(
 			return err
 		}
 		for _, code := range request.AnomalyCodes {
-			anomaly := analyticsAnomaly(s.newID(), batch.ID, analyticsResult.ResultID, code, request.Metrics, now)
+			anomaly := analyticsAnomaly(s.newID(), batch.ID, analyticsResult.ResultID, code, request.Metrics, data, now)
 			if err := tx.CreateBatchAnomaly(ctx, anomaly); err != nil {
 				return err
 			}
@@ -692,9 +692,13 @@ func analyticsResultHash(request dto.AnalyticsAcknowledgement) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-func analyticsAnomaly(id, batchID, resultID, code string, metrics dto.AnalyticsMetrics, now time.Time) *model.BatchAnomaly {
+func analyticsAnomaly(id, batchID, resultID, code string, metrics dto.AnalyticsMetrics, frozen map[string]any, now time.Time) *model.BatchAnomaly {
 	anomaly := &model.BatchAnomaly{AnomalyID: id, BatchID: batchID, ResultID: resultID, Code: model.AnomalyCode(code), DetectedAt: now}
 	switch model.AnomalyCode(code) {
+	case model.AnomalyCategoryMismatch:
+		// Categories belong to the validated frozen source, not mutable live rows.
+		anomaly.DeclaredValue = nullableEventString(frozen["declared_category"])
+		anomaly.ActualValue = nullableEventString(frozen["actual_category"])
 	case model.AnomalyWeightMismatch:
 		anomaly.DeclaredValue, anomaly.ActualValue, anomaly.DeltaKg = metrics.DeclaredWeightKg, metrics.ActualWeightKg, metrics.WeightDeltaKg
 	case model.AnomalyCountMismatch:

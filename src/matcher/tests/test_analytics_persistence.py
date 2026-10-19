@@ -14,6 +14,7 @@ from pathlib import Path
 from confluent_kafka import Consumer, Producer, TopicPartition
 
 import test_persistence as persistence
+from analytics_helpers import fixtures
 from matcher.analytics import acknowledgement
 from matcher.analytics_worker import AnalyticsFacade, AnalyticsProcessor
 from matcher.contract import canonical, loads, validate
@@ -216,6 +217,7 @@ class AnalyticsPersistenceTests(unittest.TestCase):
         expected_flags = [[], ["CATEGORY_MISMATCH", "COUNT_MISMATCH", "WEIGHT_MISMATCH", "UNALLOCATED_WEIGHT"],
                           ["MISSING_OUTCOME"], ["UNALLOCATED_WEIGHT"]]
         journeys = []
+        category_golden = next(c for c in fixtures() if c["id"] == "R06")["expected_category_anomaly"]
         for event, flags in zip(events, expected_flags):
             batch = event["batch_id"]
             self.assertEqual(set(self.counts(batch).values()), {1})
@@ -237,6 +239,10 @@ class AnalyticsPersistenceTests(unittest.TestCase):
             self.assertEqual(completed_event[0]["command_id"], metric["command_id"])
             self.assertEqual(audit[0]["correlation_id"], event["correlation_id"])
             self.assertEqual(sorted(r["anomaly_code"] for r in rows["batch_anomalies"]), sorted(flags))
+            expected_categories = [category_golden] if "CATEGORY_MISMATCH" in flags else []
+            category_rows = [{"code": r["anomaly_code"], "declared_value": r["declared_value"], "actual_value": r["actual_value"]}
+                             for r in rows["batch_anomalies"] if r["anomaly_code"] == "CATEGORY_MISMATCH"]
+            self.assertEqual(category_rows, expected_categories)
             snapshot = loads(metric["input_snapshot_json"])
             self.assertEqual(snapshot["metrics"], output["metrics"])
             self.assertEqual(metric["correlation_id"], event["correlation_id"])
@@ -252,6 +258,9 @@ class AnalyticsPersistenceTests(unittest.TestCase):
             self.http("GET", "/api/v1/audit/batches/" + batch + "/timeline", "auditor")
             anomalies = self.http("GET", "/api/v1/audit/batches/" + batch + "/anomalies", "auditor")
             self.assertEqual(sorted(item["code"] for item in anomalies["data"]), sorted(flags))
+            category_views = [{k: item[k] for k in ("code", "declared_value", "actual_value")}
+                              for item in anomalies["data"] if item["code"] == "CATEGORY_MISMATCH"]
+            self.assertEqual(category_views, expected_categories)
             journeys.append({"batch_id": batch, "correlation_id": event["correlation_id"], "source_event_id": event["event_id"],
                              "expected": output, "processing_api": detail, "sql_file": batch + "-rows.json"})
         impact = self.http("GET", "/api/v1/audit/impact", "auditor")["data"]

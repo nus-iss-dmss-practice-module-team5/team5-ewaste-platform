@@ -224,3 +224,22 @@ func TestApplyModePreservesDisabledStorageDefault(t *testing.T) {
 		}
 	}
 }
+
+func TestLoadReadsPlatformAndReleaseFromEnvironment(t *testing.T) {
+	t.Setenv("EWASTE_PLATFORM_ENVIRONMENT", "prod")
+	t.Setenv("EWASTE_PLATFORM_LOG_ANALYTICS_WORKSPACE_ID", "ws-123")
+	t.Setenv("EWASTE_RELEASE_ID", "s4-rc2")
+	t.Setenv("EWASTE_RELEASE_IMAGE_DIGEST_API", "sha256:9b1e")
+	t.Setenv("EWASTE_RELEASE_ROLLBACK_IMAGE_DIGEST_ANALYTICS", "sha256:01bc")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if cfg.Platform.Environment != "prod" || cfg.Platform.LogAnalyticsWorkspaceID != "ws-123" || cfg.Platform.WorkbookURL != "" {
+		t.Fatalf("platform = %+v", cfg.Platform)
+	}
+	if cfg.Release.ID != "s4-rc2" || cfg.Release.ImageDigestAPI != "sha256:9b1e" || cfg.Release.RollbackImageDigestAnalytics != "sha256:01bc" || cfg.Release.Commit != "" {
+		t.Fatalf("release = %+v", cfg.Release)
+	}
+}

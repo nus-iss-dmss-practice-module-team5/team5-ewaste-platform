@@ -20,6 +20,8 @@ type Config struct {
 	Storage   StorageConfig   `mapstructure:"storage"`
 	RateLimit RateLimitConfig `mapstructure:"rate_limit"`
 	Logging   LoggingConfig   `mapstructure:"logging"`
+	Platform  PlatformConfig  `mapstructure:"platform"`
+	Release   ReleaseConfig   `mapstructure:"release"`
 }
 
 const (
@@ -119,6 +121,34 @@ type StorageConfig struct {
 	AzureUseManagedID     bool   `mapstructure:"azure_use_managed_id"`
 	MaxUploadSizeBytes    int64  `mapstructure:"max_upload_size_bytes"`
 	LocalBaseDir          string `mapstructure:"local_base_dir"`
+}
+
+// PlatformConfig feeds the Administrator health view. An empty workspace id
+// leaves latency, lag and failure counts unknown rather than failing startup.
+type PlatformConfig struct {
+	Environment             string `mapstructure:"environment"`
+	LogAnalyticsWorkspaceID string `mapstructure:"log_analytics_workspace_id"`
+	LogAppPrefix            string `mapstructure:"log_app_prefix"`
+	WorkbookURL             string `mapstructure:"workbook_url"`
+}
+
+// ReleaseConfig is stamped on the API container by the deploy job from
+// gate-decision.json (EWCSB-245 AV-3). Empty values mean not recorded.
+type ReleaseConfig struct {
+	ID                           string `mapstructure:"id"`
+	Commit                       string `mapstructure:"commit"`
+	DeployedAt                   string `mapstructure:"deployed_at"`
+	GateRunURL                   string `mapstructure:"gate_run_url"`
+	GateDecision                 string `mapstructure:"gate_decision"`
+	ImageDigestAPI               string `mapstructure:"image_digest_api"`
+	ImageDigestUI                string `mapstructure:"image_digest_ui"`
+	ImageDigestAnalytics         string `mapstructure:"image_digest_analytics"`
+	RollbackID                   string `mapstructure:"rollback_id"`
+	RollbackCommit               string `mapstructure:"rollback_commit"`
+	RollbackGateRunURL           string `mapstructure:"rollback_gate_run_url"`
+	RollbackImageDigestAPI       string `mapstructure:"rollback_image_digest_api"`
+	RollbackImageDigestUI        string `mapstructure:"rollback_image_digest_ui"`
+	RollbackImageDigestAnalytics string `mapstructure:"rollback_image_digest_analytics"`
 }
 
 type RateLimitConfig struct {
@@ -227,6 +257,32 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("kafka.leader_lease_duration", 30*time.Second)
 	v.SetDefault("kafka.retry_backoff", 5*time.Second)
 	v.SetDefault("kafka.publish_timeout", 10*time.Second)
+	for _, key := range platformKeys {
+		v.SetDefault(key, "")
+	}
+}
+
+// platformKeys are plain strings bound one-to-one to EWASTE_ variables,
+// for example release.image_digest_api to EWASTE_RELEASE_IMAGE_DIGEST_API.
+var platformKeys = []string{
+	"platform.environment",
+	"platform.log_analytics_workspace_id",
+	"platform.log_app_prefix",
+	"platform.workbook_url",
+	"release.id",
+	"release.commit",
+	"release.deployed_at",
+	"release.gate_run_url",
+	"release.gate_decision",
+	"release.image_digest_api",
+	"release.image_digest_ui",
+	"release.image_digest_analytics",
+	"release.rollback_id",
+	"release.rollback_commit",
+	"release.rollback_gate_run_url",
+	"release.rollback_image_digest_api",
+	"release.rollback_image_digest_ui",
+	"release.rollback_image_digest_analytics",
 }
 
 func bindEnvironment(v *viper.Viper) {
@@ -282,6 +338,7 @@ func bindEnvironment(v *viper.Viper) {
 		"kafka.retry_backoff",
 		"kafka.publish_timeout",
 	}
+	keys = append(keys, platformKeys...)
 	for _, key := range keys {
 		envName := "EWASTE_" + strings.ToUpper(strings.ReplaceAll(key, ".", "_"))
 		if strings.HasPrefix(key, "storage.") {
