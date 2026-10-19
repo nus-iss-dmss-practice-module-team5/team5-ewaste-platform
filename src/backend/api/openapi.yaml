@@ -1163,7 +1163,7 @@ components:
         anomaly_codes:
           type: array
           uniqueItems: true
-          description: Return flags in D3 order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.
+          description: 'Return flags in D3 order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.'
           items: {type: string, enum: [CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT]}
     AnalyticsMetrics:
       type: object
@@ -1196,7 +1196,7 @@ components:
             analytics_result_id: {type: string, format: uuid}
             data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
             metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
-            anomaly_codes: {type: array, items: {type: string}, description: D3 anomaly order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.}
+            anomaly_codes: {type: array, items: {type: string}, description: 'D3 anomaly order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.'}
         correlation_id: {type: string}
         event_id: {type: string, format: uuid}
         event_state: {type: string, enum: [PENDING, REPLAYED]}
@@ -1241,7 +1241,7 @@ components:
             data_quality: {type: string, nullable: true, enum: [COMPLETE, PARTIAL, MISSING]}
             evidence_status: {type: string, enum: [PRESENT, ABSENT], description: PRESENT means at least one validated evidence object exists for the batch; it does not imply that treatment evidence is linked. Rejected uploads are not represented.}
             evidence_id: {type: string, nullable: true, format: uuid, description: Treatment-linked evidence identifier. Null means no treatment evidence is linked; evidence_status may still be PRESENT for receipt-stage or unlinked evidence.}
-            anomaly_codes: {type: array, items: {type: string}, description: D3 anomaly order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.}
+            anomaly_codes: {type: array, items: {type: string}, description: 'D3 anomaly order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.'}
         correlation_id: {type: string}
     TimelineResponse:
       type: object
@@ -1349,7 +1349,7 @@ components:
         input_hash: {type: string, pattern: '^[0-9a-f]{64}$'}
         data_quality: {type: string, enum: [COMPLETE, PARTIAL, MISSING]}
         metrics: {$ref: '#/components/schemas/AnalyticsMetrics'}
-        anomaly_codes: {type: array, items: {type: string}, description: D3 anomaly order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.}
+        anomaly_codes: {type: array, items: {type: string}, description: 'D3 anomaly order: CATEGORY_MISMATCH, COUNT_MISMATCH, WEIGHT_MISMATCH, MISSING_OUTCOME, UNALLOCATED_WEIGHT.'}
         acknowledged_at: {type: string, format: date-time}
     BatchListResponse:
       type: object
