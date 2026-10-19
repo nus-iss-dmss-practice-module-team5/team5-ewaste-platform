@@ -260,10 +260,10 @@ func TestEvidenceServiceDownloadFailsClosedWhenReadAuditCannotPersist(t *testing
 
 	result, err := downloadAsRecycler(svc, "facility-001")
 	if err == nil {
-		t.Fatalf("audit failure returned evidence bytes: result=%+v err=%v", result, err)
-	}
-	if len(result.Content) != 0 {
-		t.Fatalf("audit failure returned evidence bytes: result=%+v", result)
+		if len(result.Content) != 0 {
+			t.Fatalf("audit failure returned evidence bytes: result=%+v", result)
+		}
+		t.Fatal("expected audit persistence failure")
 	}
 	if len(repo.state.audits) != 0 || len(repo.state.commands) != 0 {
 		t.Fatalf("audit failure left durable effects: audits=%d commands=%d err=%v", len(repo.state.audits), len(repo.state.commands), err)
