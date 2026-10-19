@@ -464,7 +464,10 @@ func TestEvidenceServiceDownloadDeniesOtherOrganisation(t *testing.T) {
 	if !errors.Is(err, ErrBatchEvidenceNotFound) {
 		t.Fatalf("expected another organisation's evidence to be reported as not found, got %v", err)
 	}
-	if len(result.Content) != 0 || objectStorage.getCalls != 0 {
+	if len(result.Content) != 0 {
+		t.Fatalf("cross-organisation request returned content: bytes=%d", len(result.Content))
+	}
+	if objectStorage.getCalls != 0 {
 		t.Fatalf("cross-organisation request reached object storage: gets=%d", objectStorage.getCalls)
 	}
 
@@ -525,8 +528,11 @@ func TestEvidenceServiceDownloadFailsClosedOnMetadataMismatch(t *testing.T) {
 			if !errors.Is(err, ErrEvidenceIntegrity) {
 				t.Fatalf("expected integrity error, got %v", err)
 			}
-			if len(result.Content) != 0 || len(repo.state.audits) != 0 {
-				t.Fatalf("mismatched object was served or audited as downloaded: bytes=%d audits=%d", len(result.Content), len(repo.state.audits))
+			if len(result.Content) != 0 {
+				t.Fatalf("mismatched object was served: bytes=%d", len(result.Content))
+			}
+			if len(repo.state.audits) != 0 {
+				t.Fatalf("mismatched object was audited as downloaded: audits=%d", len(repo.state.audits))
 			}
 		})
 	}
@@ -548,8 +554,11 @@ func TestEvidenceServiceDownloadSurfacesStorageFailures(t *testing.T) {
 			svc := NewEvidenceService(repo, objectStorage)
 
 			result, err := downloadAsRecycler(svc, "facility-001")
-			if !errors.Is(err, ErrEvidenceStorage) || len(result.Content) != 0 {
-				t.Fatalf("expected storage error without content, got result=%+v err=%v", result, err)
+			if !errors.Is(err, ErrEvidenceStorage) {
+				t.Fatalf("expected storage error, got result=%+v err=%v", result, err)
+			}
+			if len(result.Content) != 0 {
+				t.Fatalf("storage error returned content: result=%+v", result)
 			}
 		})
 	}
