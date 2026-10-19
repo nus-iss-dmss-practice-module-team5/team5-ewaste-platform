@@ -69,6 +69,11 @@
         "anomaly_codes": [
           "CATEGORY_MISMATCH"
         ]
+      },
+      "expected_category_anomaly": {
+        "code": "CATEGORY_MISMATCH",
+        "declared_value": "ICT_EQUIPMENT",
+        "actual_value": "BATTERIES"
       }
     },
     {
@@ -215,6 +220,11 @@
           "COUNT_MISMATCH",
           "WEIGHT_MISMATCH"
         ]
+      },
+      "expected_category_anomaly": {
+        "code": "CATEGORY_MISMATCH",
+        "declared_value": "ICT_EQUIPMENT",
+        "actual_value": "BATTERIES"
       }
     },
     {

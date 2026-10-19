@@ -49,6 +49,15 @@ the same POST. Only a matching durable completion response permits offset advanc
 Go enforces source/result uniqueness and atomic completion; Python never publishes
 `RequestCompleted` directly.
 
+For `CATEGORY_MISMATCH`, Go stores `declared_value` and `actual_value` on the anomaly
+from the validated frozen source's `declared_category` and `actual_category`. These
+are the donor and facility categories at evaluation time, not a later live-row read.
+The worker's result body, `d3-v1` formulas, input hash and replay identities stay
+unchanged. Golden cases R02 (category only) and R06 (combined discrepancies) specify
+the category context. Tests cover worker retries, transactional rollback, and the
+stored SQL values returned by the Auditor API. Existing completed anomaly rows are
+not rewritten by this fix.
+
 ## Configuration and release order
 
 1. Apply the existing processing migrations through the master Liquibase changelog.

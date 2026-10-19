@@ -84,3 +84,14 @@ class AnalyticsRulesTests(unittest.TestCase):
             bad = copy.deepcopy(response); mutate(bad)
             with self.assertRaisesRegex(ContractError, "INVALID_ANALYTICS_ACK"):
                 check_completion(bad, event, output)
+
+    def test_category_values_cannot_be_substituted_after_preparation(self):
+        case = next(c for c in fixtures() if c["id"] == "R02")
+        event = source(case)
+        ready = preparation(event)
+        for field in ("declared_category", "actual_category"):
+            with self.subTest(field=field):
+                tampered = copy.deepcopy(event)
+                tampered["data"][field] = "CONSUMER_ELECTRONICS"
+                with self.assertRaisesRegex(ContractError, "ANALYTICS_FROZEN_INPUT_MISMATCH"):
+                    acknowledgement(ready, tampered)
