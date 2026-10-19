@@ -218,6 +218,13 @@ func (s *EvidenceService) Download(
 		return EvidenceDownloadResult{}, NewBatchValidationError(map[string]string{"path": "batch_id and evidence_id are required"})
 	}
 	role := strings.ToUpper(strings.TrimSpace(actor.RoleCode))
+	// Reject unsupported roles before any database or object lookup. This keeps
+	// denied traffic from joining the evidence read path under load.
+	switch role {
+	case "RECYCLER", "AUDITOR", "SYSTEM_ADMIN":
+	default:
+		return EvidenceDownloadResult{}, ErrBatchForbidden
+	}
 	if role == "SYSTEM_ADMIN" && strings.TrimSpace(actor.AdminAccessReason) == "" {
 		return EvidenceDownloadResult{}, NewBatchValidationError(map[string]string{"X-Admin-Access-Reason": "is required for system administrator downloads"})
 	}
@@ -226,53 +233,66 @@ func (s *EvidenceService) Download(
 	}
 
 	var evidence *model.BatchEvidence
-	err := s.repository.Transaction(ctx, func(tx repository.BatchTransaction) error {
-		batch, err := tx.FindBatchForUpdate(ctx, batchID)
+	var err error
+	if reader, ok := s.repository.(repository.EvidenceDownloadReader); ok {
+		record, readErr := reader.ReadEvidenceForDownload(ctx, repository.EvidenceDownloadQuery{
+			BatchID: batchID, EvidenceID: evidenceID, UserID: actor.UserID,
+			OrganisationID: actor.OrganisationID, RoleCode: role,
+		})
+		err = readErr
 		if err != nil {
-			return err
+			err = mapEvidenceRepositoryError(err)
 		}
-		if !isEvidenceProcessingStatus(batch.Status) {
-			return ErrBatchEvidenceNotFound
+		if record != nil {
+			evidence = record.Evidence
 		}
-		evidence, err = tx.FindEvidence(ctx, batchID, evidenceID)
-		if err != nil {
-			return err
-		}
-		// Successful uploads are synchronously D2-validated before the row is
-		// created. The deployed 026 schema has no separate status column, so an
-		// empty read value represents that implicit VALIDATED state. If a future
-		// schema stores the status explicitly, non-VALIDATED rows still fail
-		// closed.
-		if evidence.ValidationStatus != "" && evidence.ValidationStatus != model.EvidenceValidationValidated {
-			return ErrBatchEvidenceNotFound
-		}
-
-		switch role {
-		case "RECYCLER":
-			if err := tx.ValidateRecyclerActor(ctx, actor.UserID, actor.OrganisationID); err != nil {
-				return mapEvidenceRepositoryError(err)
+	} else {
+		// Keep the transactional fallback for test doubles and alternate
+		// adapters. The production repository uses the plain-read path above.
+		err = s.repository.Transaction(ctx, func(tx repository.BatchTransaction) error {
+			batch, err := tx.FindBatchForUpdate(ctx, batchID)
+			if err != nil {
+				return err
 			}
-			if evidence.OrganisationID != actor.OrganisationID || batch.CurrentClaimID == nil || batch.CurrentAssignmentID == nil {
+			if !isEvidenceProcessingStatus(batch.Status) {
 				return ErrBatchEvidenceNotFound
 			}
-			if err := tx.ValidateReceiptScope(ctx, batch.ID, *batch.CurrentClaimID, *batch.CurrentAssignmentID, batch.ClaimEpoch, actor.OrganisationID); err != nil {
-				return mapEvidenceRepositoryError(err)
+			evidence, err = tx.FindEvidence(ctx, batchID, evidenceID)
+			if err != nil {
+				return err
 			}
-		case "AUDITOR":
-			if err := tx.ValidateAuditorActor(ctx, actor.UserID); err != nil {
-				return mapEvidenceRepositoryError(err)
+			if evidence.ValidationStatus != "" && evidence.ValidationStatus != model.EvidenceValidationValidated {
+				return ErrBatchEvidenceNotFound
 			}
-		case "SYSTEM_ADMIN":
-			if err := tx.ValidateAdminActor(ctx, actor.UserID); err != nil {
-				return mapEvidenceRepositoryError(err)
+
+			switch role {
+			case "RECYCLER":
+				if err := tx.ValidateRecyclerActor(ctx, actor.UserID, actor.OrganisationID); err != nil {
+					return mapEvidenceRepositoryError(err)
+				}
+				if evidence.OrganisationID != actor.OrganisationID || batch.CurrentClaimID == nil || batch.CurrentAssignmentID == nil {
+					return ErrBatchEvidenceNotFound
+				}
+				if err := tx.ValidateReceiptScope(ctx, batch.ID, *batch.CurrentClaimID, *batch.CurrentAssignmentID, batch.ClaimEpoch, actor.OrganisationID); err != nil {
+					return mapEvidenceRepositoryError(err)
+				}
+			case "AUDITOR":
+				if err := tx.ValidateAuditorActor(ctx, actor.UserID); err != nil {
+					return mapEvidenceRepositoryError(err)
+				}
+			case "SYSTEM_ADMIN":
+				if err := tx.ValidateAdminActor(ctx, actor.UserID); err != nil {
+					return mapEvidenceRepositoryError(err)
+				}
 			}
-		default:
-			return ErrBatchForbidden
-		}
-		return nil
-	})
+			return nil
+		})
+	}
 	if err != nil {
 		return EvidenceDownloadResult{}, err
+	}
+	if evidence == nil {
+		return EvidenceDownloadResult{}, ErrBatchEvidenceNotFound
 	}
 	if s.storage == nil {
 		return EvidenceDownloadResult{}, ErrEvidenceStorage

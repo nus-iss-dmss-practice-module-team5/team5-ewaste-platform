@@ -94,17 +94,28 @@ func (s *ClaimWorkflowService) Claim(
 	}
 	defer func() { _ = lockHandle.Release(context.Background()) }()
 
+	leaseCtx, cancelLease := context.WithCancel(ctx)
+	defer cancelLease()
+
+	var renewErrCh chan error
+	var renewDone chan struct{}
+	if renewable, ok := lockHandle.(lease.RenewableHandle); ok {
+		renewErrCh = make(chan error, 1)
+		renewDone = make(chan struct{})
+		go renewClaimLease(leaseCtx, renewable, cancelLease, renewErrCh, renewDone)
+	}
+
 	var result dto.ClaimResult
-	err = s.repository.Transaction(ctx, func(tx repository.ClaimTransaction) error {
+	err = s.repository.Transaction(leaseCtx, func(tx repository.ClaimTransaction) error {
 		if err := tx.ValidateRecyclerActor(
-			ctx,
+			leaseCtx,
 			metadata.Actor.UserID,
 			metadata.Actor.OrganisationID,
 		); err != nil {
 			return err
 		}
 
-		replay, replayErr := s.loadReplay(ctx, tx, metadata)
+		replay, replayErr := s.loadReplay(leaseCtx, tx, metadata)
 		if replayErr != nil {
 			return replayErr
 		}
@@ -113,12 +124,12 @@ func (s *ClaimWorkflowService) Claim(
 			return nil
 		}
 
-		batch, err := tx.FindBatchForUpdate(ctx, batchID)
+		batch, err := tx.FindBatchForUpdate(leaseCtx, batchID)
 		if err != nil {
 			return err
 		}
 
-		claimKeyExists, err := tx.ClaimKeyExists(ctx, metadata.IdempotencyKey)
+		claimKeyExists, err := tx.ClaimKeyExists(leaseCtx, metadata.IdempotencyKey)
 		if err != nil {
 			return err
 		}
@@ -137,13 +148,13 @@ func (s *ClaimWorkflowService) Claim(
 		}
 
 		command := newCommand(metadata, batch.ID, s.clock().UTC(), s.retainFor)
-		if err := tx.CreateCommand(ctx, command); err != nil {
+		if err := tx.CreateCommand(leaseCtx, command); err != nil {
 			return err
 		}
 
 		// This reads the completed matching result produced by Python and
 		// rechecks live organisation, capability, deadline, and pool state.
-		match, err := tx.FindEligibleMatch(ctx, batch, metadata.Actor.OrganisationID)
+		match, err := tx.FindEligibleMatch(leaseCtx, batch, metadata.Actor.OrganisationID)
 		if errors.Is(err, repository.ErrClaimOpportunityNotFound) {
 			return ErrClaimOpportunityNotFound
 		}
@@ -156,7 +167,7 @@ func (s *ClaimWorkflowService) Claim(
 			return fmt.Errorf("%w: invalid stored batch weight", ErrClaimValidation)
 		}
 		if _, err := tx.LockCapacityPoolForUpdate(
-			ctx,
+			leaseCtx,
 			match.CapacityPoolID,
 			metadata.Actor.OrganisationID,
 		); err != nil {
@@ -165,7 +176,7 @@ func (s *ClaimWorkflowService) Claim(
 
 		now := s.clock().UTC().Truncate(time.Microsecond)
 		if err := tx.ReserveCapacity(
-			ctx,
+			leaseCtx,
 			match.CapacityPoolID,
 			metadata.Actor.OrganisationID,
 			weightKg,
@@ -186,7 +197,7 @@ func (s *ClaimWorkflowService) Claim(
 			Notes:          request.Notes,
 			CreatedAt:      now,
 		}
-		if err := tx.CreateClaim(ctx, claim); err != nil {
+		if err := tx.CreateClaim(leaseCtx, claim); err != nil {
 			return err
 		}
 
@@ -200,12 +211,12 @@ func (s *ClaimWorkflowService) Claim(
 			ReservedAt:     now,
 			Version:        1,
 		}
-		if err := tx.CreateReservation(ctx, reservation); err != nil {
+		if err := tx.CreateReservation(leaseCtx, reservation); err != nil {
 			return err
 		}
 
 		approvedBatch, err := tx.ApproveBatch(
-			ctx,
+			leaseCtx,
 			batch.ID,
 			claimEpoch,
 			uint32(metadata.ExpectedVersion),
@@ -233,7 +244,7 @@ func (s *ClaimWorkflowService) Claim(
 			now,
 		)
 		audit.ClaimID = &claim.ID
-		if err := tx.AppendAudit(ctx, audit); err != nil {
+		if err := tx.AppendAudit(leaseCtx, audit); err != nil {
 			return err
 		}
 
@@ -250,7 +261,7 @@ func (s *ClaimWorkflowService) Claim(
 		}
 
 		nextAttemptAt := now
-		if err := tx.EnqueueOutbox(ctx, &model.EventOutbox{
+		if err := tx.EnqueueOutbox(leaseCtx, &model.EventOutbox{
 			EventID:           eventID,
 			BatchID:           approvedBatch.ID,
 			CommandID:         command.ID,
@@ -286,8 +297,19 @@ func (s *ClaimWorkflowService) Claim(
 		if err != nil {
 			return err
 		}
-		return tx.CompleteCommand(ctx, command.ID, 200, responseJSON, now)
+		return tx.CompleteCommand(leaseCtx, command.ID, 200, responseJSON, now)
 	})
+	if renewDone != nil {
+		cancelLease()
+		<-renewDone
+		select {
+		case renewErr := <-renewErrCh:
+			if err == nil || errors.Is(err, context.Canceled) {
+				err = fmt.Errorf("%w: %v", ErrClaimLeaseUnavailable, renewErr)
+			}
+		default:
+		}
+	}
 
 	if err == nil {
 		return result, nil
@@ -304,6 +326,42 @@ func (s *ClaimWorkflowService) Claim(
 	}
 
 	return dto.ClaimResult{}, mapClaimRepositoryError(err)
+}
+
+func renewClaimLease(
+	ctx context.Context,
+	handle lease.RenewableHandle,
+	cancel context.CancelFunc,
+	errCh chan<- error,
+	done chan<- struct{},
+) {
+	defer close(done)
+	interval := handle.RenewInterval()
+	if interval <= 0 {
+		interval = time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := handle.Renew(ctx); err != nil {
+				// Stop the database transaction as soon as ownership is lost.
+				// The caller still checks the durable command after the
+				// transaction returns, so a commit that raced this cancellation
+				// is reported as the committed result rather than a false error.
+				cancel()
+				select {
+				case errCh <- err:
+				default:
+				}
+				return
+			}
+		}
+	}
 }
 
 func (s *ClaimWorkflowService) resolveReplay(
