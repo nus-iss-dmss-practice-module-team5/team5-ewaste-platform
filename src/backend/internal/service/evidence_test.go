@@ -173,15 +173,21 @@ func TestEvidenceServiceDownloadAuthorizesOwnerAndAuditsEveryReader(t *testing.T
 	svc := NewEvidenceService(repo, objectStorage)
 
 	owner, err := svc.Download(context.Background(), "batch-receipt-001", "evidence-001", EvidenceDownloadActor{BatchActor: recyclerMetadata("unused", "corr-download-owner", 0).Actor}, "corr-download-owner")
-	if err != nil || !bytes.Equal(owner.Content, pdfFixture) {
+	if err != nil {
 		t.Fatalf("owner download failed: result=%+v err=%v", owner, err)
+	}
+	if !bytes.Equal(owner.Content, pdfFixture) {
+		t.Fatalf("owner download returned unexpected content: result=%+v", owner)
 	}
 
 	auditor, err := svc.Download(context.Background(), "batch-receipt-001", "evidence-001", EvidenceDownloadActor{
 		BatchActor: BatchActor{UserID: "auditor-001", OrganisationID: "platform-001", RoleCode: "AUDITOR"},
 	}, "corr-download-auditor")
-	if err != nil || len(auditor.Content) == 0 {
+	if err != nil {
 		t.Fatalf("auditor download failed: result=%+v err=%v", auditor, err)
+	}
+	if len(auditor.Content) == 0 {
+		t.Fatalf("auditor download returned no content: result=%+v", auditor)
 	}
 	if len(repo.state.audits) != 2 || repo.state.audits[0].EventType != model.BatchAuditEventEvidenceDownloaded || repo.state.audits[1].EventType != model.BatchAuditEventEvidenceDownloaded {
 		t.Fatalf("expected one durable read audit per successful reader, got %+v", repo.state.audits)
@@ -253,8 +259,11 @@ func TestEvidenceServiceDownloadFailsClosedWhenReadAuditCannotPersist(t *testing
 	svc := NewEvidenceService(repo, objectStorage)
 
 	result, err := downloadAsRecycler(svc, "facility-001")
-	if err == nil || len(result.Content) != 0 {
+	if err == nil {
 		t.Fatalf("audit failure returned evidence bytes: result=%+v err=%v", result, err)
+	}
+	if len(result.Content) != 0 {
+		t.Fatalf("audit failure returned evidence bytes: result=%+v", result)
 	}
 	if len(repo.state.audits) != 0 || len(repo.state.commands) != 0 {
 		t.Fatalf("audit failure left durable effects: audits=%d commands=%d err=%v", len(repo.state.audits), len(repo.state.commands), err)

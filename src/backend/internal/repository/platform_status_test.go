@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -77,7 +78,7 @@ func TestValidateAdminRequiresAnActivePlatformAdmin(t *testing.T) {
 	mock.ExpectQuery(auditorCheckSQL + `.*u\.role_code = 'SYSTEM_ADMIN'`).WithArgs("USR-005").
 		WillReturnRows(sqlmock.NewRows([]string{"count(*)"}).AddRow(0))
 
-	if err := NewGormPlatformStatusRepository(db).ValidateAdmin(context.Background(), "USR-005"); err != ErrWorkflowReadForbidden {
+	if err := NewGormPlatformStatusRepository(db).ValidateAdmin(context.Background(), "USR-005"); !errors.Is(err, ErrWorkflowReadForbidden) {
 		t.Fatalf("err = %v, want forbidden", err)
 	}
 	if err := mock.ExpectationsWereMet(); err != nil {

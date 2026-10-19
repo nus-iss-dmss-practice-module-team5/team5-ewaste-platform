@@ -20,7 +20,7 @@ const (
 	PlatformSummaryNotReady  = "NOT_READY"
 	PlatformSummaryUnknown   = "UNKNOWN"
 
-	// Reasons a source is reported as unknown.
+	// UnknownNotConfigured means the source is not configured for this deployment.
 	UnknownNotConfigured = "NOT_CONFIGURED"
 	UnknownQueryFailed   = "LOG_QUERY_FAILED"
 	UnknownTimedOut      = "TIMED_OUT"
@@ -228,8 +228,7 @@ func (s *PlatformStatusService) release() *dto.ReleaseView {
 		Images:       nonEmptyImages(r.Images),
 	}
 	if deployedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(r.DeployedAt)); err == nil {
-		utc := deployedAt.UTC()
-		view.DeployedAt = &utc
+		view.DeployedAt = new(deployedAt.UTC())
 	}
 	if strings.TrimSpace(r.RollbackID) != "" {
 		view.RollbackTarget = &dto.RollbackView{

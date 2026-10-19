@@ -30,7 +30,7 @@ func (s *platformRepoStub) ValidateAdmin(context.Context, string) error {
 	return s.validateErr
 }
 
-func (s *platformRepoStub) SummariseOutbox(ctx context.Context, limit int) (*model.OutboxSummary, error) {
+func (s *platformRepoStub) SummariseOutbox(ctx context.Context, _ int) (*model.OutboxSummary, error) {
 	s.reads.Add(1)
 	if s.outboxDelay > 0 {
 		select {
@@ -93,12 +93,11 @@ func (s *telemetryStub) ProcessingFailures(context.Context, time.Duration) (int6
 }
 
 func healthyTelemetry() *telemetryStub {
-	read := platformNow.Add(-5 * time.Minute)
-	sampled := platformNow.Add(-40 * time.Second)
-	zero := int64(0)
+	read := new(platformNow.Add(-5 * time.Minute))
+	sampled := new(platformNow.Add(-40 * time.Second))
 	return &telemetryStub{
-		latency: monitor.Latency{APIP95Ms: new(388.0), APISamples: 1204, EventP95Ms: new(1240.0), EventSamples: 96, LastSampleAt: &read},
-		lag:     monitor.ConsumerLag{Records: &zero, Partitions: 3, OldestSampledAt: &sampled},
+		latency: monitor.Latency{APIP95Ms: new(388.0), APISamples: 1204, EventP95Ms: new(1240.0), EventSamples: 96, LastSampleAt: read},
+		lag:     monitor.ConsumerLag{Records: new(int64(0)), Partitions: 3, OldestSampledAt: sampled},
 	}
 }
 
@@ -189,7 +188,10 @@ func TestPlatformStatusDeadLetteredEventsNeedAttention(t *testing.T) {
 
 	view, err := newPlatformService(repo, ready(), healthyTelemetry(), releaseSettings()).Status(context.Background(), admin)
 
-	if err != nil || view.Summary != PlatformSummaryAttention {
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if view.Summary != PlatformSummaryAttention {
 		t.Fatalf("summary = %s err = %v", view.Summary, err)
 	}
 	if got := view.Outbox.RecentQuarantined[0]; got.BatchID != "ae95ae4f" || *got.LastErrorCode != code || got.AttemptCount != 8 {
@@ -214,7 +216,10 @@ func TestPlatformStatusNotReadyWinsOverEverythingElse(t *testing.T) {
 
 	view, err := newPlatformService(repo, readiness, nil, releaseSettings()).Status(context.Background(), admin)
 
-	if err != nil || view.Summary != PlatformSummaryNotReady || view.Readiness.Redis != "unavailable" {
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if view.Summary != PlatformSummaryNotReady || view.Readiness.Redis != "unavailable" {
 		t.Fatalf("summary = %s readiness = %+v err = %v", view.Summary, view.Readiness, err)
 	}
 }
@@ -222,7 +227,10 @@ func TestPlatformStatusNotReadyWinsOverEverythingElse(t *testing.T) {
 func TestPlatformStatusWithoutLogAnalyticsReportsUnknownNotZero(t *testing.T) {
 	view, err := newPlatformService(&platformRepoStub{}, ready(), nil, releaseSettings()).Status(context.Background(), admin)
 
-	if err != nil || view.Summary != PlatformSummaryUnknown {
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if view.Summary != PlatformSummaryUnknown {
 		t.Fatalf("summary = %s err = %v", view.Summary, err)
 	}
 	if view.Latency != nil || view.ConsumerLag != nil || view.ProcessingFailuresLastHour != nil {
@@ -260,7 +268,10 @@ func TestPlatformStatusSlowSourceTimesOutAlone(t *testing.T) {
 	started := time.Now()
 	view, err := s.Status(context.Background(), admin)
 
-	if err != nil || time.Since(started) > 500*time.Millisecond {
+	if err != nil {
+		t.Fatalf("status: %v", err)
+	}
+	if time.Since(started) > 500*time.Millisecond {
 		t.Fatalf("err = %v elapsed = %s", err, time.Since(started))
 	}
 	if view.Outbox != nil || view.Unknown["outbox"] != UnknownTimedOut || view.Evidence == nil || view.Latency == nil {
@@ -270,10 +281,10 @@ func TestPlatformStatusSlowSourceTimesOutAlone(t *testing.T) {
 
 func TestPlatformStatusStaleSamplesAreUnknown(t *testing.T) {
 	telemetry := healthyTelemetry()
-	oldRead := platformNow.Add(-16 * time.Minute)
-	oldSample := platformNow.Add(-6 * time.Minute)
-	telemetry.latency.LastSampleAt = &oldRead
-	telemetry.lag.OldestSampledAt = &oldSample
+	oldRead := new(platformNow.Add(-16 * time.Minute))
+	oldSample := new(platformNow.Add(-6 * time.Minute))
+	telemetry.latency.LastSampleAt = oldRead
+	telemetry.lag.OldestSampledAt = oldSample
 
 	view, _ := newPlatformService(&platformRepoStub{}, ready(), telemetry, releaseSettings()).Status(context.Background(), admin)
 
@@ -281,7 +292,7 @@ func TestPlatformStatusStaleSamplesAreUnknown(t *testing.T) {
 		t.Fatalf("latency = %+v unknown = %v", view.Latency, view.Unknown)
 	}
 	// The tile keeps the sample time so it can say how old it is.
-	if view.ConsumerLag == nil || view.ConsumerLag.Records != nil || !view.ConsumerLag.SampledAt.Equal(oldSample) || view.Unknown["consumer_lag"] != UnknownStaleSample {
+	if view.ConsumerLag == nil || view.ConsumerLag.Records != nil || !view.ConsumerLag.SampledAt.Equal(*oldSample) || view.Unknown["consumer_lag"] != UnknownStaleSample {
 		t.Fatalf("lag = %+v unknown = %v", view.ConsumerLag, view.Unknown)
 	}
 }
