@@ -21,7 +21,7 @@ provider "azurerm" {
 # Persistent shared resource group.
 resource "azurerm_resource_group" "shared" {
   name     = "rg-ewaste-shared"
-  location = "malaysiawest"
+  location = var.location
 
   tags = {
     Project   = "Responsible E-Waste Chain-of-Custody"
@@ -38,7 +38,7 @@ resource "azurerm_resource_group" "shared" {
 resource "azurerm_container_registry" "acr" {
   name                          = "acrewasteplatform"
   resource_group_name           = azurerm_resource_group.shared.name
-  location                      = "japaneast"
+  location                      = var.location
   sku                           = "Premium"
   admin_enabled                 = false
   anonymous_pull_enabled        = false
@@ -55,7 +55,7 @@ resource "azurerm_container_registry" "acr" {
 resource "azurerm_log_analytics_workspace" "logs" {
   name                = "log-ewaste-centralized"
   resource_group_name = azurerm_resource_group.shared.name
-  location            = azurerm_resource_group.shared.location
+  location            = var.location
   sku                 = "PerGB2018"
   retention_in_days   = 30
 
