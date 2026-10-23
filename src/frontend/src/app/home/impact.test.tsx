@@ -1,7 +1,8 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { WorkflowError } from "@/lib/workflow/errors";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AxiosError, AxiosHeaders } from "axios";
+import { WorkflowError, toWorkflowError } from "@/lib/workflow/errors";
 import type { ImpactItem, ImpactReport } from "@/lib/workflow/types";
 import { ImpactView } from "./impact";
 
@@ -255,6 +256,107 @@ describe("impact view", () => {
     expect(await screen.findByTestId("impact-totals")).toBeInTheDocument();
     expect(screen.queryByTestId("impact-forbidden")).not.toBeInTheDocument();
   });
+
+  it.each([
+    [1, "1 batch has no recorded outcome. Its received weight"],
+    [2, "2 batches have no recorded outcome. Their received weight"],
+  ])(
+    "words the missing-outcome warning for %i batch(es)",
+    async (count, text) => {
+      getImpact.mockResolvedValue({
+        ...report,
+        totals: { ...report.totals, missingOutcomeBatchCount: count },
+      });
+      render(<ImpactView />);
+
+      expect(
+        await screen.findByTestId("impact-missing-outcome"),
+      ).toHaveTextContent(text);
+    },
+  );
+
+  describe("completion times", () => {
+    const zone = process.env.TZ;
+
+    afterEach(() => {
+      process.env.TZ = zone;
+    });
+
+    // 16:30 UTC is already the next day in Singapore. The filters are UTC, so
+    // the row must show the UTC date that the filter matches.
+    it("shows the UTC date the filters use, not the browser's", async () => {
+      process.env.TZ = "Asia/Singapore";
+      getImpact.mockResolvedValue({
+        ...report,
+        items: [{ ...clean, acknowledgedAt: "2026-10-21T16:30:00Z" }],
+      });
+      render(<ImpactView onOpenCustody={vi.fn()} />);
+
+      const row = await screen.findByTestId("impact-item-batch-1");
+      expect(row).toHaveTextContent("21 Oct 2026 16:30");
+      expect(row).not.toHaveTextContent("22 Oct");
+      expect(
+        within(screen.getByTestId("impact-items")).getByText("Completed (UTC)"),
+      ).toBeInTheDocument();
+      expect(screen.getByTestId("impact-card-batch-1")).toHaveTextContent(
+        "Completed 21 Oct 2026 16:30 UTC",
+      );
+    });
+  });
+
+  describe("phone layout", () => {
+    it("swaps the table for cards below 640 px", async () => {
+      render(<ImpactView onOpenCustody={vi.fn()} />);
+
+      const table = await screen.findByTestId("impact-items");
+      expect(table.parentElement).toHaveClass("hidden", "sm:block");
+      expect(screen.getByTestId("impact-cards")).toHaveClass("sm:hidden");
+      expect(screen.getAllByTestId(/^impact-card-batch-/)).toHaveLength(2);
+
+      const card = screen.getByTestId("impact-card-batch-2");
+      expect(card).toHaveTextContent("Not recorded");
+      expect(card).not.toHaveTextContent("0.00 kg");
+      expect(card).toHaveTextContent("Weight mismatch, Missing outcome");
+      expect(card).toHaveTextContent("analytics-impact-v2");
+    });
+
+    it("puts the action first in each card", async () => {
+      const user = userEvent.setup();
+      const onOpenCustody = vi.fn();
+      render(<ImpactView onOpenCustody={onOpenCustody} />);
+
+      for (const card of await screen.findAllByTestId(/^impact-card-batch-/)) {
+        expect(
+          card.querySelector("button, a, input, select"),
+        ).toHaveTextContent("View custody");
+      }
+      await user.click(screen.getByTestId("impact-card-custody-batch-1"));
+      expect(onOpenCustody).toHaveBeenCalledWith("batch-1");
+    });
+  });
+
+  it.each([500, 502, 503, 504])(
+    "shows the try-again sentence when the service answers %i",
+    async (status) => {
+      getImpact.mockRejectedValue(
+        toWorkflowError(
+          new AxiosError("failed", undefined, undefined, undefined, {
+            status,
+            statusText: "Error",
+            data: "<html>Internal Server Error</html>",
+            headers: new AxiosHeaders(),
+            config: { headers: new AxiosHeaders() },
+          }),
+        ),
+      );
+      render(<ImpactView />);
+
+      expect(await screen.findByTestId("impact-unavailable")).toHaveTextContent(
+        "The workflow service is temporarily unavailable. Try again.",
+      );
+      expect(screen.queryByText("The request failed.")).toBeNull();
+    },
+  );
 
   it("hands a batch to the Custody view", async () => {
     const user = userEvent.setup();

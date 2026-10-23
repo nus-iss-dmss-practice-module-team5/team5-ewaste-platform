@@ -9,7 +9,7 @@ import type {
   ReleaseImage,
 } from "@/lib/workflow/types";
 import { useEffect, useState } from "react";
-import { Banner, LoadingLine, messageForKind } from "./workflow-ui";
+import { Banner, LoadingLine, dateParts, messageForKind } from "./workflow-ui";
 
 // Targets shared with the API summary and the EWCSB-223 alert rules.
 const API_P95_TARGET_MS = 3000;
@@ -112,19 +112,9 @@ export function formatReadAt(iso: string): string {
   return `${utc} UTC (${local})`;
 }
 
-// UTC parts, assembled by hand so the text does not depend on the locale's
-// punctuation: "15 Oct 13:41" and "21 Oct 2026 09:14 UTC".
+// UTC parts for "15 Oct 13:41" and "21 Oct 2026 09:14 UTC".
 function utcParts(date: Date): Record<string, string> {
-  const parts = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "UTC",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(date);
-  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return dateParts(date, "UTC");
 }
 
 // For rows under a "(UTC)" heading.

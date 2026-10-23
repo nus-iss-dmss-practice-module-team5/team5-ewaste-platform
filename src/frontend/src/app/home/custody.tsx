@@ -292,7 +292,7 @@ export function CustodyView({ initialBatchId }: { initialBatchId?: string }) {
                   : "Analytics has not run for this batch yet, so no anomalies are stored."}
               </Banner>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="hidden overflow-x-auto sm:block">
                 <table
                   data-testid="custody-anomalies"
                   className="w-full text-left text-sm"
@@ -339,6 +339,35 @@ export function CustodyView({ initialBatchId }: { initialBatchId?: string }) {
                 </table>
               </div>
             )}
+            {anomalies.length > 0 ? (
+              <ul
+                data-testid="custody-anomaly-cards"
+                className="grid gap-2 sm:hidden"
+              >
+                {anomalies.map((anomaly) => (
+                  <li
+                    key={anomaly.anomalyId}
+                    className="grid gap-1 rounded-md border border-l-4 border-slate-200 border-l-amber-500 bg-white p-3 text-sm"
+                  >
+                    <p className="font-semibold text-amber-950">
+                      {anomalyLabel(anomaly.code)}
+                    </p>
+                    <p className="text-slate-700">
+                      Declared {anomaly.declaredValue ?? "—"} · actual{" "}
+                      {anomaly.actualValue ?? "—"} · difference{" "}
+                      {anomaly.deltaKg ? `${anomaly.deltaKg} kg` : "—"}
+                    </p>
+                    <p className="text-slate-600">
+                      Detected {formatWhen(anomaly.detectedAt)} · policy{" "}
+                      {ruleVersionByResult.get(anomaly.resultId) ?? "—"}
+                    </p>
+                    <p className="font-mono text-xs break-all text-slate-700">
+                      Analytics result {anomaly.resultId}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           <div className="grid gap-2">
@@ -353,7 +382,7 @@ export function CustodyView({ initialBatchId }: { initialBatchId?: string }) {
                 No evidence was uploaded for this batch.
               </Banner>
             ) : (
-              <div className="overflow-x-auto">
+              <div className="hidden overflow-x-auto sm:block">
                 <table
                   data-testid="custody-evidence"
                   className="w-full text-left text-sm"
@@ -406,6 +435,42 @@ export function CustodyView({ initialBatchId }: { initialBatchId?: string }) {
                 </table>
               </div>
             )}
+            {evidence.length > 0 ? (
+              <ul
+                data-testid="custody-evidence-cards"
+                className="grid gap-2 sm:hidden"
+              >
+                {evidence.map((item) => (
+                  <li
+                    key={item.evidenceId}
+                    className="grid gap-1 rounded-md border border-slate-200 bg-white p-3 text-sm"
+                  >
+                    <button
+                      type="button"
+                      data-testid={`custody-evidence-card-download-${item.evidenceId}`}
+                      disabled={downloading !== null}
+                      className="w-fit font-medium text-teal-800 disabled:opacity-50"
+                      onClick={() => void onDownload(item)}
+                    >
+                      {downloading === item.evidenceId
+                        ? "Downloading…"
+                        : "Download"}
+                    </button>
+                    <p className="font-semibold text-slate-900">
+                      {item.stage ?? "—"} · {item.mimeType ?? "—"} ·{" "}
+                      {formatSize(item.sizeBytes)}
+                    </p>
+                    <p className="text-slate-600">
+                      Uploaded {formatWhen(item.uploadedAt)}
+                    </p>
+                    <p className="text-slate-600">{item.source}</p>
+                    <p className="font-mono text-xs break-all text-slate-700">
+                      SHA-256 {item.sha256Hash ?? "—"}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
 
           <div className="grid gap-2">
@@ -435,9 +500,11 @@ export function CustodyView({ initialBatchId }: { initialBatchId?: string }) {
                       </time>
                     </div>
                     <p className="text-slate-600">
-                      {entry.fromStatus === entry.toStatus
-                        ? `Status ${entry.toStatus}`
-                        : `${entry.fromStatus} → ${entry.toStatus}`}{" "}
+                      {entry.eventType === "EvidenceDownloaded"
+                        ? `Read only, status unchanged (${entry.toStatus})`
+                        : entry.fromStatus === entry.toStatus
+                          ? `Status ${entry.toStatus}`
+                          : `${entry.fromStatus} → ${entry.toStatus}`}{" "}
                       · batch version {entry.batchVersion}
                     </p>
                     <dl className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2">

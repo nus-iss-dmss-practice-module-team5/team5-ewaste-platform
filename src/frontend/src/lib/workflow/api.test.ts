@@ -373,8 +373,8 @@ describe("workflow api", () => {
     });
 
     get.mockRejectedValueOnce(
-      axiosError(500, {
-        code: "INTERNAL",
+      axiosError(400, {
+        code: "BAD_REQUEST",
         message: "boom",
         correlationId: "corr-camel",
       }),
@@ -390,6 +390,19 @@ describe("workflow api", () => {
       kind: "network",
     });
   });
+
+  // A stopped API reaches the browser as 500 from the UI proxy, or as 502 or
+  // 504 from the ingress while a revision restarts.
+  it.each([500, 502, 503, 504])(
+    "maps %i to the unavailable kind",
+    async (status) => {
+      get.mockRejectedValueOnce(axiosError(status, { code: "INTERNAL" }));
+      await expect(listBatches("token")).rejects.toMatchObject({
+        kind: "unavailable",
+        status,
+      });
+    },
+  );
 
   it("sends the failed-pickup reason without a version field in the body", async () => {
     post.mockResolvedValue({

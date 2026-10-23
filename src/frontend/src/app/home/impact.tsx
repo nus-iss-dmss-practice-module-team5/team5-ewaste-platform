@@ -13,7 +13,7 @@ import {
   LoadingLine,
   anomalyLabel,
   bannerForError,
-  formatWhen,
+  formatUtc,
 } from "./workflow-ui";
 
 const MAX_ORG_ID_LENGTH = 32;
@@ -268,14 +268,13 @@ export function ImpactView({
               {totals.missingOutcomeBatchCount > 0 ? (
                 <Banner testId="impact-missing-outcome" tone="warning">
                   {totals.missingOutcomeBatchCount === 1
-                    ? "1 batch has"
-                    : `${totals.missingOutcomeBatchCount} batches have`}{" "}
-                  no recorded outcome. Their received weight is counted as
-                  unknown and adds nothing to the reused, recycled, disposed or
-                  diverted totals.
+                    ? "1 batch has no recorded outcome. Its"
+                    : `${totals.missingOutcomeBatchCount} batches have no recorded outcome. Their`}{" "}
+                  received weight is counted as unknown and adds nothing to the
+                  reused, recycled, disposed or diverted totals.
                 </Banner>
               ) : null}
-              <div className="overflow-x-auto">
+              <div className="hidden overflow-x-auto sm:block">
                 <table
                   data-testid="impact-items"
                   className="w-full text-left text-sm"
@@ -283,7 +282,7 @@ export function ImpactView({
                   <thead className="text-slate-500">
                     <tr>
                       <th className="py-2 pr-3">Batch</th>
-                      <th className="py-2 pr-3">Completed</th>
+                      <th className="py-2 pr-3">Completed (UTC)</th>
                       <th className="py-2 pr-3">Received</th>
                       <th className="py-2 pr-3">Reused</th>
                       <th className="py-2 pr-3">Recycled</th>
@@ -303,8 +302,8 @@ export function ImpactView({
                         className="border-t border-slate-200 align-top"
                       >
                         <td className="break-all py-2 pr-3">{item.batchId}</td>
-                        <td className="py-2 pr-3">
-                          {formatWhen(item.acknowledgedAt)}
+                        <td className="py-2 pr-3 whitespace-nowrap">
+                          {formatUtc(item.acknowledgedAt)}
                         </td>
                         {[
                           item.receivedKg,
@@ -344,10 +343,72 @@ export function ImpactView({
                   </tbody>
                 </table>
               </div>
+              <ImpactCards items={report.items} onOpenCustody={onOpenCustody} />
             </>
           )}
         </div>
       ) : null}
     </section>
+  );
+}
+
+// Below 640 px each batch is a card with its action first, so nothing sits
+// off-screen in a sideways-scrolling table.
+function ImpactCards({
+  items,
+  onOpenCustody,
+}: {
+  items: ImpactReport["items"];
+  onOpenCustody?: (batchId: string) => void;
+}) {
+  return (
+    <ul data-testid="impact-cards" className="grid gap-2 sm:hidden">
+      {items.map((item) => (
+        <li
+          key={item.resultId}
+          data-testid={`impact-card-${item.batchId}`}
+          className="grid gap-2 rounded-md border border-slate-200 bg-white p-3 text-sm"
+        >
+          {onOpenCustody ? (
+            <button
+              type="button"
+              data-testid={`impact-card-custody-${item.batchId}`}
+              className="w-fit font-medium text-teal-800"
+              onClick={() => onOpenCustody(item.batchId)}
+            >
+              View custody
+            </button>
+          ) : null}
+          <p className="font-mono text-xs break-all text-slate-700">
+            Batch {item.batchId}
+          </p>
+          <p className="text-slate-600">
+            Completed {formatUtc(item.acknowledgedAt)} UTC
+          </p>
+          <dl className="grid grid-cols-2 gap-x-4 gap-y-1">
+            {[
+              ["Received", weight(item.receivedKg)],
+              ["Reused", weight(item.reusedKg)],
+              ["Recycled", weight(item.recycledKg)],
+              ["Disposed", weight(item.disposedKg)],
+              ["Unknown", weight(item.unknownKg)],
+              ["Outcome data", item.dataQuality],
+              [
+                "Anomalies",
+                item.anomalyCodes.length > 0
+                  ? item.anomalyCodes.map(anomalyLabel).join(", ")
+                  : "None",
+              ],
+              ["Policy version", item.ruleVersion],
+            ].map(([label, value]) => (
+              <div key={label} className="min-w-0">
+                <dt className="text-slate-500">{label}</dt>
+                <dd className="break-words text-slate-900">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        </li>
+      ))}
+    </ul>
   );
 }
