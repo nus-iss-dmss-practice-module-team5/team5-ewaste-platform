@@ -160,8 +160,7 @@ func (r *LogAnalyticsReader) ConsumerLag(ctx context.Context) (ConsumerLag, erro
 	row := rows[0]
 	result := ConsumerLag{Partitions: row.int("Partitions"), OldestSampledAt: row.time("OldestSample")}
 	if result.Partitions > 0 && row.int("Missing") == 0 {
-		records := row.int("Records")
-		result.Records = &records
+		result.Records = new(row.int("Records"))
 	}
 	return result, nil
 }
@@ -212,7 +211,7 @@ func (r *LogAnalyticsReader) query(ctx context.Context, kql string) ([]resultRow
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrQueryFailed, err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes))
 	if err != nil {
 		return nil, fmt.Errorf("%w: read: %v", ErrQueryFailed, err)

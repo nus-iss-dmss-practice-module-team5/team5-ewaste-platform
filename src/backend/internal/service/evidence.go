@@ -46,7 +46,6 @@ type EvidenceUploadRequest struct {
 
 type EvidenceDownloadActor struct {
 	BatchActor
-	AdminAccessReason string
 }
 
 type EvidenceDownloadResult struct {
@@ -221,17 +220,15 @@ func (s *EvidenceService) Download(
 	// Reject unsupported roles before any database or object lookup. This keeps
 	// denied traffic from joining the evidence read path under load.
 	switch role {
-	case "RECYCLER", "AUDITOR", "SYSTEM_ADMIN":
+	case "RECYCLER", "AUDITOR":
 	default:
 		return EvidenceDownloadResult{}, ErrBatchForbidden
-	}
-	if role == "SYSTEM_ADMIN" && strings.TrimSpace(actor.AdminAccessReason) == "" {
-		return EvidenceDownloadResult{}, NewBatchValidationError(map[string]string{"X-Admin-Access-Reason": "is required for system administrator downloads"})
 	}
 	if correlationID == "" {
 		return EvidenceDownloadResult{}, NewBatchValidationError(map[string]string{"X-Correlation-ID": "is required"})
 	}
 
+	var batch *model.Batch
 	var evidence *model.BatchEvidence
 	var err error
 	if reader, ok := s.repository.(repository.EvidenceDownloadReader); ok {
@@ -244,13 +241,14 @@ func (s *EvidenceService) Download(
 			err = mapEvidenceRepositoryError(err)
 		}
 		if record != nil {
+			batch = record.Batch
 			evidence = record.Evidence
 		}
 	} else {
 		// Keep the transactional fallback for test doubles and alternate
 		// adapters. The production repository uses the plain-read path above.
 		err = s.repository.Transaction(ctx, func(tx repository.BatchTransaction) error {
-			batch, err := tx.FindBatchForUpdate(ctx, batchID)
+			batch, err = tx.FindBatchForUpdate(ctx, batchID)
 			if err != nil {
 				return err
 			}
@@ -280,10 +278,6 @@ func (s *EvidenceService) Download(
 				if err := tx.ValidateAuditorActor(ctx, actor.UserID); err != nil {
 					return mapEvidenceRepositoryError(err)
 				}
-			case "SYSTEM_ADMIN":
-				if err := tx.ValidateAdminActor(ctx, actor.UserID); err != nil {
-					return mapEvidenceRepositoryError(err)
-				}
 			}
 			return nil
 		})
@@ -293,6 +287,9 @@ func (s *EvidenceService) Download(
 	}
 	if evidence == nil {
 		return EvidenceDownloadResult{}, ErrBatchEvidenceNotFound
+	}
+	if batch == nil {
+		return EvidenceDownloadResult{}, ErrBatchNotFound
 	}
 	if s.storage == nil {
 		return EvidenceDownloadResult{}, ErrEvidenceStorage
@@ -305,37 +302,32 @@ func (s *EvidenceService) Download(
 		return EvidenceDownloadResult{}, err
 	}
 
-	if role == "SYSTEM_ADMIN" {
-		if err := s.recordAdminDownload(ctx, batchID, evidenceID, actor, correlationID); err != nil {
-			return EvidenceDownloadResult{}, err
-		}
+	if err := s.recordEvidenceDownload(ctx, batch, evidenceID, role, actor, correlationID); err != nil {
+		return EvidenceDownloadResult{}, err
 	}
 
 	return EvidenceDownloadResult{Filename: evidence.OriginalFileName, MIMEType: evidence.MIMEType, Content: content, SizeBytes: len(content)}, nil
 }
 
-func (s *EvidenceService) recordAdminDownload(ctx context.Context, batchID string, evidenceID string, actor EvidenceDownloadActor, correlationID string) error {
+func (s *EvidenceService) recordEvidenceDownload(ctx context.Context, batch *model.Batch, evidenceID string, role string, actor EvidenceDownloadActor, correlationID string) error {
 	metadata, err := prepareMetadata(BatchCommandMetadata{
 		Actor: actor.BatchActor, CorrelationID: correlationID, IdempotencyKey: "download-" + s.newID(),
-	}, DownloadEvidenceCommand, batchID, struct {
-		EvidenceID string `json:"evidence_id"`
-		Reason     string `json:"reason"`
-	}{evidenceID, strings.TrimSpace(actor.AdminAccessReason)})
+	}, DownloadEvidenceCommand, batch.ID, struct {
+		EvidenceID   string `json:"evidence_id"`
+		RoleCode     string `json:"role_code"`
+		BatchVersion uint32 `json:"batch_version"`
+	}{evidenceID, role, batch.Version})
 	if err != nil {
 		return err
 	}
 	return s.repository.Transaction(ctx, func(tx repository.BatchTransaction) error {
-		batch, err := tx.FindBatchForUpdate(ctx, batchID)
-		if err != nil {
-			return err
-		}
 		now := s.clock().UTC()
 		command := newCommand(metadata, batch.ID, now, s.retainFor)
 		if err := tx.CreateCommand(ctx, command); err != nil {
 			return err
 		}
 		audit := newAuditEvent(metadata, command.ID, batch, model.BatchAuditEventEvidenceDownloaded, batch.Status, batch.Status, map[string]string{
-			"evidence_id": evidenceID, "reason": strings.TrimSpace(actor.AdminAccessReason),
+			"evidence_id": evidenceID, "role_code": role, "batch_version": fmt.Sprintf("%d", batch.Version),
 		}, now)
 		if err := tx.AppendAudit(ctx, audit); err != nil {
 			return err

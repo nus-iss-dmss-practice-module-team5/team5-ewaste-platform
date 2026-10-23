@@ -173,10 +173,6 @@ func (r *GormBatchRepository) ReadEvidenceForDownload(
 			if err := reader.ValidateAuditorActor(ctx, query.UserID); err != nil {
 				return err
 			}
-		case "SYSTEM_ADMIN":
-			if err := reader.ValidateAdminActor(ctx, query.UserID); err != nil {
-				return err
-			}
 		default:
 			return ErrBatchActorNotEligible
 		}
@@ -577,7 +573,10 @@ func (t *gormBatchTransaction) FindAnalyticsResultBySourceRun(ctx context.Contex
 
 func (t *gormBatchTransaction) FindBatchAnomalies(ctx context.Context, resultID string) ([]*model.BatchAnomaly, error) {
 	var anomalies []*model.BatchAnomaly
-	if err := t.db.WithContext(ctx).Where("metric_id = ?", resultID).Order("anomaly_id ASC").Find(&anomalies).Error; err != nil {
+	if err := t.db.WithContext(ctx).
+		Where("metric_id = ?", resultID).
+		Order(model.AnomalyOrderSQL + ", anomaly_id ASC").
+		Find(&anomalies).Error; err != nil {
 		return nil, err
 	}
 	return anomalies, nil

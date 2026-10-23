@@ -80,8 +80,7 @@ func (r *GormPlatformStatusRepository) SummariseOutbox(ctx context.Context, rece
 		RecentQuarantined: make([]model.QuarantinedEvent, 0, len(rows)),
 	}
 	if pending.Oldest.Valid {
-		oldest := pending.Oldest.Time.UTC()
-		summary.OldestPendingCreatedAt = &oldest
+		summary.OldestPendingCreatedAt = new(pending.Oldest.Time.UTC())
 	}
 	for _, row := range rows {
 		summary.RecentQuarantined = append(summary.RecentQuarantined, model.QuarantinedEvent{
