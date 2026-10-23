@@ -37,13 +37,11 @@ if [[ -n "${GITHUB_ACTIONS:-}" ]]; then printf '::add-mask::%s\n' "$CONNECTION";
 API_FQDN=$(az containerapp show --name "$API" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)
 [[ -n "$API_FQDN" ]] || { echo 'API prerequisite is missing.' >&2; exit 1; }
 
-# Map internal FQDN to the ACA Environment private static IP on the runner VM
+# Query ACA Environment private static IP for zero-privilege in-process DNS routing
 ENV_NAME=$(az containerapp show --name "$API" --resource-group "$RG" --query properties.managedEnvironmentId -o tsv | awk -F'/' '{print $NF}')
 STATIC_IP=$(az containerapp env show --name "$ENV_NAME" --resource-group "$RG" --query properties.staticIp -o tsv 2>/dev/null || true)
-if [[ -n "$STATIC_IP" && -n "$API_FQDN" ]]; then
-  if ! grep -q "$API_FQDN" /etc/hosts 2>/dev/null; then
-    echo "$STATIC_IP $API_FQDN" | sudo tee -a /etc/hosts >/dev/null || true
-  fi
+if [[ -z "$STATIC_IP" ]]; then
+  STATIC_IP=$(az containerapp env show --name "cae-ewaste-${TARGET_ENV}" --resource-group "$RG" --query properties.staticIp -o tsv 2>/dev/null || true)
 fi
 
 # Infrastructure owns creation, identity, registry, scaling and ingress policy.
@@ -63,8 +61,18 @@ API_REVISION=$(az containerapp show --name "$API" --resource-group "$RG" --query
 az containerapp revision restart --name "$API" --resource-group "$RG" --revision "$API_REVISION" --output none
 
 # Read-only authentication/API check. No synthetic business event or row is created.
-MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE" MATCHER_API_FQDN="$API_FQDN" python3 - <<'PYPROBE'
-import base64, hashlib, hmac, json, os, ssl, time, urllib.error, urllib.request, uuid
+MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE" MATCHER_API_FQDN="$API_FQDN" STATIC_IP="${STATIC_IP:-}" python3 - <<'PYPROBE'
+import base64, hashlib, hmac, json, os, socket, ssl, time, urllib.error, urllib.request, uuid
+
+static_ip = os.environ.get("STATIC_IP")
+if static_ip:
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _patched_getaddrinfo(host, port, *args, **kwargs):
+        if host == os.environ.get("MATCHER_API_FQDN"):
+            return _orig_getaddrinfo(static_ip, port, *args, **kwargs)
+        return _orig_getaddrinfo(host, port, *args, **kwargs)
+    socket.getaddrinfo = _patched_getaddrinfo
+
 ssl_ctx = ssl._create_unverified_context()
 encode = lambda value: base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
 for attempt in range(30):
@@ -94,8 +102,18 @@ else:
     raise SystemExit("Matching facade is unavailable or incompatible; check API image, migrations and workload credentials.")
 PYPROBE
 
-ANALYTICS_FACADE_URL="https://${API_FQDN}" python3 - <<'PYANALYTICS'
-import json, os, ssl, time, urllib.error, urllib.request, uuid
+ANALYTICS_FACADE_URL="https://${API_FQDN}" STATIC_IP="${STATIC_IP:-}" ANALYTICS_FACADE_HOST="${API_FQDN}" python3 - <<'PYANALYTICS'
+import json, os, socket, ssl, time, urllib.error, urllib.request, uuid
+
+static_ip = os.environ.get("STATIC_IP")
+if static_ip:
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _patched_getaddrinfo(host, port, *args, **kwargs):
+        if host == os.environ.get("ANALYTICS_FACADE_HOST"):
+            return _orig_getaddrinfo(static_ip, port, *args, **kwargs)
+        return _orig_getaddrinfo(host, port, *args, **kwargs)
+    socket.getaddrinfo = _patched_getaddrinfo
+
 ssl_ctx = ssl._create_unverified_context()
 url = (os.environ["ANALYTICS_FACADE_URL"] + "/api/v1/batches/" + str(uuid.uuid4())
        + "/analytics-input?source_event_id=" + str(uuid.uuid4()))
