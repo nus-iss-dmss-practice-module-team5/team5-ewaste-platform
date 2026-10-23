@@ -553,6 +553,37 @@ describe("processing work", () => {
       );
       await waitFor(() => expect(createObjectURL).toHaveBeenCalledWith(file));
       expect(revokeObjectURL).toHaveBeenCalledWith("blob:evidence");
+      expect(
+        screen.getByTestId("processing-evidence-download"),
+      ).toHaveTextContent("Download treatment evidence");
+      expect(screen.queryByTestId("processing-evidence-none")).toBeNull();
+    });
+
+    // Evidence can be PRESENT for the batch (a receipt upload) with no
+    // treatment evidence linked, so the status alone must not offer a link.
+    it("says so when no treatment evidence is linked", async () => {
+      const user = userEvent.setup();
+      show({
+        ...verified,
+        status: "RECYCLED",
+        version: 8,
+        evidenceStatus: "PRESENT",
+        treatment: {
+          reusedKg: "2.00",
+          recycledKg: "9.00",
+          disposedKg: "1.00",
+          unknownKg: "0.00",
+          dataQuality: "COMPLETE",
+        },
+      });
+      await openBatch(user);
+
+      expect(screen.getByTestId("processing-evidence-none")).toHaveTextContent(
+        "No treatment evidence is linked to this batch",
+      );
+      expect(
+        screen.queryByTestId("processing-evidence-download"),
+      ).not.toBeInTheDocument();
     });
   });
 

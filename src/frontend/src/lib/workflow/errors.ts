@@ -57,7 +57,9 @@ function kindForStatus(status: number, code: string): WorkflowErrorKind {
   if (status === 401) {
     return "session";
   }
-  if (status === 503) {
+  // The UI proxy answers 500 when the API is stopped, and the ingress answers
+  // 502 or 504 while a revision restarts, so these read like a 503.
+  if ([500, 502, 503, 504].includes(status)) {
     return "unavailable";
   }
   return "error";

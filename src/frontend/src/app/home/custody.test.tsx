@@ -198,6 +198,24 @@ describe("custody view", () => {
     expect(screen.queryByTestId("custody-anomalies-none")).toBeNull();
   });
 
+  it("shows each anomaly as a card below 640 px", async () => {
+    const user = userEvent.setup();
+    getBatchAnomalies.mockResolvedValue([weightMismatch]);
+    await showCustody(user);
+
+    const table = await screen.findByTestId("custody-anomalies");
+    expect(table.parentElement).toHaveClass("hidden", "sm:block");
+    const cards = screen.getByTestId("custody-anomaly-cards");
+    expect(cards).toHaveClass("sm:hidden");
+    const card = within(cards).getByRole("listitem");
+    expect(card).toHaveTextContent("Weight mismatch");
+    expect(card).toHaveTextContent(
+      "Declared 4.50 · actual 4.20 · difference -0.30 kg",
+    );
+    expect(card).toHaveTextContent("policy analytics-impact-v1");
+    expect(card).toHaveTextContent("Analytics result result-1");
+  });
+
   it("tells a clean batch apart from one analytics has not reached", async () => {
     const user = userEvent.setup();
     await showCustody(user);
@@ -266,6 +284,35 @@ describe("custody view", () => {
       expect(createObjectURL).toHaveBeenCalledWith(file);
     });
 
+    it("shows each file as a card below 640 px, download first", async () => {
+      const user = userEvent.setup();
+      downloadEvidence.mockResolvedValue(
+        new Blob(["pdf"], { type: "application/pdf" }),
+      );
+      await showCustody(user);
+
+      const table = await screen.findByTestId("custody-evidence");
+      expect(table.parentElement).toHaveClass("hidden", "sm:block");
+      const cards = screen.getByTestId("custody-evidence-cards");
+      expect(cards).toHaveClass("sm:hidden");
+      const card = within(cards).getAllByRole("listitem")[0];
+      expect(card).toHaveTextContent("TREATMENT · application/pdf · 2.0 KB");
+      expect(card).toHaveTextContent("ab".repeat(32));
+      expect(card).toHaveTextContent("User USR-REC-1 · PROC-001");
+      expect(card.querySelector("button, a")).toBe(
+        screen.getByTestId("custody-evidence-card-download-evidence-1"),
+      );
+
+      await user.click(
+        screen.getByTestId("custody-evidence-card-download-evidence-1"),
+      );
+      await waitFor(() =>
+        expect(saved).toEqual([
+          { name: "evidence-evidence-1.pdf", href: "blob:evidence" },
+        ]),
+      );
+    });
+
     it("reports a failed download and keeps the history on screen", async () => {
       const user = userEvent.setup();
       downloadEvidence.mockRejectedValue(
@@ -310,6 +357,77 @@ describe("custody view", () => {
     await user.click(screen.getByTestId("custody-load"));
     expect(await screen.findByTestId("custody-forbidden")).toBeInTheDocument();
     expect(screen.queryByTestId("custody-not_found")).not.toBeInTheDocument();
+  });
+
+  it("marks an evidence read as read-only with the reader's role", async () => {
+    const user = userEvent.setup();
+    getBatchTimeline.mockResolvedValue([
+      uploaded,
+      analysed,
+      event("a6", "EvidenceDownloaded", "COMPLETED", "COMPLETED", {
+        actorUserId: "USR-AUD-1",
+        batchVersion: 9,
+        details: {
+          evidence_id: "evidence-1",
+          role_code: "AUDITOR",
+          batch_version: "9",
+        },
+      }),
+    ]);
+    await showCustody(user);
+
+    const read = await screen.findByTestId("custody-event-a6");
+    expect(read).toHaveTextContent("Evidence downloaded");
+    expect(read).toHaveTextContent(
+      "Read only, status unchanged (COMPLETED) · batch version 9",
+    );
+    expect(read).toHaveTextContent("role codeAUDITOR");
+    expect(read).not.toHaveTextContent("reason");
+    expect(read).not.toHaveTextContent("→");
+  });
+
+  describe("times", () => {
+    const zone = process.env.TZ;
+
+    afterEach(() => {
+      process.env.TZ = zone;
+    });
+
+    it("shows local time with its zone and UTC beside it", async () => {
+      process.env.TZ = "Asia/Singapore";
+      const user = userEvent.setup();
+      getBatchTimeline.mockResolvedValue([
+        event("a1", "RequestSubmitted", "DRAFT", "SUBMITTED", {
+          occurredAt: "2026-10-21T16:30:00Z",
+        }),
+        event("a2", "MatchingCompleted", "SUBMITTED", "MATCHED", {
+          occurredAt: "2026-10-22T02:15:00Z",
+        }),
+      ]);
+      await showCustody(user);
+
+      expect(
+        (await screen.findByTestId("custody-event-a1")).querySelector("time"),
+      ).toHaveTextContent("22 Oct 2026 00:30 GMT+8 (21 Oct 16:30 UTC)");
+      expect(
+        screen.getByTestId("custody-event-a2").querySelector("time"),
+      ).toHaveTextContent("22 Oct 2026 10:15 GMT+8 (02:15 UTC)");
+    });
+
+    it("shows a UTC browser's time once", async () => {
+      process.env.TZ = "UTC";
+      const user = userEvent.setup();
+      getBatchTimeline.mockResolvedValue([
+        event("a1", "RequestSubmitted", "DRAFT", "SUBMITTED", {
+          occurredAt: "2026-10-21T16:30:00Z",
+        }),
+      ]);
+      await showCustody(user);
+
+      expect(
+        (await screen.findByTestId("custody-event-a1")).querySelector("time"),
+      ).toHaveTextContent(/^21 Oct 2026 16:30 UTC$/);
+    });
   });
 
   it("opens the batch it was handed from the Impact list", async () => {

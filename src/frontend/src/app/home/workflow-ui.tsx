@@ -87,6 +87,27 @@ export function bannerForError(error: unknown, fallbackTestId: string) {
   return { testId: `${fallbackTestId}-${error.kind}`, tone, text };
 }
 
+// Date parts in the browser's zone, or in the zone given, assembled by hand so
+// the text does not depend on the locale's punctuation.
+export function dateParts(
+  date: Date,
+  timeZone?: string,
+): Record<string, string> {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    ...(timeZone ? { timeZone } : {}),
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+    timeZoneName: "short",
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+// "22 Oct 2026 00:30 GMT+8 (21 Oct 16:30 UTC)": local time with its zone, and
+// UTC beside it. The UTC date is repeated only when it differs.
 export function formatWhen(value?: string): string {
   if (!value) {
     return "—";
@@ -95,7 +116,30 @@ export function formatWhen(value?: string): string {
   if (Number.isNaN(date.getTime())) {
     return value;
   }
-  return date.toLocaleString();
+  const local = dateParts(date);
+  const text = `${local.day} ${local.month} ${local.year} ${local.hour}:${local.minute} ${local.timeZoneName}`;
+  if (date.getTimezoneOffset() === 0) {
+    return text;
+  }
+  const utc = dateParts(date, "UTC");
+  const utcDay =
+    utc.day === local.day && utc.month === local.month
+      ? ""
+      : `${utc.day} ${utc.month} `;
+  return `${text} (${utcDay}${utc.hour}:${utc.minute} UTC)`;
+}
+
+// For values under a "(UTC)" heading: "21 Oct 2026 16:30".
+export function formatUtc(value?: string): string {
+  if (!value) {
+    return "—";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  const utc = dateParts(date, "UTC");
+  return `${utc.day} ${utc.month} ${utc.year} ${utc.hour}:${utc.minute}`;
 }
 
 export function saveFile(file: Blob, fileName: string) {

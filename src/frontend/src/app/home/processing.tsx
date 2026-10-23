@@ -26,8 +26,8 @@ import { Banner, LoadingLine, bannerForError, saveFile } from "./workflow-ui";
 
 type Notice = { testId: string; text: string };
 
-// Evidence uploaded in this visit. The detail read does not return an
-// evidence id, so this is the only handle for linking and downloading it.
+// Evidence uploaded in this visit, kept until the treatment links it. After
+// that the detail read returns the evidence id.
 type Attachment = {
   batchId: string;
   evidenceId: string;
@@ -367,8 +367,7 @@ export function ProcessingWork() {
   const loadBanner = loadError
     ? bannerForError(loadError, "processing-list")
     : null;
-  const recordedEvidenceId =
-    detail?.treatment?.evidenceId ?? attached?.evidenceId;
+  const recordedEvidenceId = detail?.treatment?.evidenceId;
   const differences =
     detail?.status === "COLLECTED"
       ? receiptDifferences(detail, actualCategory, actualCount, actualWeight)
@@ -722,12 +721,23 @@ export function ProcessingWork() {
               onClick={() =>
                 void onDownload(
                   recordedEvidenceId,
-                  attached?.fileName ?? `evidence-${recordedEvidenceId}`,
+                  attached?.evidenceId === recordedEvidenceId
+                    ? attached.fileName
+                    : `evidence-${recordedEvidenceId}`,
                 )
               }
             >
-              Download evidence
+              Download treatment evidence
             </button>
+          ) : null}
+          {detail.treatment && !recordedEvidenceId ? (
+            <p
+              data-testid="processing-evidence-none"
+              className="text-sm text-slate-600"
+            >
+              No treatment evidence is linked to this batch, so there is no file
+              to download.
+            </p>
           ) : null}
         </div>
       ) : null}
