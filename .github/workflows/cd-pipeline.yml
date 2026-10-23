@@ -604,16 +604,38 @@ jobs:
           TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
 
           if [ -n "$API_FQDN" ]; then
-            echo "Verifying API ingress accessibility at: https://$API_FQDN"
-            for i in {1..12}; do
-              STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$API_FQDN" || true)
-              echo "API Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
-              if [ "$STATUS_CODE" != "000" ] && [ "$STATUS_CODE" -lt 500 ]; then
-                echo "API verified successfully (HTTP $STATUS_CODE)."
-                break
+            if [ "$TARGET_ENV" == "dev" ]; then
+              echo "Verifying API ingress accessibility at: https://$API_FQDN/healthz"
+              for i in {1..12}; do
+                STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$API_FQDN/healthz" || true)
+                echo "API Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
+                if [ "$STATUS_CODE" == "200" ]; then
+                  echo "API verified successfully (HTTP 200 OK)."
+                  break
+                fi
+                sleep 10
+              done
+              if [ "$STATUS_CODE" != "200" ]; then
+                echo "::error::API health probe failed (HTTP $STATUS_CODE)."
+                exit 1
               fi
-              sleep 10
-            done
+            else
+              echo "API uses internal cluster ingress in $TARGET_ENV (external access disabled for security)."
+              echo "Verifying backend API health via UI proxy gateway: https://$UI_FQDN/api/v1/hello"
+              for i in {1..12}; do
+                STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$UI_FQDN/api/v1/hello" || true)
+                echo "API (via UI proxy) Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
+                if [ "$STATUS_CODE" == "200" ]; then
+                  echo "Backend API verified successfully via UI proxy (HTTP 200 OK)."
+                  break
+                fi
+                sleep 10
+              done
+              if [ "$STATUS_CODE" != "200" ]; then
+                echo "::error::Backend API verification via UI proxy failed (HTTP $STATUS_CODE)."
+                exit 1
+              fi
+            fi
           fi
 
           if [ -n "$UI_FQDN" ]; then
@@ -621,16 +643,20 @@ jobs:
             for i in {1..12}; do
               STATUS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "https://$UI_FQDN" || true)
               echo "UI Probe Attempt $i/12 (HTTP: $STATUS_CODE)"
-              if [ "$STATUS_CODE" != "000" ] && [ "$STATUS_CODE" -lt 500 ]; then
-                echo "UI verified successfully (HTTP $STATUS_CODE)."
+              if [ "$STATUS_CODE" == "200" ]; then
+                echo "UI verified successfully (HTTP 200 OK)."
                 break
               fi
               sleep 10
             done
+            if [ "$STATUS_CODE" != "200" ]; then
+              echo "::error::UI health probe failed (HTTP $STATUS_CODE)."
+              exit 1
+            fi
           fi
 
           # Analytics uses external ingress only in dev; stg/prod runs with internal ingress.
-          # The ACA environment handles internal health probing — no external curl needed.
+          # In stg/prod, deployment was verified directly against the active revision in scripts/deploy-matcher.sh.
           if [ -n "$ANALYTICS_FQDN" ] && [ "$TARGET_ENV" == "dev" ]; then
             echo "Verifying Analytics ingress accessibility at: https://$ANALYTICS_FQDN/readyz"
             for i in {1..12}; do
@@ -642,8 +668,12 @@ jobs:
               fi
               sleep 10
             done
+            if [ "$STATUS_CODE" != "200" ]; then
+              echo "::error::Analytics Worker health probe failed (HTTP $STATUS_CODE)."
+              exit 1
+            fi
           elif [ -n "$ANALYTICS_FQDN" ]; then
-            echo "Analytics Worker uses internal ingress in $TARGET_ENV — readiness probe skipped (ACA manages internal routing)."
+            echo "Analytics Worker uses internal ingress in $TARGET_ENV — revision readiness was verified during deployment step."
           fi
 
       # ------------------------------------------------------------------------
@@ -716,10 +746,10 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Execute OWASP ZAP Baseline Scan Against Deployed Service
-        if: needs.deploy-application.outputs.aca_api_fqdn != ''
+        if: needs.deploy-application.outputs.aca_ui_fqdn != '' || needs.deploy-application.outputs.aca_api_fqdn != ''
         uses: zaproxy/action-baseline@7c4deb10e6261301961c86d65d54a516394f9aed # v0.14.0
         with:
-          target: "https://${{ needs.deploy-application.outputs.aca_api_fqdn }}"
+          target: ${{ needs.resolve-environment.outputs.environment == 'dev' && format('https://{0}', needs.deploy-application.outputs.aca_api_fqdn) || format('https://{0}', needs.deploy-application.outputs.aca_ui_fqdn) }}
           cmd_options: '-a'
           allow_issue_writing: false
           fail_action: false
@@ -752,10 +782,19 @@ jobs:
       - name: Execute Seeded-User Login API Smoke Test
         run: |
           API_FQDN="${{ needs.deploy-application.outputs.aca_api_fqdn }}"
-          if [ -n "$API_FQDN" ]; then
+          UI_FQDN="${{ needs.deploy-application.outputs.aca_ui_fqdn }}"
+          TARGET_ENV="${{ needs.resolve-environment.outputs.environment }}"
+
+          API_URL=""
+          if [ "$TARGET_ENV" == "dev" ] && [ -n "$API_FQDN" ]; then
             API_URL="https://${API_FQDN}/api/v1/auth/login"
-            CORRELATION_ID="smoke-api-${{ needs.resolve-environment.outputs.environment }}-$(date +%s)"
-            echo "Executing API authentication test with correlation ID: $CORRELATION_ID"
+          elif [ -n "$UI_FQDN" ]; then
+            API_URL="https://${UI_FQDN}/api/v1/auth/login"
+          fi
+
+          if [ -n "$API_URL" ]; then
+            CORRELATION_ID="smoke-api-${TARGET_ENV}-$(date +%s)"
+            echo "Executing API authentication test against $API_URL with correlation ID: $CORRELATION_ID"
 
             RESPONSE=$(curl -s -w "\n%{http_code}" -X POST "$API_URL" \
               -H "Content-Type: application/json" \
@@ -767,6 +806,12 @@ jobs:
 
             echo "API HTTP Response Status: $HTTP_STATUS"
             echo "API HTTP Response Body: $HTTP_BODY"
+
+            if [ "$HTTP_STATUS" == "200" ]; then
+              echo "API authentication smoke test passed successfully (HTTP 200 OK)."
+            else
+              echo "::warning::API authentication returned HTTP $HTTP_STATUS"
+            fi
           else
             echo "API smoke test skipped: FQDN not yet assigned."
           fi

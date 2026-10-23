@@ -22,6 +22,10 @@ const nextConfig: NextConfig = {
         source: "/internal/v1/:path*",
         destination: `${apiTarget}/internal/v1/:path*`,
       },
+      {
+        source: "/healthz",
+        destination: `${apiTarget}/healthz`,
+      },
     ];
   },
 };
