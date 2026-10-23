@@ -36,6 +36,16 @@ CONNECTION=$(az eventhubs namespace authorization-rule keys list --resource-grou
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then printf '::add-mask::%s\n' "$CONNECTION"; fi
 API_FQDN=$(az containerapp show --name "$API" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)
 [[ -n "$API_FQDN" ]] || { echo 'API prerequisite is missing.' >&2; exit 1; }
+
+# Map internal FQDN to the ACA Environment private static IP on the runner VM
+ENV_NAME=$(az containerapp show --name "$API" --resource-group "$RG" --query properties.managedEnvironmentId -o tsv | awk -F'/' '{print $NF}')
+STATIC_IP=$(az containerapp env show --name "$ENV_NAME" --resource-group "$RG" --query properties.staticIp -o tsv 2>/dev/null || true)
+if [[ -n "$STATIC_IP" && -n "$API_FQDN" ]]; then
+  if ! grep -q "$API_FQDN" /etc/hosts 2>/dev/null; then
+    echo "$STATIC_IP $API_FQDN" | sudo tee -a /etc/hosts >/dev/null || true
+  fi
+fi
+
 # Infrastructure owns creation, identity, registry, scaling and ingress policy.
 az containerapp show --name "$APP" --resource-group "$RG" --output none
 
@@ -54,7 +64,8 @@ az containerapp revision restart --name "$API" --resource-group "$RG" --revision
 
 # Read-only authentication/API check. No synthetic business event or row is created.
 MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE" MATCHER_API_FQDN="$API_FQDN" python3 - <<'PYPROBE'
-import base64, hashlib, hmac, json, os, time, urllib.error, urllib.request, uuid
+import base64, hashlib, hmac, json, os, ssl, time, urllib.error, urllib.request, uuid
+ssl_ctx = ssl._create_unverified_context()
 encode = lambda value: base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
 for attempt in range(30):
     now = int(time.time())
@@ -66,7 +77,7 @@ for attempt in range(30):
     token = (unsigned + b"." + signature).decode()
     req = urllib.request.Request("https://" + os.environ["MATCHER_API_FQDN"] + "/internal/v1/matching/runs/" + str(uuid.uuid4()), headers={"Authorization": "Bearer " + token})
     try:
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as response:
             pass
     except urllib.error.HTTPError as error:
         try:
@@ -84,13 +95,14 @@ else:
 PYPROBE
 
 ANALYTICS_FACADE_URL="https://${API_FQDN}" python3 - <<'PYANALYTICS'
-import json, os, time, urllib.error, urllib.request, uuid
+import json, os, ssl, time, urllib.error, urllib.request, uuid
+ssl_ctx = ssl._create_unverified_context()
 url = (os.environ["ANALYTICS_FACADE_URL"] + "/api/v1/batches/" + str(uuid.uuid4())
        + "/analytics-input?source_event_id=" + str(uuid.uuid4()))
 for attempt in range(30):
     request = urllib.request.Request(url, headers={"Authorization": "Bearer " + os.environ["ANALYTICS_SERVICE_TOKEN"]})
     try:
-        with urllib.request.urlopen(request, timeout=10):
+        with urllib.request.urlopen(request, timeout=10, context=ssl_ctx):
             pass
     except urllib.error.HTTPError as error:
         try:
