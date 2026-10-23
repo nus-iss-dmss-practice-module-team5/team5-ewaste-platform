@@ -35,8 +35,8 @@ type LatencyView struct {
 	ReadAt        time.Time `json:"read_at"`
 }
 
-// ConsumerLagView.Records is null when a partition sample is missing or
-// older than 90 seconds.
+// ConsumerLagView describes consumer lag. Records is null when a partition
+// sample is missing or older than 90 seconds.
 type ConsumerLagView struct {
 	Records    *int64     `json:"records"`
 	Partitions int64      `json:"partitions"`

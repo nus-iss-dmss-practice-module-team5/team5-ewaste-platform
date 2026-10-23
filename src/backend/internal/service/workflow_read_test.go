@@ -65,6 +65,7 @@ func TestProcessingDetailToDTOPreservesOptionalAndDerivedFields(t *testing.T) {
 	unknown := "0.50"
 	diverted := "10.00"
 	quality := "PARTIAL"
+	evidenceID := "evidence-treatment-001"
 
 	view := processingDetailToDTO(&model.ProcessingDetail{
 		BatchID: "batch-1", Status: model.BatchStatusRecycled, Version: 8,
@@ -73,7 +74,7 @@ func TestProcessingDetailToDTOPreservesOptionalAndDerivedFields(t *testing.T) {
 		ActualItemCount: new(actualCount), ActualWeightKg: new(actualWeight),
 		ReusedKg: new(reused), RecycledKg: new(recycled), DisposedKg: new(disposed),
 		UnknownKg: new(unknown), DivertedKg: new(diverted), DataQuality: new(quality),
-		EvidenceStatus: "ABSENT", AnomalyCodes: []string{"UNALLOCATED_WEIGHT"},
+		EvidenceStatus: "PRESENT", EvidenceID: &evidenceID, AnomalyCodes: []string{"UNALLOCATED_WEIGHT"},
 	})
 
 	if view.BatchID != "batch-1" || view.Status != "RECYCLED" || view.Version != 8 {
@@ -84,6 +85,9 @@ func TestProcessingDetailToDTOPreservesOptionalAndDerivedFields(t *testing.T) {
 	}
 	if len(view.AnomalyCodes) != 1 || view.AnomalyCodes[0] != "UNALLOCATED_WEIGHT" {
 		t.Fatalf("anomaly codes were lost: %+v", view.AnomalyCodes)
+	}
+	if view.EvidenceID == nil || *view.EvidenceID != evidenceID {
+		t.Fatalf("treatment evidence ID was lost: %+v", view)
 	}
 }
 

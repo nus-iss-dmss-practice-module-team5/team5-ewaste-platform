@@ -24,5 +24,6 @@ type ProcessingDetailView struct {
 	DivertedKg        *string  `json:"diverted_kg"`
 	DataQuality       *string  `json:"data_quality"`
 	EvidenceStatus    string   `json:"evidence_status"`
+	EvidenceID        *string  `json:"evidence_id"`
 	AnomalyCodes      []string `json:"anomaly_codes"`
 }
