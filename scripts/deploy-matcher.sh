@@ -14,6 +14,7 @@ RG="${RG:-rg-ewaste-${TARGET_ENV}}"
 NAMESPACE="evh-ewaste-${TARGET_ENV}"
 API="aca-ewaste-${TARGET_ENV}-api"
 APP="aca-ewaste-${TARGET_ENV}-analytics"
+UI_APP="aca-ewaste-${TARGET_ENV}-ui"
 ISSUER="ewaste-matching-${TARGET_ENV}"
 AUDIENCE="ewaste-matching-api-${TARGET_ENV}"
 
@@ -36,13 +37,8 @@ CONNECTION=$(az eventhubs namespace authorization-rule keys list --resource-grou
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then printf '::add-mask::%s\n' "$CONNECTION"; fi
 API_FQDN=$(az containerapp show --name "$API" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)
 [[ -n "$API_FQDN" ]] || { echo 'API prerequisite is missing.' >&2; exit 1; }
-
-# Query ACA Environment private static IP for zero-privilege in-process DNS routing
-ENV_NAME=$(az containerapp show --name "$API" --resource-group "$RG" --query properties.managedEnvironmentId -o tsv | awk -F'/' '{print $NF}')
-STATIC_IP=$(az containerapp env show --name "$ENV_NAME" --resource-group "$RG" --query properties.staticIp -o tsv 2>/dev/null || true)
-if [[ -z "$STATIC_IP" ]]; then
-  STATIC_IP=$(az containerapp env show --name "cae-ewaste-${TARGET_ENV}" --resource-group "$RG" --query properties.staticIp -o tsv 2>/dev/null || true)
-fi
+UI_FQDN=$(az containerapp show --name "$UI_APP" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv 2>/dev/null || true)
+PROBE_HOST="${UI_FQDN:-$API_FQDN}"
 
 # Infrastructure owns creation, identity, registry, scaling and ingress policy.
 az containerapp show --name "$APP" --resource-group "$RG" --output none
@@ -60,18 +56,9 @@ az containerapp update --name "$API" --resource-group "$RG" --set-env-vars \
 API_REVISION=$(az containerapp show --name "$API" --resource-group "$RG" --query properties.latestRevisionName -o tsv)
 az containerapp revision restart --name "$API" --resource-group "$RG" --revision "$API_REVISION" --output none
 
-# Read-only authentication/API check. No synthetic business event or row is created.
-MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE" MATCHER_API_FQDN="$API_FQDN" STATIC_IP="${STATIC_IP:-}" python3 - <<'PYPROBE'
-import base64, hashlib, hmac, json, os, socket, ssl, time, urllib.error, urllib.request, uuid
-
-static_ip = os.environ.get("STATIC_IP")
-if static_ip:
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _patched_getaddrinfo(host, port, *args, **kwargs):
-        if host == os.environ.get("MATCHER_API_FQDN"):
-            return _orig_getaddrinfo(static_ip, port, *args, **kwargs)
-        return _orig_getaddrinfo(host, port, *args, **kwargs)
-    socket.getaddrinfo = _patched_getaddrinfo
+# Read-only authentication/API check through cluster-routed ingress facade.
+MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE" MATCHER_API_FQDN="$PROBE_HOST" python3 - <<'PYPROBE'
+import base64, hashlib, hmac, json, os, ssl, time, urllib.error, urllib.request, uuid
 
 ssl_ctx = ssl._create_unverified_context()
 encode = lambda value: base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
@@ -102,17 +89,8 @@ else:
     raise SystemExit("Matching facade is unavailable or incompatible; check API image, migrations and workload credentials.")
 PYPROBE
 
-ANALYTICS_FACADE_URL="https://${API_FQDN}" STATIC_IP="${STATIC_IP:-}" ANALYTICS_FACADE_HOST="${API_FQDN}" python3 - <<'PYANALYTICS'
-import json, os, socket, ssl, time, urllib.error, urllib.request, uuid
-
-static_ip = os.environ.get("STATIC_IP")
-if static_ip:
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _patched_getaddrinfo(host, port, *args, **kwargs):
-        if host == os.environ.get("ANALYTICS_FACADE_HOST"):
-            return _orig_getaddrinfo(static_ip, port, *args, **kwargs)
-        return _orig_getaddrinfo(host, port, *args, **kwargs)
-    socket.getaddrinfo = _patched_getaddrinfo
+ANALYTICS_FACADE_URL="https://${PROBE_HOST}" python3 - <<'PYANALYTICS'
+import json, os, ssl, time, urllib.error, urllib.request, uuid
 
 ssl_ctx = ssl._create_unverified_context()
 url = (os.environ["ANALYTICS_FACADE_URL"] + "/api/v1/batches/" + str(uuid.uuid4())
