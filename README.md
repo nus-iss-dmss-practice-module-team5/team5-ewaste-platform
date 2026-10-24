@@ -430,5 +430,4 @@ For KQL query definitions, see the [Logging and Monitoring Runbook](docs/LOGGING
 - **[Logging & Monitoring Runbook](docs/LOGGING_AND_MONITORING_RUNBOOK.md):** KQL queries, alert creation commands, and Log Analytics dashboard manual.
 - **[Rollback & Disaster Recovery Runbook](docs/ROLLBACK_AND_DISASTER_RECOVERY_RUNBOOK.md):** Emergency procedures for digest rollback, database restoration, and broker recovery.
 - **[Pre-Commit Setup Guide](PRECOMMIT.md):** Git hooks installation and formatting standards.
-- **[Release Image Catalog](releases/IMAGE_CATALOG.md):** Manifest of verified, signed release candidate container digests.
 - **[Dependency Outage Test Report](docs/evidence/outage_test/S4_LD_T_L_02_OUTAGE_TEST_REPORT.md):** Formal audit evidence and sign-off report for Sprint 4 chaos drills.
