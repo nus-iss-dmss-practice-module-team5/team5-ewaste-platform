@@ -860,7 +860,7 @@ jobs:
           echo "| :--- | :--- | :---: |" >> $GITHUB_STEP_SUMMARY
 
           for REPO in "${{ env.IMAGE_NAME_API }}" "${{ env.IMAGE_NAME_UI }}" "${{ env.IMAGE_NAME_ANALYTICS }}"; do
-            TAGS=$(az acr repository show-tags --name "$ACR_NAME" --repository "$REPO" --orderby time_desc --output tsv 2>/dev/null | head -n 5 | paste -sd ", " - || echo "None")
+            TAGS=$(az acr repository show-tags --name "$ACR_NAME" --repository "$REPO" --orderby time_desc --output tsv 2>/dev/null | grep -vE '\.(sig|att)$' | grep -v '^sha256-' | head -n 5 | paste -sd ", " - || echo "None")
             echo "| \`$REPO\` | \`$TAGS\` | \`${{ needs.resolve-environment.outputs.environment }}\` |" >> $GITHUB_STEP_SUMMARY
           done
 
