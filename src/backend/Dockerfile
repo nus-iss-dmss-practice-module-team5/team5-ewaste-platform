@@ -11,8 +11,8 @@ RUN CGO_ENABLED=0 GOOS=linux \
     go build -trimpath -ldflags="-s -w" \
     -o /out/server ./cmd/server
 
-FROM alpine:3.20
-RUN apk add --no-cache ca-certificates
+FROM alpine:3.22
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates
 RUN addgroup -S app && adduser -S app -G app
 
 WORKDIR /app

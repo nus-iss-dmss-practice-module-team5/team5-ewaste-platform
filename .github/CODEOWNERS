@@ -1,0 +1,6 @@
+# Release gate policy (EWCSB-241 / EWCSB-214): exceptions, gate logic and the
+# signing key need the security lead's review.
+/security/dispositions.yaml   @Shalett
+/security/cosign.pub          @Shalett
+/scripts/gate/                @Shalett
+/security/sonar-exceptions.yaml  @Shalett
