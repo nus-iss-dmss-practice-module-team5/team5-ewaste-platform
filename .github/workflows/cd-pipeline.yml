@@ -362,24 +362,31 @@ jobs:
             IS_ROLLBACK="true"
             echo "Smart Rollback requested: Querying ACR for previous (N-1) verified image tag..."
 
-            # Query ACR tags for API service ordered newest first, matching target environment prefix
-            RESOLVED_TAG=$(az acr repository show-tags \
+            # Query ACR tags for API service, filtering out cosign signature (.sig) and attestation (.att) tags
+            CLEAN_TAGS=$(az acr repository show-tags \
               --name "$ACR_NAME" \
               --repository "$IMAGE_NAME_API" \
               --orderby time_desc \
-              --output tsv 2>/dev/null | grep "^${TARGET_ENV}-" | sed -n '2p' || echo "")
+              --output tsv 2>/dev/null | grep -vE '\.(sig|att)$' | grep -v '^sha256-' || echo "")
 
+            # Match previous (N-1) tag matching target environment prefix
+            RESOLVED_TAG=$(echo "$CLEAN_TAGS" | grep "^${TARGET_ENV}-" | sed -n '2p' || echo "")
+
+            # If only 1 release exists for this environment, fallback to that top verified environment tag
             if [ -z "$RESOLVED_TAG" ]; then
-              # Fallback if prefix filtering didn't match
-              RESOLVED_TAG=$(az acr repository show-tags \
-                --name "$ACR_NAME" \
-                --repository "$IMAGE_NAME_API" \
-                --orderby time_desc \
-                --output tsv 2>/dev/null | sed -n '2p' || echo "")
+              RESOLVED_TAG=$(echo "$CLEAN_TAGS" | grep "^${TARGET_ENV}-" | sed -n '1p' || echo "")
             fi
 
             if [ -z "$RESOLVED_TAG" ]; then
-              echo "::error::Smart Rollback failed: Could not determine an N-1 previous tag in ACR for environment '$TARGET_ENV'."
+              RESOLVED_TAG=$(echo "$CLEAN_TAGS" | sed -n '2p' || echo "")
+            fi
+
+            if [ -z "$RESOLVED_TAG" ]; then
+              RESOLVED_TAG=$(echo "$CLEAN_TAGS" | sed -n '1p' || echo "")
+            fi
+
+            if [ -z "$RESOLVED_TAG" ]; then
+              echo "::error::Smart Rollback failed: Could not determine a verified release tag in ACR for environment '$TARGET_ENV'."
               exit 1
             fi
             echo "Successfully resolved N-1 rollback tag: $RESOLVED_TAG"
@@ -424,6 +431,7 @@ jobs:
           echo "API_IMMUTABLE_DIGEST=$API_DIGEST" >> "$GITHUB_ENV"
 
       - name: Generate API SBOM (Syft SPDX)
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
         run: |
           mkdir -p releases/sboms
           syft "${{ env.API_IMAGE }}" -o spdx-json=releases/sboms/sbom-workflow-api.spdx.json
@@ -431,6 +439,7 @@ jobs:
           echo "API SBOM generated successfully."
 
       - name: Retain API SBOM Artifact (90-Day Policy)
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-workflow-api-${{ steps.resolve_tags.outputs.effective_tag }}
@@ -541,6 +550,7 @@ jobs:
           echo "UI_IMMUTABLE_DIGEST=$UI_DIGEST" >> "$GITHUB_ENV"
 
       - name: Generate UI SBOM (Syft SPDX)
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
         run: |
           mkdir -p releases/sboms
           syft "${{ env.UI_IMAGE }}" -o spdx-json=releases/sboms/sbom-workflow-ui.spdx.json
@@ -548,6 +558,7 @@ jobs:
           echo "UI SBOM generated successfully."
 
       - name: Retain UI SBOM Artifact (90-Day Policy)
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-workflow-ui-${{ steps.resolve_tags.outputs.effective_tag }}
@@ -628,6 +639,7 @@ jobs:
           echo "ANALYTICS_IMAGE=$IMAGE_TAG" >> "$GITHUB_ENV"
 
       - name: Generate Analytics SBOM (Syft SPDX)
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
         run: |
           mkdir -p releases/sboms
           syft "${{ env.ANALYTICS_IMAGE }}" -o spdx-json=releases/sboms/sbom-workflow-analytics.spdx.json
@@ -635,6 +647,7 @@ jobs:
           echo "Analytics SBOM generated successfully."
 
       - name: Retain Analytics SBOM Artifact (90-Day Policy)
+        if: steps.resolve_tags.outputs.is_rollback != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: sbom-workflow-analytics-${{ steps.resolve_tags.outputs.effective_tag }}
