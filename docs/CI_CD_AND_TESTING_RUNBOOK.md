@@ -229,7 +229,7 @@ echo "Public Frontend UI: https://${UI_FQDN}"
 
 All mock accounts share the unified test password:
 
-> **Default Test Password:** `TestOnly#2026!`
+> **Default Test Password:** `<replace-with-mysql-password>`
 
 | Role           | Username / Email         | Organization            | Org ID      | Capabilities / Responsibilities                                                                                                                 |
 | :------------- | :----------------------- | :---------------------- | :---------- | :---------------------------------------------------------------------------------------------------------------------------------------------- |

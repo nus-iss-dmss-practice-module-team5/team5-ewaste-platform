@@ -176,7 +176,7 @@ The `roles.allowed_organisation_type` column documents this ownership rule. The 
 For the local Sprint 1 smoke test, all accounts use the synthetic password:
 
 ```text
-TestOnly#2026!
+<replace-with-mysql-password-known-to-team>
 ```
 
 Only bcrypt hashes are stored in `seed/103-seed-users.sql`. These accounts are test fixtures. The seed changesets use the required `seed` context and must not be applied to a real production system.
