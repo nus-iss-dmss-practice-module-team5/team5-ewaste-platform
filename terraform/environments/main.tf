@@ -709,7 +709,9 @@ resource "azurerm_container_app" "api" {
   }
 
   ingress {
-    external_enabled = true
+    # Only the Web UI container exposes a public endpoint in production.
+    # Backend API uses internal ingress in prod (and stg), accessible exclusively within the VNet.
+    external_enabled = var.environment == "dev" ? true : false
     target_port      = 8080
     transport        = "auto"
 

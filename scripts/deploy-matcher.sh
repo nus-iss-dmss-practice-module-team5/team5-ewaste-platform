@@ -14,6 +14,7 @@ RG="${RG:-rg-ewaste-${TARGET_ENV}}"
 NAMESPACE="evh-ewaste-${TARGET_ENV}"
 API="aca-ewaste-${TARGET_ENV}-api"
 APP="aca-ewaste-${TARGET_ENV}-analytics"
+UI_APP="aca-ewaste-${TARGET_ENV}-ui"
 ISSUER="ewaste-matching-${TARGET_ENV}"
 AUDIENCE="ewaste-matching-api-${TARGET_ENV}"
 
@@ -36,6 +37,9 @@ CONNECTION=$(az eventhubs namespace authorization-rule keys list --resource-grou
 if [[ -n "${GITHUB_ACTIONS:-}" ]]; then printf '::add-mask::%s\n' "$CONNECTION"; fi
 API_FQDN=$(az containerapp show --name "$API" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv)
 [[ -n "$API_FQDN" ]] || { echo 'API prerequisite is missing.' >&2; exit 1; }
+UI_FQDN=$(az containerapp show --name "$UI_APP" --resource-group "$RG" --query properties.configuration.ingress.fqdn -o tsv 2>/dev/null || true)
+PROBE_HOST="${UI_FQDN:-$API_FQDN}"
+
 # Infrastructure owns creation, identity, registry, scaling and ingress policy.
 az containerapp show --name "$APP" --resource-group "$RG" --output none
 
@@ -52,9 +56,11 @@ az containerapp update --name "$API" --resource-group "$RG" --set-env-vars \
 API_REVISION=$(az containerapp show --name "$API" --resource-group "$RG" --query properties.latestRevisionName -o tsv)
 az containerapp revision restart --name "$API" --resource-group "$RG" --revision "$API_REVISION" --output none
 
-# Read-only authentication/API check. No synthetic business event or row is created.
-MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE" MATCHER_API_FQDN="$API_FQDN" python3 - <<'PYPROBE'
-import base64, hashlib, hmac, json, os, time, urllib.error, urllib.request, uuid
+# Read-only authentication/API check through cluster-routed ingress facade.
+MATCHER_TOKEN_ISSUER="$ISSUER" MATCHER_TOKEN_AUDIENCE="$AUDIENCE" MATCHER_API_FQDN="$PROBE_HOST" python3 - <<'PYPROBE'
+import base64, hashlib, hmac, json, os, ssl, time, urllib.error, urllib.request, uuid
+
+ssl_ctx = ssl._create_unverified_context()
 encode = lambda value: base64.urlsafe_b64encode(json.dumps(value, separators=(",", ":")).encode()).rstrip(b"=")
 for attempt in range(30):
     now = int(time.time())
@@ -66,7 +72,7 @@ for attempt in range(30):
     token = (unsigned + b"." + signature).decode()
     req = urllib.request.Request("https://" + os.environ["MATCHER_API_FQDN"] + "/internal/v1/matching/runs/" + str(uuid.uuid4()), headers={"Authorization": "Bearer " + token})
     try:
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=10, context=ssl_ctx) as response:
             pass
     except urllib.error.HTTPError as error:
         try:
@@ -83,14 +89,16 @@ else:
     raise SystemExit("Matching facade is unavailable or incompatible; check API image, migrations and workload credentials.")
 PYPROBE
 
-ANALYTICS_FACADE_URL="https://${API_FQDN}" python3 - <<'PYANALYTICS'
-import json, os, time, urllib.error, urllib.request, uuid
+ANALYTICS_FACADE_URL="https://${PROBE_HOST}" python3 - <<'PYANALYTICS'
+import json, os, ssl, time, urllib.error, urllib.request, uuid
+
+ssl_ctx = ssl._create_unverified_context()
 url = (os.environ["ANALYTICS_FACADE_URL"] + "/api/v1/batches/" + str(uuid.uuid4())
        + "/analytics-input?source_event_id=" + str(uuid.uuid4()))
 for attempt in range(30):
     request = urllib.request.Request(url, headers={"Authorization": "Bearer " + os.environ["ANALYTICS_SERVICE_TOKEN"]})
     try:
-        with urllib.request.urlopen(request, timeout=10):
+        with urllib.request.urlopen(request, timeout=10, context=ssl_ctx):
             pass
     except urllib.error.HTTPError as error:
         try:

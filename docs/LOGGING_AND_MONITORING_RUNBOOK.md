@@ -8,39 +8,53 @@ This document is the **authoritative operational reference guide** for querying,
 
 ## 1. Quick Start: Accessing Logs
 
+> [!IMPORTANT]
+> **Production as Sole Active Environment:** As of today (Sprint 4 release and operational delivery), **Production (`rg-ewaste-prod`) in Azure region `eastasia` is the SOLE active environment**. All live operational monitoring, continuous log analytics streaming, telemetry aggregation, and incident alerting are conducted exclusively against `rg-ewaste-prod`. The legacy development environment (`rg-ewaste-dev`) was destroyed on 9 October 2026, and pre-production staging (`rg-ewaste-stg`) has been fully consolidated into production.
+
 All Container Apps write JSON logs to `stdout`/`stderr`, which are ingested into the shared **Azure Log Analytics Workspace**:
 
-| Resource                    | Value in Dev (`dev`)       | Value in Staging (`stg`)   | Value in Production (`prod`) |
-| :-------------------------- | :------------------------- | :------------------------- | :--------------------------- |
-| **Resource Group**          | `rg-ewaste-dev`            | `rg-ewaste-stg`            | `rg-ewaste-prod`             |
-| **Log Analytics Workspace** | `log-ewaste-centralized`   | `log-ewaste-centralized`   | `log-ewaste-centralized`     |
-| **API Container App**       | `aca-ewaste-dev-api`       | `aca-ewaste-stg-api`       | `aca-ewaste-prod-api`        |
-| **Analytics Worker App**    | `aca-ewaste-dev-analytics` | `aca-ewaste-stg-analytics` | `aca-ewaste-prod-analytics`  |
-| **Frontend UI App**         | `aca-ewaste-dev-ui`        | `aca-ewaste-stg-ui`        | `aca-ewaste-prod-ui`         |
+| Resource                    | Value in Production (`prod`) — SOLE ACTIVE ENVIRONMENT        | Historical Staging (`stg`)  | Legacy Dev (`dev`)            |
+| :-------------------------- | :------------------------------------------------------------ | :-------------------------- | :---------------------------- |
+| **Environment Status**      | **SOLE ACTIVE LIVE ENVIRONMENT**                              | _Consolidated / Superseded_ | _Decommissioned (9 Oct 2026)_ |
+| **Resource Group**          | **`rg-ewaste-prod`**                                          | `rg-ewaste-stg`             | _`rg-ewaste-dev` (Destroyed)_ |
+| **Log Analytics Workspace** | **`log-ewaste-centralized`** (`rg-ewaste-shared`, `eastasia`) | `log-ewaste-centralized`    | _N/A_                         |
+| **API Container App**       | **`aca-ewaste-prod-api`** (Internal cluster ingress)          | `aca-ewaste-stg-api`        | _`aca-ewaste-dev-api`_        |
+| **Analytics Worker App**    | **`aca-ewaste-prod-analytics`** (Internal cluster ingress)    | `aca-ewaste-stg-analytics`  | _`aca-ewaste-dev-analytics`_  |
+| **Frontend UI App**         | **`aca-ewaste-prod-ui`** (Public external ingress)            | `aca-ewaste-stg-ui`         | _`aca-ewaste-dev-ui`_         |
 
 ### 1.1 Access via Azure Portal
 
 1. Open the [Azure Portal](https://portal.azure.com).
-2. Navigate to **Log Analytics Workspaces** -> select **`log-ewaste-centralized`**.
+2. Navigate to **Log Analytics Workspaces** -> select **`log-ewaste-centralized`** in `rg-ewaste-shared` (`eastasia`).
 3. Click **Logs** in the left navigation sidebar.
 4. Copy and paste any of the KQL queries from [Section 4](#4-reusable-kql-query-library).
 
 ### 1.2 Access via Azure CLI (Live Streaming / Tail)
 
-To stream console logs in real time from your terminal:
+To stream console logs in real time from the active production environment:
 
 ```bash
-# Stream Go API logs
+# Target environment: Production (SOLE ACTIVE ENVIRONMENT)
+export RG="rg-ewaste-prod"
+
+# Stream Production Go API logs
 az containerapp logs show \
-  --name aca-ewaste-dev-api \
-  --resource-group rg-ewaste-dev \
+  --name "aca-ewaste-prod-api" \
+  --resource-group "$RG" \
   --follow \
   --format text
 
-# Stream Python Analytics Worker logs
+# Stream Production Python Analytics Worker logs
 az containerapp logs show \
-  --name aca-ewaste-dev-analytics \
-  --resource-group rg-ewaste-dev \
+  --name "aca-ewaste-prod-analytics" \
+  --resource-group "$RG" \
+  --follow \
+  --format text
+
+# Stream Production Frontend UI logs
+az containerapp logs show \
+  --name "aca-ewaste-prod-ui" \
+  --resource-group "$RG" \
   --follow \
   --format text
 ```
@@ -192,9 +206,9 @@ ContainerAppConsoleLogs_CL
 
 ### 4.2 Latency Percentiles & SLO Compliance (P50, P90, P95, P99)
 
-Monitors platform response times against Sprint 3 SLO targets:
+Monitors platform response times against proposal and Sprint 4 SLO targets:
 
-- **API Command Latency:** P95 < 3,000 ms (3 seconds).
+- **API Command Latency:** P95 < 2,000 ms (2 seconds standard) / < 3,000 ms (confirmed transactions).
 - **Worker Async Processing Latency:** P95 < 10,000 ms (10 seconds).
 
 ```kql
@@ -371,7 +385,7 @@ If Azure Container Apps is not routing traffic to a container:
 
 | Symptom                                               | Cause                                                                                                 | Resolution                                                                                                                                                         |
 | :---------------------------------------------------- | :---------------------------------------------------------------------------------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **API `/readyz` returns 503**                         | Database ping failed or MySQL pool exhausted.                                                         | Check Azure MySQL Flexible Server connectivity and max connection settings in Key Vault.                                                                           |
+| **API `/readyz` returns 503**                         | Database ping failed or MySQL pool exhausted.                                                         | Check Azure MySQL Flexible Server connectivity and max connection pool settings (`SetMaxOpenConns(30)`).                                                           |
 | **Worker `/readyz` returns 503**                      | Kafka broker is disconnected (`UP=false`), stats are stale (>15s), or a partition is paused on error. | Check Event Hubs connection strings. Run [Query 4.4](#44-worker-retries-backoff-streaks--partition-pauses) to see if a poison-pill message has paused a partition. |
 | **Worker `/readyz` returns 200 but `/healthz` fails** | Main polling thread deadlocked (>120s since last poll).                                               | Container Apps will automatically restart the unhealthy replica. Check [Query 4.6](#46-container-app-health-livenessreadiness-probes--restarts).                   |
 
@@ -387,7 +401,7 @@ The **E-Waste Operations & Observability Workbook** unifies real-time container 
 ### 6.1 Importing the Workbook in Azure Portal
 
 1. Navigate to the **Azure Portal** (https://portal.azure.com).
-2. Open **Log Analytics Workspaces** -> select **`log-ewaste-centralized`**.
+2. Open **Log Analytics Workspaces** -> select **`log-ewaste-centralized`** in `rg-ewaste-shared`.
 3. Under the left navigation bar **Monitoring**, select **Workbooks**.
 4. Click **+ New** -> click the **Advanced Editor** icon (`</>`) in the top toolbar.
 5. Replace the editor contents with the JSON from [`docs/monitoring/ewaste-platform-monitor.workbook.json`](./monitoring/ewaste-platform-monitor.workbook.json).
@@ -398,7 +412,7 @@ The **E-Waste Operations & Observability Workbook** unifies real-time container 
 | Tab Name                                | Operational Scope                | Key Metrics & Visualizations                                                                                 |
 | :-------------------------------------- | :------------------------------- | :----------------------------------------------------------------------------------------------------------- |
 | **1. Platform Health & Readiness**      | Real-time container availability | `/readyz` probes across Go API and Analytics Worker. Highlights `TelemetryAbsent` (>5m absence).             |
-| **2. Service Latency & SLOs**           | Response time compliance         | P50, P95, P99 stage durations. Highlights SLO breaches (API > 3s, Worker > 10s).                             |
+| **2. Service Latency & SLOs**           | Response time compliance         | P50, P95, P99 stage durations. Highlights SLO breaches (API > 2s/3s, Worker > 10s).                          |
 | **3. Dead-Letter & Quarantined Events** | Incident investigation           | Surfacing events in `QUARANTINED` or `REJECTED`, persistent failure streaks ($\ge 3$), and validation codes. |
 | **4. Kafka Ingestion & Consumer Lag**   | Event pipeline throughput        | Partition-level consumer lag. Flags `Stale` telemetry (>90s) and delivery backoff pauses.                    |
 | **5. End-to-End Request Trace**         | Distributed transaction tracing  | Correlated step-by-step waterfall using durable `correlation_id` or `batch_id`.                              |
@@ -410,7 +424,7 @@ In accordance with the target **Administrator Observability & Monitoring View ar
 
 - **Planned Portal Deep Links:** The Next.js Administrator Portal (`/admin`) is designed to link directly to Tabs 2 & 4 of this Azure Monitor Workbook from the Admin Health latency and consumer lag status indicators.
 - **RBAC Enforcement:** Non-administrator roles attempting to view or query operations telemetry will be restricted via RBAC with HTTP 403 Forbidden.
-- **Implementation Status:** Frontend tile deep linking and role-based 403 gatekeeping represent planned post-MVP administrative dashboard integrations.
+- **Implementation Status:** Frontend tile deep linking and role-based 403 gatekeeping represent planned administrative dashboard integrations.
 
 ---
 
@@ -424,7 +438,7 @@ To ensure proactive response before service disruption, the following Azure Moni
 | :-------------------------------- | :------------------: | :----------------: | :--------------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------ |
 | **`Alert-DeadLetter-Quarantine`** | **Sev 1** (Critical) |      5m / 5m       | [`dead-letter-quarantine-alert.kql`](./monitoring/alerts/dead-letter-quarantine-alert.kql)                 | Quarantined event detected. Open Workbook Tab 3, filter by `batch_id`, inspect error code, perform repair before redrive. |
 | **`Alert-Kafka-ConsumerLag`**     | **Sev 2** (Warning)  |      5m / 5m       | [`consumer-lag-stalled-partition-alert.kql`](./monitoring/alerts/consumer-lag-stalled-partition-alert.kql) | Lag > 100, telemetry stale (>90s), or commit failure (30m lookback). Open Workbook Tab 4, check partition backoff.        |
-| **`Alert-SLO-LatencyBreach`**     | **Sev 2** (Warning)  |      5m / 15m      | [`platform-slo-latency-alert.kql`](./monitoring/alerts/platform-slo-latency-alert.kql)                     | P95 latency exceeded (>3s API / >10s Worker). Open Workbook Tab 2, check MySQL lock contention or worker CPU.             |
+| **`Alert-SLO-LatencyBreach`**     | **Sev 2** (Warning)  |      5m / 15m      | [`platform-slo-latency-alert.kql`](./monitoring/alerts/platform-slo-latency-alert.kql)                     | P95 latency exceeded (>2s/3s API / >10s Worker). Open Workbook Tab 2, check MySQL lock contention or worker CPU.          |
 | **`Alert-Readiness-Absence`**     | **Sev 1** (Critical) |      5m / 5m       | [`readiness-absence-alert.kql`](./monitoring/alerts/readiness-absence-alert.kql)                           | Missing `/readyz` signals (>5m) or unready status. Open Workbook Tab 1, inspect replica restarts and container logs.      |
 
 ### 7.1 Provisioning Alert Rules via Bash
@@ -579,21 +593,22 @@ In accordance with **Gate 2 / Gate 3 Release Governance (Signed Digest Promotion
 - **Automated Retention Mandate:** GitHub Actions retains all `sbom-workflow-*.spdx.json` and `gate-decision-*.json` release artifacts for **90 days**.
 - **Immutable Digest Pinning:** Live revisions are inspected via Azure CLI:
   ```bash
-  az containerapp show --name aca-ewaste-stg-api --resource-group rg-ewaste-stg --query "properties.template.containers[0].image"
+  # Inspect active production container image digest
+  az containerapp show --name "aca-ewaste-prod-api" --resource-group "rg-ewaste-prod" --query "properties.template.containers[0].image"
   ```
 
 ---
 
 ## 9. Audit & Traceability Appendix
 
-| Component                    | Telemetry Standard                                                 | Redaction Guarantee                                    |   Deployment Status    | Live Proof & Target Location                                                                                                                                             |
-| :--------------------------- | :----------------------------------------------------------------- | :----------------------------------------------------- | :--------------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **`workflow-api`**           | Standardized JSON with `component`, `correlation_id`, `latency_ms` | Passwords, bearer tokens, and binary files excluded    |       **ACTIVE**       | Deployed in `cae-ewaste-stg` (`aca-ewaste-stg-api`)                                                                                                                      |
-| **`matcher-worker`**         | Structured `observe()` emission with latency and failure streaks   | Unparsed bodies, tokens, snapshots excluded            |       **ACTIVE**       | Deployed in `cae-ewaste-stg` (`aca-ewaste-stg-analytics`)                                                                                                                |
-| **`log-ewaste-centralized`** | Reusable KQL suite across 6 operational categories                 | 30-day retention; accessible via Portal and Azure CLI  |       **ACTIVE**       | Provisioned in `rg-ewaste-shared` (`log-ewaste-centralized`)                                                                                                             |
-| **Probe Signals**            | Sub-second `/healthz` and `/readyz` endpoints wired to ACA         | Prevents traffic routing to paused/unhealthy instances |       **ACTIVE**       | Active HTTP probes configured on Container Apps                                                                                                                          |
-| **Monitor Workbook**         | 6-tab unified operations dashboard with evidence links             | Available in Log Analytics Workbooks                   | **PLANNED / TEMPLATE** | Committed template: [`docs/monitoring/ewaste-platform-monitor.workbook.json`](./monitoring/ewaste-platform-monitor.workbook.json); deployable via Portal Advanced Editor |
-| **Scheduled Alerts**         | Automated dead-letter, consumer lag, latency, and absence alerts   | Sev 1 / Sev 2 alerts with runbook procedures           |       **ACTIVE**       | 4 rules live in `rg-ewaste-shared` scoped to `log-ewaste-centralized`                                                                                                    |
+| Component                    | Telemetry Standard                                                 | Redaction Guarantee                                    | Deployment Status | Live Proof & Target Location                                                                                                                                             |
+| :--------------------------- | :----------------------------------------------------------------- | :----------------------------------------------------- | :---------------: | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **`workflow-api`**           | Standardized JSON with `component`, `correlation_id`, `latency_ms` | Passwords, bearer tokens, and binary files excluded    |    **ACTIVE**     | Deployed in `cae-ewaste-prod` (`aca-ewaste-prod-api`)                                                                                                                    |
+| **`matcher-worker`**         | Structured `observe()` emission with latency and failure streaks   | Unparsed bodies, tokens, snapshots excluded            |    **ACTIVE**     | Deployed in `cae-ewaste-prod` (`aca-ewaste-prod-analytics`)                                                                                                              |
+| **`log-ewaste-centralized`** | Reusable KQL suite across 6 operational categories                 | 30-day retention; accessible via Portal and Azure CLI  |    **ACTIVE**     | Provisioned in `rg-ewaste-shared` (`log-ewaste-centralized`)                                                                                                             |
+| **Probe Signals**            | Sub-second `/healthz` and `/readyz` endpoints wired to ACA         | Prevents traffic routing to paused/unhealthy instances |    **ACTIVE**     | Active HTTP probes configured on Container Apps                                                                                                                          |
+| **Monitor Workbook**         | 6-tab unified operations dashboard with evidence links             | Available in Log Analytics Workbooks                   |    **ACTIVE**     | Committed template: [`docs/monitoring/ewaste-platform-monitor.workbook.json`](./monitoring/ewaste-platform-monitor.workbook.json); deployable via Portal Advanced Editor |
+| **Scheduled Alerts**         | Automated dead-letter, consumer lag, latency, and absence alerts   | Sev 1 / Sev 2 alerts with runbook procedures           |    **ACTIVE**     | 4 rules live in `rg-ewaste-shared` scoped to `log-ewaste-centralized`                                                                                                    |
 
 ### Live Scheduled Alert Rules Verification
 
@@ -604,15 +619,4 @@ az monitor scheduled-query list \
   --resource-group rg-ewaste-shared \
   --query "[].{Name:name, Severity:severity, Frequency:evaluationFrequency, Window:windowSize, Enabled:enabled}" \
   --output table
-```
-
-Live Azure Query Verification Output:
-
-```
-Name                        Severity    Frequency    Window     Enabled
---------------------------  ----------  -----------  ---------  ---------
-Alert-DeadLetter-Quarantine  1           0:05:00      0:05:00    True
-Alert-Kafka-ConsumerLag     2           0:05:00      0:05:00    True
-Alert-SLO-LatencyBreach     2           0:05:00      0:15:00    True
-Alert-Readiness-Absence     1           0:05:00      0:05:00    True
 ```
