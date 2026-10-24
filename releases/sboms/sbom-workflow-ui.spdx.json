@@ -1,0 +1,440 @@
+{
+  "spdxVersion": "SPDX-2.3",
+  "dataLicense": "CC0-1.0",
+  "SPDXID": "SPDXRef-DOCUMENT",
+  "name": "workflow-ui-sbom",
+  "documentNamespace": "https://anchore.com/syft/spdx_json/workflow-ui-6953b4bd-ba03-494a-8a31-cb56a31c4be7",
+  "creationInfo": {
+    "created": "2026-10-15T05:34:37Z",
+    "creators": [
+      "Tool: syft-1.0.0",
+      "Organization: Team 5 DevSecOps Platform (Lakshanya Poovannan)"
+    ],
+    "licenseListVersion": "3.22"
+  },
+  "packages": [
+    {
+      "SPDXID": "SPDXRef-Package-workflow-ui",
+      "name": "workflow-ui",
+      "versionInfo": "1.0.0-rc1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "supplier": "Organization: Team 5 E-Waste Platform",
+      "originator": "Person: Lakshanya Poovannan",
+      "licenseConcluded": "Apache-2.0",
+      "licenseDeclared": "Apache-2.0",
+      "copyrightText": "NOASSERTION",
+      "description": "Production container image for workflow-ui",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:oci/workflow-ui@sha256:staged-candidate"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-axios-0",
+      "name": "axios",
+      "versionInfo": "1.20.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/axios@1.20.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-next-1",
+      "name": "next",
+      "versionInfo": "16.3.6",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/next@16.3.6"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-react-2",
+      "name": "react",
+      "versionInfo": "19.2.8",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/react@19.2.8"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-react-dom-3",
+      "name": "react-dom",
+      "versionInfo": "19.2.8",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/react-dom@19.2.8"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package--tailwindcss-postcss-4",
+      "name": "@tailwindcss/postcss",
+      "versionInfo": "4",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/@tailwindcss/postcss@4"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package--testing-library-jest-dom-5",
+      "name": "@testing-library/jest-dom",
+      "versionInfo": "7.0.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/@testing-library/jest-dom@7.0.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package--testing-library-react-6",
+      "name": "@testing-library/react",
+      "versionInfo": "16.3.3",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/@testing-library/react@16.3.3"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package--testing-library-user-event-7",
+      "name": "@testing-library/user-event",
+      "versionInfo": "14.6.7",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/@testing-library/user-event@14.6.7"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package--types-node-8",
+      "name": "@types/node",
+      "versionInfo": "24",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/@types/node@24"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package--types-react-9",
+      "name": "@types/react",
+      "versionInfo": "19",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/@types/react@19"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package--types-react-dom-10",
+      "name": "@types/react-dom",
+      "versionInfo": "19",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/@types/react-dom@19"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package--vitest-coverage-v8-11",
+      "name": "@vitest/coverage-v8",
+      "versionInfo": "5.0.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/@vitest/coverage-v8@5.0.0"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-eslint-12",
+      "name": "eslint",
+      "versionInfo": "9",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/eslint@9"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-eslint-config-next-13",
+      "name": "eslint-config-next",
+      "versionInfo": "16.3.6",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/eslint-config-next@16.3.6"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-jsdom-14",
+      "name": "jsdom",
+      "versionInfo": "30.0.1",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/jsdom@30.0.1"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-tailwindcss-15",
+      "name": "tailwindcss",
+      "versionInfo": "4",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/tailwindcss@4"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-typescript-16",
+      "name": "typescript",
+      "versionInfo": "5",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/typescript@5"
+        }
+      ]
+    },
+    {
+      "SPDXID": "SPDXRef-Package-vitest-17",
+      "name": "vitest",
+      "versionInfo": "5.0.0",
+      "downloadLocation": "NOASSERTION",
+      "filesAnalyzed": false,
+      "licenseConcluded": "NOASSERTION",
+      "licenseDeclared": "NOASSERTION",
+      "copyrightText": "NOASSERTION",
+      "externalRefs": [
+        {
+          "referenceCategory": "PACKAGE-MANAGER",
+          "referenceType": "purl",
+          "referenceLocator": "pkg:npm/vitest@5.0.0"
+        }
+      ]
+    }
+  ],
+  "relationships": [
+    {
+      "spdxElementId": "SPDXRef-DOCUMENT",
+      "relationshipType": "DESCRIBES",
+      "relatedSpdxElement": "SPDXRef-Package-workflow-ui"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-axios-0"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-next-1"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-react-2"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-react-dom-3"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package--tailwindcss-postcss-4"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package--testing-library-jest-dom-5"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package--testing-library-react-6"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package--testing-library-user-event-7"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package--types-node-8"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package--types-react-9"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package--types-react-dom-10"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package--vitest-coverage-v8-11"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-eslint-12"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-eslint-config-next-13"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-jsdom-14"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-tailwindcss-15"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-typescript-16"
+    },
+    {
+      "spdxElementId": "SPDXRef-Package-workflow-ui",
+      "relationshipType": "CONTAINS",
+      "relatedSpdxElement": "SPDXRef-Package-vitest-17"
+    }
+  ]
+}

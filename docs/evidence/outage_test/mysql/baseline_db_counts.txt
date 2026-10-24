@@ -1,0 +1,7 @@
++------------------+-----------+-------+
+| metric           | status    | count |
++------------------+-----------+-------+
+| BASELINE_BATCHES | APPROVED  |    12 |
+| BASELINE_OUTBOX  | PUBLISHED |   308 |
+| BASELINE_CLAIMS  | ACCEPTED  |     8 |
++------------------+-----------+-------+

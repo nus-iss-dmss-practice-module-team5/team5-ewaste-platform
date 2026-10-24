@@ -71,6 +71,10 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 
+# Allow environment definition tfvars (non-secret infrastructure parameters)
+!terraform/environments/environments/*.tfvars
+!terraform/environments/*.tfvars
+
 # Keep examples
 !*.tfvars.example
 !terraform.tfvars.example
