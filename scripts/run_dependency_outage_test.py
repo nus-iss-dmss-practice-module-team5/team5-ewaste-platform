@@ -1075,7 +1075,12 @@ def main():
 
         db_pass, _, _ = run_az_cli(["containerapp", "secret", "show", "--name", "aca-ewaste-prod-api", "--resource-group", args.rg, "--secret-name", "db-password", "--query", "value", "-o", "tsv"])
         if not db_pass:
-            db_pass = os.environ.get("MYSQL_DB_ADMIN_PASSWORD", "7vR9qL2wT8xN4bK1pM5yZ3jD")
+            db_pass = os.environ.get("MYSQL_DB_ADMIN_PASSWORD", "")
+        if not db_pass:
+            raise RuntimeError(
+                "Database password could not be resolved from Azure Container Apps secret 'db-password' "
+                "or the MYSQL_DB_ADMIN_PASSWORD environment variable."
+            )
     else:
         ui_fqdn = "aca-ewaste-prod-ui.lemonplant-bb72fc79.eastasia.azurecontainerapps.io"
         db_pass = "MockSecret123!"

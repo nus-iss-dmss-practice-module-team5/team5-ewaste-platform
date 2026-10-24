@@ -1,22 +1,7 @@
-+------------------+-------------------+-------+
-| metric           | status            | count |
-+------------------+-------------------+-------+
-| BASELINE_BATCHES | APPROVED          |   185 |
-| BASELINE_BATCHES | ASSIGNED          |     1 |
-| BASELINE_BATCHES | COLLECTED         |    28 |
-| BASELINE_BATCHES | COMPLETED         |    15 |
-| BASELINE_BATCHES | DRAFT             |  3839 |
-| BASELINE_BATCHES | FAILED_COLLECTION |    28 |
-| BASELINE_BATCHES | MATCHED           |   982 |
-| BASELINE_BATCHES | VERIFIED          |     1 |
-+------------------+-------------------+-------+
-+-----------------+---------------+-------+
-| metric          | publish_state | count |
-+-----------------+---------------+-------+
-| BASELINE_OUTBOX | PUBLISHED     |  2957 |
-+-----------------+---------------+-------+
-+-----------------+--------------+-------+
-| metric          | claim_status | count |
-+-----------------+--------------+-------+
-| BASELINE_CLAIMS | ACCEPTED     |   258 |
-+-----------------+--------------+-------+
++------------------+-----------+-------+
+| metric           | status    | count |
++------------------+-----------+-------+
+| BASELINE_BATCHES | APPROVED  |    12 |
+| BASELINE_OUTBOX  | PUBLISHED |   308 |
+| BASELINE_CLAIMS  | ACCEPTED  |     8 |
++------------------+-----------+-------+

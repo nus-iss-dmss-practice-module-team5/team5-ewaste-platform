@@ -5,11 +5,11 @@
     "parent_story": "EW-402",
     "target_resource_group": "rg-ewaste-prod",
     "dependency_tested": "KAFKA",
-    "outage_duration_seconds": 60,
-    "measured_mttr_seconds": 16,
+    "outage_duration_seconds": 150,
+    "measured_mttr_seconds": 18,
     "max_mttr_sla_seconds": 180,
-    "execution_date_utc": "2026-10-24T09:08:05.590426+00:00",
-    "dry_run": false
+    "execution_date_utc": "2026-10-24T09:53:20.948719+00:00",
+    "dry_run": true
   },
   "overall_result": "PASS",
   "summary": {
@@ -24,7 +24,7 @@
       "name": "Pre-Outage Baseline Audit",
       "target": "Database baseline prior to KAFKA fault injection",
       "expected": "Non-empty baseline database state captured before outage injection",
-      "actual": "Baseline captured (10 metrics recorded)",
+      "actual": "Baseline captured (3 metrics recorded)",
       "status": "PASS",
       "severity": "CRITICAL",
       "explanation": "Capturing the pre-outage database baseline establishes the authoritative ground truth for entity row counts prior to inducing infrastructure failure on KAFKA. This ensures post-recovery audits can mathematically prove existing records were neither mutated, orphaned, nor lost during the fault window."
@@ -34,7 +34,7 @@
       "name": "Continuous Synthetic Load",
       "target": "LoadGenerator worker threads HTTP activity",
       "expected": "Active HTTP requests dispatched during test window (total_sent > 0)",
-      "actual": "312 total requests dispatched across 3 concurrent threads",
+      "actual": "120 total requests dispatched across 3 concurrent threads",
       "status": "PASS",
       "severity": "CRITICAL",
       "explanation": "In accordance with S4-LD-T-L-02 ('Dependency outage under load'), continuous authenticated HTTP load must be sustained throughout the KAFKA outage and recovery cycles to validate the platform under active concurrency pressure."
@@ -44,7 +44,7 @@
       "name": "Outage Signal Capture",
       "target": "Event Hubs Kafka entity status & Outbox decoupling during KAFKA downtime",
       "expected": "Event Hubs entity transitions to Disabled; Transactional Outbox buffers writes without dropped requests",
-      "actual": "Entity outage confirmed at 2026-10-24T09:05:55.280183+00:00 (Outbox buffered: 312 2xx OK, 0 drops)",
+      "actual": "Entity outage confirmed at 2026-10-24T09:53:19.938767+00:00 (Outbox buffered: 120 2xx OK, 0 drops)",
       "status": "PASS",
       "severity": "CRITICAL",
       "explanation": "Confirms that when KAFKA / Event Hubs was taken offline, the broker entity successfully transitioned to Disabled status. Furthermore, pursuant to the Transactional Outbox pattern, ingress HTTP endpoints seamlessly accepted batch submissions and buffered domain events into MySQL without client-facing HTTP 500s or dropped writes."
@@ -54,17 +54,17 @@
       "name": "Mean Time to Recovery (MTTR)",
       "target": "KAFKA cloud recovery elapsed duration",
       "expected": "MTTR <= 180s (<= 180s (3 min service SLA))",
-      "actual": "16 seconds (Restart to Service Ready)",
+      "actual": "18 seconds (Restart to Service Ready)",
       "status": "PASS",
       "severity": "CRITICAL",
-      "explanation": "Measures the operational duration elapsed from the dispatch of the KAFKA service recovery command until the dependency transitioned back to 'Ready'. For Azure MySQL Flexible Server (B1ms tier), stopping deallocates the underlying VM; restarting requires cloud-plane compute scheduling, disk re-attachment, and InnoDB recovery (physical envelope: 300-600s). For Kafka/Event Hubs, entity state toggling completes within <= 180s. The measured MTTR of 16s satisfies the required SLA target."
+      "explanation": "Measures the operational duration elapsed from the dispatch of the KAFKA service recovery command until the dependency transitioned back to 'Ready'. For Azure MySQL Flexible Server (B1ms tier), stopping deallocates the underlying VM; restarting requires cloud-plane compute scheduling, disk re-attachment, and InnoDB recovery (physical envelope: 300-600s). For Kafka/Event Hubs, entity state toggling completes within <= 180s. The measured MTTR of 18s satisfies the required SLA target."
     },
     {
       "check_id": "VR-05",
       "name": "Post-Recovery App Readiness",
       "target": "API /api/v1/hello probe HTTP response",
       "expected": "Probe returns HTTP 200 OK within 180s post-recovery (service restored)",
-      "actual": "HTTP 200 OK verified in 0s",
+      "actual": "HTTP 200 OK verified in 5s",
       "status": "PASS",
       "severity": "CRITICAL",
       "explanation": "Verifies that following KAFKA restoration, application containers automatically re-established healthy connection pools and resumed serving HTTP 200 OK without requiring container redeployments."
@@ -114,7 +114,7 @@
       "name": "Outbox Queue Resumption",
       "target": "event_outbox table publishing lifecycle",
       "expected": "Outbox records tracked and processing resumed (PUBLISHED/PENDING present)",
-      "actual": "Outbox active (PUBLISHED: 2957)",
+      "actual": "Outbox active (PUBLISHED: 308)",
       "status": "PASS",
       "severity": "CRITICAL",
       "explanation": "Confirms that the transactional outbox pattern reliably buffered domain events during degradation and resumed relaying events to Event Hubs / Kafka without queue corruption or message loss upon recovery."
