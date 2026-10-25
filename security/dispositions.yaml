@@ -1,0 +1,28 @@
+# Approved exceptions to the release security gate (EWCSB-241 section 5).
+#
+# A High finding passes Gate 2 only with a valid entry here. Checked by
+# scripts/gate/gate_policy.py on every release build:
+#   - severity must be High; Critical can never be dispositioned
+#   - reason: "no fix available", "not reachable" or "compensating control"
+#     (the last needs compensating_control)
+#   - approved_by: the security lead plus one technical approver, never the owner
+#   - expires_on: at most 14 days after approved_on, never after 2026-10-24;
+#     an expired entry counts as absent
+#   - scope: an image name (any digest) or image@sha256:... (one digest)
+# Changes only by reviewed PR (see .github/CODEOWNERS). Every entry must also be
+# in the EWCSB-157 findings register and the EWCSB-224 residual-risk decision.
+#
+# Example (not active):
+#   - id: CVE-2026-85091
+#     scope: workflow-api
+#     severity: High
+#     reason: no fix available
+#     justification: zlib 1.3.2-r0 in the Alpine base image; no fixed apk yet (EWCSB-249)
+#     owner: Lakshanya Poovannan
+#     approved_by: [Shalett Paulson, Jiamin Wang]
+#     approved_on: 2026-10-20
+#     expires_on: 2026-10-24
+#     ticket: EWCSB-249
+
+security_lead: Shalett Paulson
+dispositions: []

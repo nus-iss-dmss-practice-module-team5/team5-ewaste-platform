@@ -1,0 +1,747 @@
+name: CI Quality Gate & Security Baseline
+
+on:
+  pull_request:
+    branches: [dev, main]
+    types: [opened, synchronize, reopened]
+
+  push:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+  pull-requests: read
+  id-token: write
+  security-events: write
+  actions: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.11"
+  PYTHON_MIN_COVERAGE: ${{ vars.PYTHON_MIN_COVERAGE }}
+
+jobs:
+
+  # ============================================================================
+  # PHASE 1: CODE QUALITY & SECURITY SCANNING
+  # ============================================================================
+
+  # 1.1 PRE-COMMIT / FORMAT CHECKS
+  pre-commit-checks:
+    name: Pre-Commit Quality & Format Checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Go Runtime
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: src/backend/go.sum
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Python Runtime
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Execute Pre-Commit Hooks
+        uses: pre-commit/action@v3.0.1
+        with:
+          extra_args: --all-files --show-diff-on-failure
+
+
+  # 1.2 SECRET DETECTION
+  secret-scan:
+    name: Gitleaks Secret Detection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Extract Current PR Changes
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          echo "=============================================="
+          echo "       GITLEAKS PR SECURITY SCAN"
+          echo "=============================================="
+          echo "Base commit: $BASE_SHA"
+          echo "Head commit: $HEAD_SHA"
+          echo ""
+          echo "Extracting changed files with their original paths..."
+
+          mkdir -p gitleaks-pr
+
+          git diff --name-only --diff-filter=ACMRT -z "$BASE_SHA" "$HEAD_SHA" -- . > "$RUNNER_TEMP/gitleaks-paths"
+          while IFS= read -r -d '' path; do
+            # Read the PR head, not the synthetic merge checkout; retain names
+            # so Gitleaks can recognise dependency lockfiles such as go.sum.
+            mkdir -p -- "gitleaks-pr/$(dirname -- "$path")"
+            git show "$HEAD_SHA:$path" > "gitleaks-pr/$path"
+          done < "$RUNNER_TEMP/gitleaks-paths"
+
+      - name: Run Gitleaks on Current PR
+        if: github.event_name == 'pull_request'
+        uses: docker://ghcr.io/gitleaks/gitleaks:v8.30.1
+        env:
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          args: >
+            dir /github/workspace/gitleaks-pr
+            --redact
+            --exit-code 1
+            --report-format sarif
+            --report-path /github/workspace/gitleaks-results.sarif
+            --log-level info
+
+      - name: Run Gitleaks on Push to Dev/Main
+        if: github.event_name == 'push'
+        uses: docker://ghcr.io/gitleaks/gitleaks:v8.30.1
+        env:
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+        with:
+          args: >
+            dir /github/workspace
+            --redact
+            --exit-code 1
+            --report-format sarif
+            --report-path /github/workspace/gitleaks-results.sarif
+            --log-level info
+
+      - name: Upload Gitleaks Report
+        if: always() && hashFiles('gitleaks-results.sarif') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitleaks-results-${{ github.sha }}
+          path: gitleaks-results.sarif
+          retention-days: 30
+  # 1.3 STATIC APPLICATION SECURITY TESTING
+  sast-scan:
+    name: Semgrep SAST Analysis
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Run Semgrep SAST Scan
+        run: |
+          CONFIGS="--config p/security-audit --config p/owasp-top-ten --config p/golang --config p/python --config p/typescript --config p/javascript"
+
+          # Full report (all severities) for the retained SARIF artifact; does not gate.
+          semgrep scan $CONFIGS --sarif --output semgrep.sarif
+
+          # Gate: fail only on ERROR severity findings; warnings are reported but pass.
+          semgrep scan $CONFIGS --severity ERROR --error
+
+      - name: Retain Semgrep Report
+        if: always() && hashFiles('semgrep.sarif') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-sarif-${{ github.sha }}
+          path: semgrep.sarif
+          retention-days: 30
+
+  # 1.4 INFRASTRUCTURE AS CODE SECURITY
+  iac-scan:
+    name: Checkov IaC Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Check Terraform Directory
+        id: terraform-check
+        run: |
+          if [ -d "terraform" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Terraform directory does not exist yet."
+          fi
+
+      - name: Run Checkov
+        if: steps.terraform-check.outputs.exists == 'true'
+        uses: bridgecrewio/checkov-action@v12.1347.0
+        with:
+          directory: terraform/
+          framework: terraform
+          output_format: cli
+          soft_fail: false
+          log_level: WARNING
+          container_user: 0
+
+      - name: Terraform Baseline Message
+        if: steps.terraform-check.outputs.exists == 'false'
+        run: |
+          echo "Terraform implementation is not available yet."
+          echo "Checkov will scan terraform/ once infrastructure code is added."
+
+  # ============================================================================
+  # PHASE 3: AUTOMATED UNIT VERIFICATION
+  # ============================================================================
+
+  # 3.1 GO BACKEND
+  backend-tests:
+    name: Backend Unit Tests (Go)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Check Go Project
+        id: go-check
+        run: |
+          if [ -f "src/backend/go.mod" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Go Runtime
+        if: steps.go-check.outputs.exists == 'true'
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Run Backend Tests
+        if: steps.go-check.outputs.exists == 'true'
+        working-directory: src/backend
+        run: |
+          go test -v \
+            -race \
+            -covermode=atomic \
+            -coverprofile=coverage.out \
+            ./...
+
+      - name: Backend Not Available Yet
+        if: steps.go-check.outputs.exists == 'false'
+        run: |
+          echo "No Go application available yet."
+          echo "Backend tests will run when src/backend/go.mod exists."
+
+      - name: Upload Go Coverage
+        if: steps.go-check.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage-${{ github.sha }}
+          path: src/backend/coverage.out
+          retention-days: 30
+
+
+  # 3.2 PYTHON ANALYTICS
+  analytics-tests:
+    name: Analytics Unit Tests (Python)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Check Analytics Tests
+        id: python-check
+        run: |
+          if [ -d "src/matcher/tests" ] && find src/matcher/tests -type f \( -name 'test_*.py' -o -name '*_test.py' \) -print -quit | grep -q .; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Python Runtime
+        if: steps.python-check.outputs.exists == 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: src/matcher/requirements.txt
+
+      - name: Install Test Dependencies
+        if: steps.python-check.outputs.exists == 'true'
+        working-directory: src/matcher
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          pip install pytest pytest-cov
+
+      - name: Run PyTest
+        if: steps.python-check.outputs.exists == 'true'
+        working-directory: src/matcher
+        run: |
+          coverage_args=()
+          if [ -n "$PYTHON_MIN_COVERAGE" ]; then
+            coverage_args+=("--cov-fail-under=$PYTHON_MIN_COVERAGE")
+          fi
+          python -m pytest -v tests \
+            --cov=matcher \
+            --cov-report=term \
+            --cov-report=xml:coverage.xml \
+            "${coverage_args[@]}" \
+            --junitxml=junit.xml
+
+      - name: Analytics Tests Not Available Yet
+        if: steps.python-check.outputs.exists == 'false'
+        run: |
+          echo "No Python worker test files are available yet."
+          echo "Analytics tests will run when src/matcher/tests contains test_*.py or *_test.py files."
+
+      - name: Upload Python Test Evidence
+        if: steps.python-check.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: analytics-test-results-${{ github.sha }}
+          path: |
+            src/matcher/junit.xml
+            src/matcher/coverage.xml
+          retention-days: 30
+
+
+  # 3.3 NEXT.JS FRONTEND
+  frontend-checks:
+    name: Frontend Verification
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Check Frontend Project
+        id: frontend-check
+        run: |
+          if [ -f "src/frontend/package.json" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node.js Runtime
+        if: steps.frontend-check.outputs.exists == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install Frontend Dependencies
+        if: steps.frontend-check.outputs.exists == 'true'
+        working-directory: src/frontend
+        run: npm ci
+
+      - name: Run Frontend Lint
+        if: steps.frontend-check.outputs.exists == 'true'
+        working-directory: src/frontend
+        run: npm run lint --if-present
+
+      - name: Run Frontend Tests
+        if: steps.frontend-check.outputs.exists == 'true'
+        working-directory: src/frontend
+        run: npm test -- --coverage --watchAll=false
+
+      - name: Frontend Not Available Yet
+        if: steps.frontend-check.outputs.exists == 'false'
+        run: |
+          echo "No frontend application available yet."
+          echo "Frontend checks will run when src/frontend/package.json exists."
+
+      - name: Upload Frontend Coverage
+        if: steps.frontend-check.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-coverage-${{ github.sha }}
+          path: src/frontend/coverage/lcov.info
+          retention-days: 30
+
+
+  # 3.4 SONARQUBE CODE QUALITY & SECURITY ANALYSIS (EWCSB-118)
+  # A SonarQube Community server runs inside this job, analyses Go, TypeScript,
+  # Python and Terraform with the coverage from the test jobs above, and keeps
+  # an HTML/Markdown report plus a dashboard screenshot as a run artifact.
+  # Report-only for now: a fresh server has no baseline for "new code", so its
+  # quality gate is recorded but does not block the pipeline.
+  sonarqube-analysis:
+    name: SonarQube Analysis
+    needs:
+      - backend-tests
+      - analytics-tests
+      - frontend-checks
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      sonarqube:
+        image: sonarqube:26.10.0.133078-community@sha256:2e378f7852b67d43507d3d383ee8fb5a522b8b0f920be9803f74f72952fce8f1
+        ports:
+          - 9000:9000
+        env:
+          SONAR_ES_BOOTSTRAP_CHECKS_DISABLE: "true"
+
+    env:
+      SONAR_HOST_URL: http://localhost:9000
+      SONAR_PROJECT_KEY: team5-ewaste-platform
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download Go Coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: backend-coverage-${{ github.sha }}
+          path: coverage/backend
+
+      - name: Download Python Coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: analytics-test-results-${{ github.sha }}
+          path: coverage/matcher
+
+      - name: Download Frontend Coverage
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: frontend-coverage-${{ github.sha }}
+          path: coverage/frontend
+
+      - name: Align Coverage Paths with the Repository Root
+        run: |
+          # Vitest writes paths relative to src/frontend.
+          if [ -f coverage/frontend/lcov.info ]; then
+            sed -i -E 's#^SF:(src/)#SF:src/frontend/\1#' coverage/frontend/lcov.info
+          fi
+          ls -l coverage/*/ 2>/dev/null || echo "No coverage reports were produced."
+
+      - name: Wait for SonarQube to Start
+        run: |
+          for attempt in $(seq 1 60); do
+            STATUS=$(curl -s "$SONAR_HOST_URL/api/system/status" | jq -r '.status // empty' || true)
+            echo "SonarQube status: ${STATUS:-starting} ($attempt/60)"
+            [ "$STATUS" = "UP" ] && exit 0
+            sleep 5
+          done
+          echo "::error::SonarQube did not start within 5 minutes."
+          exit 1
+
+      - name: Create a Single-Use Analysis Token
+        run: |
+          set -euo pipefail
+          # The server lives only for this job; replace the built-in default
+          # password before doing anything else, then issue a token for the
+          # scanner. Credentials go to a private curl netrc file, never the
+          # command line or the job environment.
+          SONAR_NETRC="$RUNNER_TEMP/sonar.netrc"
+          DEFAULT_LOGIN="admin"
+          write_netrc() {
+            (umask 077; printf 'machine localhost\nlogin %s\npassword %s\n' "$DEFAULT_LOGIN" "$1" > "$SONAR_NETRC")
+          }
+          ADMIN_PASSWORD="Ci-$(openssl rand -hex 24)"
+          echo "::add-mask::$ADMIN_PASSWORD"
+          write_netrc "$DEFAULT_LOGIN"
+          curl -sf --netrc-file "$SONAR_NETRC" -X POST "$SONAR_HOST_URL/api/users/change_password" \
+            --data-urlencode "login=$DEFAULT_LOGIN" --data-urlencode "previousPassword=$DEFAULT_LOGIN" \
+            --data-urlencode "password=$ADMIN_PASSWORD"
+          write_netrc "$ADMIN_PASSWORD"
+          TOKEN=$(curl -sf --netrc-file "$SONAR_NETRC" -X POST "$SONAR_HOST_URL/api/user_tokens/generate" \
+            --data-urlencode "name=ci-${GITHUB_RUN_ID}" --data-urlencode "type=GLOBAL_ANALYSIS_TOKEN" | jq -r .token)
+          [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || { echo "::error::Could not create a SonarQube token."; exit 1; }
+          echo "::add-mask::$TOKEN"
+          {
+            echo "SONAR_TOKEN=$TOKEN"
+            echo "SONAR_NETRC=$SONAR_NETRC"
+          } >> "$GITHUB_ENV"
+
+      - name: Run SonarQube Scanner
+        uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
+        with:
+          args: >
+            -Dsonar.scm.revision=${{ github.sha }}
+
+      - name: Wait for the Analysis to Finish
+        run: |
+          set -euo pipefail
+          TASK_ID=$(grep '^ceTaskId=' .scannerwork/report-task.txt | cut -d= -f2)
+          for attempt in $(seq 1 60); do
+            STATUS=$(curl -sf --netrc-file "$SONAR_NETRC" "$SONAR_HOST_URL/api/ce/task?id=$TASK_ID" | jq -r .task.status)
+            echo "Analysis status: $STATUS ($attempt/60)"
+            case "$STATUS" in
+              SUCCESS) exit 0 ;;
+              FAILED|CANCELED) echo "::error::SonarQube analysis $STATUS."; exit 1 ;;
+            esac
+            sleep 5
+          done
+          echo "::error::SonarQube analysis did not finish within 5 minutes."
+          exit 1
+
+      - name: Export Analysis Results
+        run: |
+          set -euo pipefail
+          mkdir -p sonar-results
+          KEY="$SONAR_PROJECT_KEY"
+          # Show SonarQube's own error message when a call fails, then stop.
+          api() {
+            local status
+            status=$(curl -s --netrc-file "$SONAR_NETRC" -o "$2" -w '%{http_code}' "$SONAR_HOST_URL/api/$1")
+            if [ "$status" != "200" ]; then
+              echo "::error::SonarQube API /api/${1%%\?*} returned HTTP $status: $(head -c 500 "$2")"
+              return 1
+            fi
+          }
+
+          api "qualitygates/project_status?projectKey=$KEY" sonar-results/status.json
+
+          # Ask only for metrics this server knows: older and newer SonarQube
+          # versions name the reliability, security and maintainability
+          # measures differently, and an unknown key fails the whole call.
+          api "metrics/search?ps=500" sonar-results/metrics.json
+          WANTED="alert_status coverage duplicated_lines_density ncloc security_hotspots security_review_rating
+            bugs vulnerabilities code_smells reliability_rating security_rating sqale_rating
+            software_quality_reliability_issues software_quality_security_issues software_quality_maintainability_issues
+            software_quality_reliability_rating software_quality_security_rating software_quality_maintainability_rating"
+          METRICS=$(jq -r --arg wanted "$WANTED" \
+            '($wanted | split(" ") | map(select(length > 0))) as $w | [.metrics[].key | select(. as $k | $w | index($k))] | join(",")' \
+            sonar-results/metrics.json)
+          echo "Requesting metrics: $METRICS"
+          api "measures/component?component=$KEY&metricKeys=$METRICS" sonar-results/measures.json
+
+          api "hotspots/search?project=$KEY&ps=500" sonar-results/hotspots.json
+
+          # Open issues come in pages of 500; keep up to 5,000.
+          for page in $(seq 1 10); do
+            api "issues/search?components=$KEY&issueStatuses=OPEN,CONFIRMED&ps=500&p=$page" "sonar-results/issues-$page.json"
+            if [ "$(jq '.issues | length' "sonar-results/issues-$page.json")" -lt 500 ]; then break; fi
+          done
+          jq -s '{issues: [.[].issues[]]}' sonar-results/issues-*.json > sonar-results/issues.json
+          rm sonar-results/issues-*.json
+          echo "Exported $(jq '.issues | length' sonar-results/issues.json) issues and $(jq '.hotspots | length' sonar-results/hotspots.json) hotspots."
+
+      - name: Build the SonarQube Report
+        run: |
+          python3 scripts/sonar/render_report.py \
+            --input-dir sonar-results --output-dir sonar-report \
+            --project-key "$SONAR_PROJECT_KEY" --commit "${GITHUB_SHA:0:7}" \
+            --run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          cp sonar-results/*.json sonar-report/
+          cat sonar-report/report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Capture the SonarQube Dashboard
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          # Let the screenshot load the dashboard without a login; the server
+          # is private to this job and is discarded when it ends.
+          curl -sf --netrc-file "$SONAR_NETRC" -X POST "$SONAR_HOST_URL/api/settings/set" \
+            --data-urlencode "key=sonar.forceAuthentication" --data-urlencode "value=false"
+          npx --yes playwright@1.64.1 install --with-deps chromium
+          for page in "dashboard?id=$SONAR_PROJECT_KEY:dashboard" \
+                      "project/issues?id=$SONAR_PROJECT_KEY&issueStatuses=OPEN%2CCONFIRMED:issues" \
+                      "security_hotspots?id=$SONAR_PROJECT_KEY:hotspots"; do
+            URL_PATH="${page%:*}"
+            NAME="${page##*:}"
+            npx --yes playwright@1.64.1 screenshot --browser chromium --viewport-size "1440,1000" \
+              --wait-for-timeout 8000 --full-page "$SONAR_HOST_URL/$URL_PATH" "sonar-report/sonarqube-$NAME.png"
+          done
+
+      - name: Retain SonarQube Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarqube-report-${{ github.sha }}
+          path: sonar-report/
+          if-no-files-found: warn
+          retention-days: 30
+
+      # Policy EWCSB-241 section 4: open Blocker/Critical vulnerabilities fail
+      # CI, which Gate 1 in the CD pipeline requires to pass. Hotspots and the
+      # SonarQube quality gate stay report-only (residual risk).
+      - name: Enforce SonarQube Security Gate (EWCSB-241)
+        run: python3 scripts/sonar/security_gate.py --issues sonar-results/issues.json --project-key "$SONAR_PROJECT_KEY" --exceptions security/sonar-exceptions.yaml
+
+  # ============================================================================
+  # PHASE 4: CONTAINER PACKAGING & VULNERABILITY AUDIT
+  # ============================================================================
+
+  container-security:
+    name: Container Build, SBOM & Vulnerability Scan (${{ matrix.service }})
+
+    needs:
+      - pre-commit-checks
+      - backend-tests
+      - analytics-tests
+      - frontend-checks
+
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - service: backend
+            image: ewaste-api
+            dockerfile: src/backend/Dockerfile
+            context: src/backend/
+          - service: frontend
+            image: ewaste-ui
+            dockerfile: src/frontend/Dockerfile
+            context: src/frontend/
+          - service: matcher
+            image: ewaste-matcher
+            dockerfile: src/matcher/Dockerfile
+            context: .
+
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Build Application Container
+        run: |
+          if [ -f "${{ matrix.dockerfile }}" ]; then
+
+            docker build \
+              -t ${{ matrix.image }}:${{ github.sha }} \
+              -f ${{ matrix.dockerfile }} \
+              ${{ matrix.context }}
+
+            if [ "${{ matrix.service }}" = "backend" ]; then
+              docker tag ${{ matrix.image }}:${{ github.sha }} ewaste-platform:${{ github.sha }}
+            fi
+
+          else
+
+            echo "Application Dockerfile ${{ matrix.dockerfile }} not available yet."
+            echo "Building temporary security baseline image."
+
+            docker build \
+              -t ${{ matrix.image }}:${{ github.sha }} \
+              - <<'EOF'
+
+          FROM alpine:3.19
+
+          RUN addgroup -S appgroup && \
+              adduser -S appuser -G appgroup
+
+          USER appuser
+
+          CMD ["echo", "E-Waste Platform Security Baseline"]
+
+          EOF
+
+          fi
+
+
+      # SBOM GENERATION
+      - name: Generate SBOM with Syft
+        uses: anchore/sbom-action@v0
+        with:
+          image: ${{ matrix.image }}:${{ github.sha }}
+          format: spdx-json
+          output-file: sbom.spdx.json
+
+
+      # CONTAINER VULNERABILITY SCANNING
+      - name: Scan Container with Grype
+        id: grype-scan
+        uses: anchore/scan-action@v7
+        with:
+          image: ${{ matrix.image }}:${{ github.sha }}
+          fail-build: true
+          severity-cutoff: critical
+          cache-db: false
+          output-format: sarif
+
+      # RETAIN GRYPE VULNERABILITY REPORT
+      - name: Upload Grype Vulnerability Report
+        if: always() && steps.grype-scan.outputs.sarif != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: grype-vulnerability-report-${{ matrix.service }}-${{ github.sha }}
+          path: ${{ steps.grype-scan.outputs.sarif }}
+          retention-days: 30
+
+      # RETAIN SBOM
+      - name: Upload SBOM
+        if: always() && hashFiles('sbom.spdx.json') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.service }}-${{ github.sha }}
+          path: sbom.spdx.json
+          retention-days: 30
+
+  # ============================================================================
+  # PHASE 5: COSIGN TOOLING CHECK
+  #
+  # Actual image signing is performed later in the CD/release pipeline after
+  # the approved image has been pushed to ACR and an immutable digest exists.
+  # ============================================================================
+
+  supply-chain-tooling-check:
+    name: Cosign Availability & Configuration Check
+    needs:
+      - secret-scan
+      - sast-scan
+      - iac-scan
+      - container-security
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Cosign CLI
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify Cosign Installation
+        run: |
+          echo "=== Cosign Supply Chain Security ==="
+          cosign version
+
+      - name: Verify Cosign Configuration
+        run: |
+          if [ -n "${{ secrets.COSIGN_PRIVATE_KEY }}" ]; then
+            echo "COSIGN_PRIVATE_KEY secret detected."
+            echo "Cosign signing prerequisites are configured for CD."
+          else
+            echo "COSIGN_PRIVATE_KEY secret is not configured."
+            echo "Actual image signing will require CD configuration."
+          fi
+
+      - name: Confirm CI Pipeline Completion
+        run: |
+          echo "=============================================="
+          echo "       CI SECURITY PIPELINE COMPLETE"
+          echo "=============================================="
+
+          echo "Gitleaks   : PASSED"
+          echo "Semgrep    : PASSED"
+          echo "Checkov    : PASSED"
+          echo "Unit Tests : COMPLETED"
+          echo "Syft SBOM  : GENERATED"
+          echo "Grype      : PASSED"
+          echo "Cosign     : TOOLING READY"
+          echo "=============================================="
+          echo "Actual image signing and verification will"
+          echo "be performed in the CD/release workflow."
+          echo "=============================================="

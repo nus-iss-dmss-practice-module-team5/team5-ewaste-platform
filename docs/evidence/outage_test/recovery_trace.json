@@ -1,0 +1,9 @@
+{
+  "test_started": "2026-10-24T07:35:16.969339+00:00",
+  "outage_initiated": "2026-10-24T07:36:15.898146+00:00",
+  "restart_initiated": "2026-10-24T07:38:48.761826+00:00",
+  "recovered": "2026-10-24T07:39:06.784194+00:00",
+  "recovery_duration_seconds": 18,
+  "app_readiness_restored": "2026-10-24T07:39:06.946210+00:00",
+  "app_ready_seconds": 0
+}
