@@ -1,0 +1,493 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2" properties="5.0" jmeter="5.6.3">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="E-Waste - Two Donors - Batch Read Load" enabled="true">
+      <stringProp name="TestPlan.comments">HTTP autoscaling demonstration using the existing donor batch-list GET workflow.
+Target: main DMSS production UI, which proxies /api requests to the internal Go API.
+Setup logs in once per donor (two HTTP logins total). Every odd read thread uses donor1&apos;s token; every even read thread uses donor2&apos;s token. Tokens are shared within one JMeter engine, not across distributed engines.
+Default load: 100 threads, 30-second ramp, duration_seconds=390 including the ramp (360 seconds at full thread count), loops=-1 and zero think time. Duration and loops both apply; whichever ends first stops the workload.
+This is an intentionally unpaced scaling exercise, not a representative user-journey benchmark. The unchanged GET sampler and HTTP-200 assertion measure the batch-list endpoint.
+Only setup authentication failure aborts the test. GET errors remain visible and read threads continue until the bounded duration ends; stop manually if the environment is impaired.
+There is no refresh or per-thread login. Keep the entire run below the actual access-token TTL (repository default 15 minutes); default read duration is 6.5 minutes.
+The repository configures UI/API min=1 and max=2 replicas without a custom HTTP rule. Verify live settings and observe actual replica counts; thread count alone does not prove scale-out. This GET workload cannot demonstrate Kafka worker scaling.
+Use CLI mode for sustained load. View Results Tree is disabled; shared listeners are at the end. Save full results with -l and compare the GET /api/v1/batches row separately from the two SETUP logins.
+Record baseline, during-load and recovery replica counts alongside CPU, database connections, latency and errors. The small database can bottleneck before the application scales.
+User-defined donor login JSON is preserved. Setup and teardown clear only this plan&apos;s namespaced runtime token properties; they do not clear user-defined variables.
+</stringProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <boolProp name="TestPlan.tearDown_on_shutdown">true</boolProp>
+      <elementProp name="TestPlan.user_defined_variables" elementType="Arguments">
+        <collectionProp name="Arguments.arguments"/>
+      </elementProp>
+    </TestPlan>
+    <hashTree>
+      <Arguments guiclass="ArgumentsPanel" testclass="Arguments" testname="Workload Settings - URL, concurrency, duration, donors">
+        <collectionProp name="Arguments.arguments">
+          <elementProp name="base_url" elementType="Argument">
+            <stringProp name="Argument.name">base_url</stringProp>
+            <stringProp name="Argument.value">${__P(base_url,https://aca-ewaste-prod-ui.lemonplant-bb72fc79.eastasia.azurecontainerapps.io)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Main DMSS public UI origin; forwards /api requests to the internal Go API. No trailing slash.</stringProp>
+          </elementProp>
+          <elementProp name="threads" elementType="Argument">
+            <stringProp name="Argument.name">threads</stringProp>
+            <stringProp name="Argument.value">${__P(threads,100)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Concurrent read threads; odd threads reuse donor1 token, even threads donor2. Only two setup logins.</stringProp>
+          </elementProp>
+          <elementProp name="ramp_up_seconds" elementType="Argument">
+            <stringProp name="Argument.name">ramp_up_seconds</stringProp>
+            <stringProp name="Argument.value">${__P(ramp_up_seconds,30)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Seconds to start all read threads; logins finish before this ramp starts.</stringProp>
+          </elementProp>
+          <elementProp name="loops" elementType="Argument">
+            <stringProp name="Argument.name">loops</stringProp>
+            <stringProp name="Argument.value">${__P(loops,-1)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">-1 repeats until duration_seconds ends; a positive value can end a thread earlier.</stringProp>
+          </elementProp>
+          <elementProp name="think_time_ms" elementType="Argument">
+            <stringProp name="Argument.name">think_time_ms</stringProp>
+            <stringProp name="Argument.value">${__P(think_time_ms,0)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Delay before each GET. Zero keeps pressure on the HTTP services.</stringProp>
+          </elementProp>
+          <elementProp name="page" elementType="Argument">
+            <stringProp name="Argument.name">page</stringProp>
+            <stringProp name="Argument.value">${__P(page,1)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Batch list page</stringProp>
+          </elementProp>
+          <elementProp name="page_size" elementType="Argument">
+            <stringProp name="Argument.name">page_size</stringProp>
+            <stringProp name="Argument.value">${__P(page_size,20)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Batches per page</stringProp>
+          </elementProp>
+          <elementProp name="connect_timeout_ms" elementType="Argument">
+            <stringProp name="Argument.name">connect_timeout_ms</stringProp>
+            <stringProp name="Argument.value">${__P(connect_timeout_ms,10000)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Connection timeout</stringProp>
+          </elementProp>
+          <elementProp name="response_timeout_ms" elementType="Argument">
+            <stringProp name="Argument.name">response_timeout_ms</stringProp>
+            <stringProp name="Argument.value">${__P(response_timeout_ms,30000)}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Response timeout</stringProp>
+          </elementProp>
+          <elementProp name="donor1_login_body" elementType="Argument">
+            <stringProp name="Argument.name">donor1_login_body</stringProp>
+            <stringProp name="Argument.value">{&quot;email&quot;:&quot;donor1@ewaste.test&quot;,&quot;password&quot;:&quot;TestOnly#2026!&quot;}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Odd threads: edit this JSON body directly</stringProp>
+          </elementProp>
+          <elementProp name="donor2_login_body" elementType="Argument">
+            <stringProp name="Argument.name">donor2_login_body</stringProp>
+            <stringProp name="Argument.value">{&quot;email&quot;:&quot;donor2@ewaste.test&quot;,&quot;password&quot;:&quot;TestOnly#2026!&quot;}</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.desc">Even threads: edit this JSON body directly</stringProp>
+          </elementProp>
+          <elementProp name="duration_seconds" elementType="Argument">
+            <stringProp name="Argument.name">duration_seconds</stringProp>
+            <stringProp name="Argument.metadata">=</stringProp>
+            <stringProp name="Argument.value">${__P(duration_seconds,390)}</stringProp>
+            <stringProp name="Argument.desc">Total read group duration including ramp-up: default 30 s ramp plus 360 s sustained load. Keep below access-token TTL (repo default 900 s).</stringProp>
+          </elementProp>
+        </collectionProp>
+      </Arguments>
+      <hashTree/>
+      <SetupThreadGroup guiclass="SetupThreadGroupGui" testclass="SetupThreadGroup" testname="00 Shared authentication - once per donor" enabled="true">
+        <intProp name="ThreadGroup.num_threads">1</intProp>
+        <intProp name="ThreadGroup.ramp_time">0</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">stoptestnow</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controller">
+          <stringProp name="LoopController.loops">1</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </SetupThreadGroup>
+      <hashTree>
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Common Headers" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="Accept" elementType="Header">
+              <stringProp name="Header.name">Accept</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+            <elementProp name="X-Correlation-ID" elementType="Header">
+              <stringProp name="Header.name">X-Correlation-ID</stringProp>
+              <stringProp name="Header.value">jm-${__threadNum}-${__UUID}</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+        <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="SETUP initialise shared authentication" enabled="true">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="parameters"></stringProp>
+          <stringProp name="filename"></stringProp>
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="script">// Remove only this plan&apos;s runtime properties; never edit user-defined variables.
+[&apos;donor1&apos;, &apos;donor2&apos;].each { props.remove(&apos;ewaste.dmss.batchRead.shared.&apos; + it) }
+def values = [&apos;threads&apos;, &apos;ramp_up_seconds&apos;, &apos;duration_seconds&apos;, &apos;loops&apos;, &apos;think_time_ms&apos;].collectEntries { name -&gt; [(name): vars.get(name)] }
+def valid = values.values().every { value -&gt; value != null &amp;&amp; value.isInteger() }
+if (valid) {
+    valid = values.threads.toInteger() &gt;= 1 &amp;&amp; values.ramp_up_seconds.toInteger() &gt;= 0 &amp;&amp;
+        values.duration_seconds.toInteger() &gt; values.ramp_up_seconds.toInteger() &amp;&amp;
+        values.think_time_ms.toInteger() &gt;= 0 &amp;&amp;
+        (values.loops.toInteger() == -1 || values.loops.toInteger() &gt;= 1)
+}
+if (!valid) {
+    SampleResult.setSuccessful(false)
+    SampleResult.setResponseCode(&apos;CONFIG_FAILED&apos;)
+    SampleResult.setResponseMessage(&apos;Use threads &gt;= 1, ramp &gt;= 0, duration &gt; ramp, think time &gt;= 0, and loops = -1 or &gt;= 1.&apos;)
+    SampleResult.setStopTestNow(true)
+} else {
+    SampleResult.setIgnore()
+}
+</stringProp>
+        </JSR223Sampler>
+        <hashTree/>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="SETUP POST /api/v1/auth/login - donor1 (once)" enabled="true">
+          <stringProp name="HTTPSampler.connect_timeout">${connect_timeout_ms}</stringProp>
+          <stringProp name="HTTPSampler.response_timeout">${response_timeout_ms}</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
+          <stringProp name="HTTPSampler.path">${base_url}/api/v1/auth/login</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${donor1_login_body}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.implementation">HttpClient4</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Login Content Type" enabled="true">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="Content-Type" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Extract setup access token" enabled="true">
+            <stringProp name="JSONPostProcessor.referenceNames">access_token</stringProp>
+            <stringProp name="JSONPostProcessor.jsonPathExprs">$.access_token</stringProp>
+            <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+            <stringProp name="JSONPostProcessor.defaultValues">MISSING_TOKEN</stringProp>
+          </JSONPostProcessor>
+          <hashTree/>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Login must return HTTP 200" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">200</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+            <stringProp name="Assertion.custom_message">Login must return HTTP 200</stringProp>
+          </ResponseAssertion>
+          <hashTree/>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Login must return an access token" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="-90465770">&quot;access_token&quot;\s*:\s*&quot;[^&quot;\s]+&quot;</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">2</intProp>
+            <stringProp name="Assertion.custom_message">Login must return an access token</stringProp>
+          </ResponseAssertion>
+          <hashTree/>
+          <JSR223Assertion guiclass="TestBeanGUI" testclass="JSR223Assertion" testname="Share token only after successful login" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters">donor1</stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="script">def token = vars.get(&apos;access_token&apos;)
+def key = &apos;ewaste.dmss.batchRead.shared.&apos; + args[0]
+if (!prev.isSuccessful() || prev.getResponseCode() != &apos;200&apos; || !token || token.trim().isEmpty() || token == &apos;MISSING_TOKEN&apos; || token == &apos;null&apos;) {
+    props.remove(key)
+    AssertionResult.setFailure(true)
+    AssertionResult.setFailureMessage(&apos;Shared login failed or returned no access token; stopping before read load.&apos;)
+    prev.setStopTestNow(true)
+} else {
+    props.setProperty(key, token)
+}
+</stringProp>
+          </JSR223Assertion>
+          <hashTree/>
+        </hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="SETUP POST /api/v1/auth/login - donor2 (once)" enabled="true">
+          <stringProp name="HTTPSampler.connect_timeout">${connect_timeout_ms}</stringProp>
+          <stringProp name="HTTPSampler.response_timeout">${response_timeout_ms}</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
+          <stringProp name="HTTPSampler.path">${base_url}/api/v1/auth/login</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">${donor2_login_body}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.implementation">HttpClient4</stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Login Content Type" enabled="true">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="Content-Type" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <JSONPostProcessor guiclass="JSONPostProcessorGui" testclass="JSONPostProcessor" testname="Extract setup access token" enabled="true">
+            <stringProp name="JSONPostProcessor.referenceNames">access_token</stringProp>
+            <stringProp name="JSONPostProcessor.jsonPathExprs">$.access_token</stringProp>
+            <stringProp name="JSONPostProcessor.match_numbers">1</stringProp>
+            <stringProp name="JSONPostProcessor.defaultValues">MISSING_TOKEN</stringProp>
+          </JSONPostProcessor>
+          <hashTree/>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Login must return HTTP 200" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">200</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">8</intProp>
+            <stringProp name="Assertion.custom_message">Login must return HTTP 200</stringProp>
+          </ResponseAssertion>
+          <hashTree/>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Login must return an access token" enabled="true">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="-90465770">&quot;access_token&quot;\s*:\s*&quot;[^&quot;\s]+&quot;</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_data</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">2</intProp>
+            <stringProp name="Assertion.custom_message">Login must return an access token</stringProp>
+          </ResponseAssertion>
+          <hashTree/>
+          <JSR223Assertion guiclass="TestBeanGUI" testclass="JSR223Assertion" testname="Share token only after successful login" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters">donor2</stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="script">def token = vars.get(&apos;access_token&apos;)
+def key = &apos;ewaste.dmss.batchRead.shared.&apos; + args[0]
+if (!prev.isSuccessful() || prev.getResponseCode() != &apos;200&apos; || !token || token.trim().isEmpty() || token == &apos;MISSING_TOKEN&apos; || token == &apos;null&apos;) {
+    props.remove(key)
+    AssertionResult.setFailure(true)
+    AssertionResult.setFailureMessage(&apos;Shared login failed or returned no access token; stopping before read load.&apos;)
+    prev.setStopTestNow(true)
+} else {
+    props.setProperty(key, token)
+}
+</stringProp>
+          </JSR223Assertion>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="Donor Batch Load - alternating donor1 / donor2" enabled="true">
+        <stringProp name="ThreadGroup.num_threads">${threads}</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">${ramp_up_seconds}</stringProp>
+        <stringProp name="ThreadGroup.duration">${duration_seconds}</stringProp>
+        <longProp name="ThreadGroup.delay">0</longProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <boolProp name="ThreadGroup.scheduler">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controller">
+          <stringProp name="LoopController.loops">${loops}</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </ThreadGroup>
+      <hashTree>
+        <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Common Headers" enabled="true">
+          <collectionProp name="HeaderManager.headers">
+            <elementProp name="Accept" elementType="Header">
+              <stringProp name="Header.name">Accept</stringProp>
+              <stringProp name="Header.value">application/json</stringProp>
+            </elementProp>
+            <elementProp name="X-Correlation-ID" elementType="Header">
+              <stringProp name="Header.name">X-Correlation-ID</stringProp>
+              <stringProp name="Header.value">jm-${__threadNum}-${__UUID}</stringProp>
+            </elementProp>
+          </collectionProp>
+        </HeaderManager>
+        <hashTree/>
+        <OnceOnlyController guiclass="OnceOnlyControllerGui" testclass="OnceOnlyController" testname="01 Reuse shared login - bind once per read thread" enabled="true"/>
+        <hashTree>
+          <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Bind shared donor token" enabled="true">
+            <stringProp name="scriptLanguage">groovy</stringProp>
+            <stringProp name="parameters"></stringProp>
+            <stringProp name="filename"></stringProp>
+            <stringProp name="cacheKey">true</stringProp>
+            <stringProp name="script">def role = (ctx.getThreadNum() % 2 == 0) ? &apos;donor1&apos; : &apos;donor2&apos;
+def token = props.getProperty(&apos;ewaste.dmss.batchRead.shared.&apos; + role)
+if (!token) {
+    SampleResult.setSuccessful(false)
+    SampleResult.setResponseCode(&apos;AUTH_SETUP_FAILED&apos;)
+    SampleResult.setResponseMessage(&apos;Shared donor token is unavailable. Run the setup authentication group before this group.&apos;)
+    SampleResult.setStopTestNow(true)
+} else {
+    vars.put(&apos;access_token&apos;, token)
+    SampleResult.setIgnore()
+}
+</stringProp>
+          </JSR223Sampler>
+          <hashTree/>
+        </hashTree>
+        <GenericController guiclass="LogicControllerGui" testclass="GenericController" testname="02 Fetch batches - repeated load" enabled="true"/>
+        <hashTree>
+          <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="GET /api/v1/batches" enabled="true">
+            <stringProp name="HTTPSampler.connect_timeout">${connect_timeout_ms}</stringProp>
+            <stringProp name="HTTPSampler.response_timeout">${response_timeout_ms}</stringProp>
+            <stringProp name="HTTPSampler.contentEncoding">UTF-8</stringProp>
+            <stringProp name="HTTPSampler.path">${base_url}/api/v1/batches?page=${page}&amp;page_size=${page_size}</stringProp>
+            <stringProp name="HTTPSampler.method">GET</stringProp>
+            <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+            <boolProp name="HTTPSampler.postBodyRaw">false</boolProp>
+            <elementProp name="HTTPsampler.Arguments" elementType="Arguments" guiclass="HTTPArgumentsPanel" testclass="Arguments" testname="User Defined Variables">
+              <collectionProp name="Arguments.arguments"/>
+            </elementProp>
+            <stringProp name="HTTPSampler.implementation">HttpClient4</stringProp>
+          </HTTPSamplerProxy>
+          <hashTree>
+            <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="Use shared donor token bound to this thread" enabled="true">
+              <collectionProp name="HeaderManager.headers">
+                <elementProp name="Authorization" elementType="Header">
+                  <stringProp name="Header.name">Authorization</stringProp>
+                  <stringProp name="Header.value">Bearer ${access_token}</stringProp>
+                </elementProp>
+              </collectionProp>
+            </HeaderManager>
+            <hashTree/>
+            <ConstantTimer guiclass="ConstantTimerGui" testclass="ConstantTimer" testname="Delay between batch reads" enabled="true">
+              <stringProp name="ConstantTimer.delay">${think_time_ms}</stringProp>
+            </ConstantTimer>
+            <hashTree/>
+            <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="Fetch must return HTTP 200" enabled="true">
+              <collectionProp name="Asserion.test_strings">
+                <stringProp name="49586">200</stringProp>
+              </collectionProp>
+              <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+              <boolProp name="Assertion.assume_success">false</boolProp>
+              <intProp name="Assertion.test_type">8</intProp>
+              <stringProp name="Assertion.custom_message">Fetch must return HTTP 200</stringProp>
+            </ResponseAssertion>
+            <hashTree/>
+          </hashTree>
+        </hashTree>
+      </hashTree>
+      <PostThreadGroup guiclass="PostThreadGroupGui" testclass="PostThreadGroup" testname="99 Clear shared runtime tokens" enabled="true">
+        <intProp name="ThreadGroup.num_threads">1</intProp>
+        <intProp name="ThreadGroup.ramp_time">0</intProp>
+        <boolProp name="ThreadGroup.same_user_on_next_iteration">true</boolProp>
+        <stringProp name="ThreadGroup.on_sample_error">stoptestnow</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController" guiclass="LoopControlPanel" testclass="LoopController" testname="Loop Controller">
+          <stringProp name="LoopController.loops">1</stringProp>
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+        </elementProp>
+      </PostThreadGroup>
+      <hashTree>
+        <JSR223Sampler guiclass="TestBeanGUI" testclass="JSR223Sampler" testname="Clear this plan&apos;s shared runtime tokens" enabled="true">
+          <stringProp name="scriptLanguage">groovy</stringProp>
+          <stringProp name="parameters"></stringProp>
+          <stringProp name="filename"></stringProp>
+          <stringProp name="cacheKey">true</stringProp>
+          <stringProp name="script">// Remove only this plan&apos;s runtime properties; never edit user-defined variables.
+[&apos;donor1&apos;, &apos;donor2&apos;].each { props.remove(&apos;ewaste.dmss.batchRead.shared.&apos; + it) }
+SampleResult.setIgnore()
+</stringProp>
+        </JSR223Sampler>
+        <hashTree/>
+      </hashTree>
+      <ResultCollector guiclass="ViewResultsFullVisualizer" testclass="ResultCollector" testname="View Results Tree">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>false</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <assertionsResultsToSave>0</assertionsResultsToSave>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename"></stringProp>
+      </ResultCollector>
+      <hashTree/>
+      <ResultCollector guiclass="StatVisualizer" testclass="ResultCollector" testname="Aggregate Report">
+        <boolProp name="ResultCollector.error_logging">false</boolProp>
+        <objProp>
+          <name>saveConfig</name>
+          <value class="SampleSaveConfiguration">
+            <time>true</time>
+            <latency>true</latency>
+            <timestamp>true</timestamp>
+            <success>true</success>
+            <label>true</label>
+            <code>true</code>
+            <message>true</message>
+            <threadName>true</threadName>
+            <dataType>true</dataType>
+            <encoding>false</encoding>
+            <assertions>true</assertions>
+            <subresults>true</subresults>
+            <responseData>false</responseData>
+            <samplerData>false</samplerData>
+            <xml>false</xml>
+            <fieldNames>true</fieldNames>
+            <responseHeaders>false</responseHeaders>
+            <requestHeaders>false</requestHeaders>
+            <responseDataOnError>false</responseDataOnError>
+            <saveAssertionResultsFailureMessage>true</saveAssertionResultsFailureMessage>
+            <assertionsResultsToSave>0</assertionsResultsToSave>
+            <bytes>true</bytes>
+            <sentBytes>true</sentBytes>
+            <url>true</url>
+            <threadCounts>true</threadCounts>
+            <idleTime>true</idleTime>
+            <connectTime>true</connectTime>
+          </value>
+        </objProp>
+        <stringProp name="filename"></stringProp>
+      </ResultCollector>
+      <hashTree/>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>
