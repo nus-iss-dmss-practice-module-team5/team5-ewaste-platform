@@ -1,11 +1,11 @@
 # Responsible E-Waste Platform
 
 [![Azure Container Apps](https://img.shields.io/badge/Azure_Container_Apps-0078D4?logo=microsoftazure&logoColor=white)](https://azure.microsoft.com/en-us/products/container-apps)
-[![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?logo=go&logoColor=white)](https://golang.org)
+[![Go Version](https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white)](https://golang.org)
 [![Python Version](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://python.org)
-[![Next.js / React](https://img.shields.io/badge/Next.js-14+-black?logo=next.js&logoColor=white)](https://nextjs.org)
+[![Next.js / React](https://img.shields.io/badge/Next.js-16_/_React_19-black?logo=next.js&logoColor=white)](https://nextjs.org)
 [![MySQL](https://img.shields.io/badge/MySQL-8.0_Flexible_Server-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com)
-[![Redis](https://img.shields.io/badge/Redis-7.0_Cache-DC382D?logo=redis&logoColor=white)](https://redis.io)
+[![Redis](https://img.shields.io/badge/Redis-7.2_Cache-DC382D?logo=redis&logoColor=white)](https://redis.io)
 [![Apache Kafka](https://img.shields.io/badge/Apache_Kafka-Event_Hubs-231F20?logo=apachekafka&logoColor=white)](https://kafka.apache.org)
 [![Cosign Signed](https://img.shields.io/badge/Cosign-Signed_Digests-4B32C3?logo=sigstore&logoColor=white)](https://github.com/sigstore/cosign)
 [![License](https://img.shields.io/badge/License-Academic_Use-blue.svg)](LICENSE)
@@ -51,7 +51,7 @@ The **Responsible E-Waste Platform** provides an end-to-end, tamper-evident digi
 - **Zero-Trust Network Perimeter:** Only the Web Frontend UI (`aca-ewaste-prod-ui`) exposes an external public HTTPS endpoint. All backend APIs, event processors, databases, caches, and storage accounts reside strictly within private Azure Virtual Network subnets with zero public IP exposure.
 - **Strict Chain-of-Custody Integrity:** Every custody transfer (donation → matching → claim → pickup → treatment) generates cryptographic receipts, immutable audit trails, and SHA-256 evidence attachments stored in private Azure Blob Storage.
 - **High Concurrency & Conflict Prevention:** Distributed Redis locks (`Redlock`), database unique constraints, and HTTP `Idempotency-Key` headers guarantee mutual exclusion on batch claims, preventing double-allocation race conditions under peak concurrency.
-- **Fail-Closed DevSecOps Pipeline:** Automated GitHub Actions workflows enforce pre-commit checks, secret scanning (Gitleaks), container vulnerability scanning (Trivy), Syft SPDX Software Bill of Materials (SBOM) generation (retained for 90 days), and Cosign cryptographic container image signing before production deployment.
+- **Fail-Closed DevSecOps Pipeline:** Automated GitHub Actions workflows enforce pre-commit checks, secret scanning (Gitleaks), container vulnerability scanning (Grype), Syft SPDX Software Bill of Materials (SBOM) generation (retained for 90 days), and Cosign cryptographic container image signing before production deployment.
 - **High Availability & Fault Tolerance:** Decouples synchronous HTTP ingress from downstream messaging via the Transactional Outbox pattern, ensuring complete submission uptime even during total message broker outages.
 
 ---
@@ -127,9 +127,9 @@ To prevent cascading failures when third-party services or message brokers exper
 
 | Component | Technology | Directory | Description |
 | :--- | :--- | :--- | :--- |
-| **Workflow API** | Go 1.22+, GORM, Chi | `src/backend` | Core REST API service handling authentication, RBAC, batch lifecycle state transitions, claims, and outbox relay. |
-| **Workflow UI** | Next.js 14, React, TypeScript, Tailwind | `src/frontend` | Modern responsive frontend interface with role-based navigation for Donors, Recyclers, Collectors, and Auditors. |
-| **Matching & Analytics** | Python 3.12, Confluent-Kafka, Pydantic | `src/matcher` | Asynchronous Kafka event stream consumer, multi-factor matching engine, and environmental impact calculation engine. |
+| **Workflow API** | Go 1.26, Gin, GORM, Kafka-Go | `src/backend` | Core REST API service handling authentication, RBAC, batch lifecycle state transitions, claims, and outbox relay. |
+| **Workflow UI** | Next.js 16, React 19, TypeScript 5, Tailwind CSS 4 | `src/frontend` | Modern responsive frontend interface with role-based navigation for Donors, Recyclers, Collectors, and Auditors. |
+| **Matching & Analytics** | Python 3.12, Confluent-Kafka, jsonschema | `src/matcher` | Asynchronous Kafka event stream consumer, multi-factor matching engine, and environmental impact calculation engine. |
 | **Database Migrations** | Liquibase, YAML Changelogs, MySQL 8 | `database/` | Version-controlled database schema migrations enforcing foreign keys, audit tables, and idempotency constraints. |
 | **Infrastructure as Code** | Terraform, AzureRM Provider | `terraform/` | Declarative IaC defining VNets, subnets, private endpoints, container apps environments, and IAM bindings. |
 | **Automation & Drills** | Python 3.12, Azure CLI | `scripts/` | Automated rollback rehearsals (`run_rollback_rehearsal.py`) and dual-dependency outage testing (`run_dependency_outage_test.py`). |
@@ -176,8 +176,8 @@ team5-ewaste-platform/
 ### Prerequisites
 
 Ensure the following tools are installed on your local machine:
-- **Go:** `1.22` or newer
-- **Node.js:** `20.x` or newer (`npm` or `yarn`)
+- **Go:** `1.26` or newer
+- **Node.js:** `22.x` or `24.x` (`npm`)
 - **Python:** `3.12` or newer (`pip`, `venv`)
 - **Docker:** Docker Engine / Docker Desktop
 - **Azure CLI:** `2.60.0` or newer
@@ -259,7 +259,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
 # Start matching consumer
-python -m matcher.main
+python -m matcher run
 ```
 
 ---
@@ -310,7 +310,7 @@ The platform enforces a four-stage continuous delivery pipeline across `dev`, `s
 3. **CD Pipeline (`.github/workflows/cd-pipeline.yml`):**
    - **Multi-Service Build:** Builds Docker container images for `workflow-api`, `workflow-ui`, and `workflow-analytics`.
    - **Software Supply Chain Assurance:** Generates SPDX JSON Software Bill of Materials (SBOM) using `Syft`, retained for 90 days.
-   - **Vulnerability Scanning:** Runs `Trivy` scans on container images (blocks on High/Critical CVEs).
+   - **Vulnerability Scanning:** Runs `Grype` scans on container images (blocks on High/Critical CVEs).
    - **Cosign Image Signing:** Signs container images using private keys; pushes `.sig` signatures to Azure Container Registry (`acrewasteplatform.azurecr.io`).
    - **Immutable Deployments:** Deploys revisions to Azure Container Apps strictly by `@sha256:` digest.
    - **DAST Security Scanning:** Executes automated `OWASP ZAP` baseline scans against the public UI endpoint post-deployment.
@@ -336,7 +336,7 @@ In disaster scenarios, the CD pipeline supports zero-downtime, automated rollbac
 
 - **Cosign Artifact Filtering:** ACR tag discovery filters out `.sig` and `.att` signature artifacts (`grep -vE '\.(sig|att)$'`), ensuring only valid container image tags are resolved.
 - **Bypass Redundant SBOM Generation:** Bypasses Syft SBOM rebuilding for already-verified images, accelerating production recovery from ~15 minutes down to **4 minutes 10 seconds** (ACA container update completes in **2m 31s**).
-- **Audit Verification:** Produces auditable rollback evidence in [`docs/evidence/rollback_test/`](file:///docs/evidence/rollback_test/).
+- **Audit Verification:** Produces auditable rollback evidence in [`docs/evidence/rollback_test/`](docs/evidence/rollback_test/).
 
 ---
 
@@ -346,7 +346,7 @@ To validate platform resilience under active load (Sprint 4 Scenario 10: *"Depen
 
 ### Automated Dual-Dependency Testing Engine
 
-The script [`scripts/run_dependency_outage_test.py`](file:///scripts/run_dependency_outage_test.py) tests platform behavior when core dependencies fail:
+The script [`scripts/run_dependency_outage_test.py`](scripts/run_dependency_outage_test.py) tests platform behavior when core dependencies fail:
 
 ```powershell
 # 1. Safe Simulation (Dry-Run Mode)
@@ -358,9 +358,9 @@ python scripts/run_dependency_outage_test.py --rg rg-ewaste-prod --dependency bo
 
 - **Dual-Dependency Orchestration (`--dependency both`):** Sequentially executes fault injection against **MySQL Flexible Server** (VM stop/start cold-start recovery), then **Kafka / Event Hubs** (entity disable/enable) while continuous synthetic transactions hit the platform.
 - **Isolated Logging Architecture:** Generates dedicated log files for each dependency:
-  - MySQL Run Log: [`docs/evidence/outage_test/mysql/outage_run.log`](file:///docs/evidence/outage_test/mysql/outage_run.log)
-  - Kafka Run Log: [`docs/evidence/outage_test/kafka/outage_run.log`](file:///docs/evidence/outage_test/kafka/outage_run.log)
-  - Unified Console Log: [`docs/evidence/outage_test/outage_run.log`](file:///docs/evidence/outage_test/outage_run.log)
+  - MySQL Run Log: [`docs/evidence/outage_test/mysql/outage_run.log`](docs/evidence/outage_test/mysql/outage_run.log)
+  - Kafka Run Log: [`docs/evidence/outage_test/kafka/outage_run.log`](docs/evidence/outage_test/kafka/outage_run.log)
+  - Unified Console Log: [`docs/evidence/outage_test/outage_run.log`](docs/evidence/outage_test/outage_run.log)
 
 ---
 
@@ -382,7 +382,7 @@ The engine validates 11 discrete architectural assertions with detailed engineer
 | **`VR-10`** | **Outbox Queue Resumption** | Outbox relay resumes draining | **PASS** | Verifies transactional outbox buffers events during degradation and drains upon recovery. |
 | **`VR-11`** | **Audit Artifact Completeness** | All audit logs persisted to disk | **PASS** | Ensures all logs, JSON metrics, and markdown reports exist on disk for compliance. |
 
-Consolidated audit reports are generated at [`docs/evidence/outage_test/S4_LD_T_L_02_OUTAGE_TEST_REPORT.md`](file:///docs/evidence/outage_test/S4_LD_T_L_02_OUTAGE_TEST_REPORT.md).
+Consolidated audit reports are generated at [`docs/evidence/outage_test/S4_LD_T_L_02_OUTAGE_TEST_REPORT.md`](docs/evidence/outage_test/S4_LD_T_L_02_OUTAGE_TEST_REPORT.md).
 
 ---
 
